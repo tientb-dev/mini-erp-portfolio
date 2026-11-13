@@ -3,26 +3,23 @@
 Tài liệu 01–05 là **MVP baseline** từ 2026-11-13. Câu hỏi mới phát sinh trong implementation ghi vào đây; câu hỏi **chưa chốt** không được triển khai theo giả định.
 
 ## 1. Còn mở
-CM1–CM6 (ADR-0012) đã chốt nghiệp vụ — xem §4. Còn lại các điểm sau; **không triển khai theo giả định**:
+CM1–CM6 và CT1, CT2, CT9 (ADR-0012) đã chốt nghiệp vụ — xem §4 (kèm khoảng trống implementation). Còn lại các điểm sau; **không triển khai theo giả định**:
 
 | # | Loại | Câu hỏi | Hiện trạng code |
 |---|---|---|---|
-| CT1 | Nghiệp vụ (định nghĩa) | `PO done` chính xác là gì: mọi dòng PR đã có PO `APPROVED` đủ số lượng, có ít nhất một PO `APPROVED`, hay điều kiện khác? Dòng PR chỉ lên PO một phần có chọn được không? | Không có trạng thái/cột/truy vấn nào biểu diễn `PO done` |
-| CT2 | Nghiệp vụ | Trạng thái GIR nào chiếm hạn mức dòng PR (luồng A/C)? Đề xuất: giống hạn mức dòng HĐ (03 §10.1: `DRAFT`/`WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED` chiếm; `COMPLETED` chỉ chiếm lượng thực xuất). | Không có liên kết dòng GIR → dòng PR |
 | CT3 | Nghiệp vụ + kỹ thuật | GI của luồng A/C lấy tồn từ đâu: tồn chung Kho + PN như trước, hay chỉ tồn của người phụ trách nguồn hàng tương ứng? Cơ chế phân bổ xuất theo dòng GR/lô (FIFO, chỉ định, …). | `inventories` duy nhất theo `(warehouse_id, product_id)` |
 | CT4 | Kỹ thuật | Mô hình tồn kho theo người phụ trách nguồn hàng: thêm chiều vào `inventories`/`inventory_serials` hay bảng phân bổ riêng; ảnh hưởng ràng buộc không âm tồn, giữ chỗ GI và Thu hồi GR (03 §2.2). | Không có cột người phụ trách |
 | CT5 | Nghiệp vụ + kỹ thuật | Người phụ trách nguồn hàng khi duyệt GR được xác định thế nào (mặc định "Sales phụ trách HĐ" lấy từ đâu; ai được sửa; ghi theo GR hay theo dòng GR)? | `sales_contracts` không có trường Sales phụ trách (chỉ `created_by`) |
 | CT6 | Kỹ thuật | Schema phân loại dòng (tên cột/giá trị, ở dòng hay cả header), cột mục đích sử dụng (luồng D), cột liên kết dòng GIR → dòng PR; nới `NOT NULL` của `sales_contract_line_id`. | `purchase_requisition_lines`/`goods_issue_request_lines`.`sales_contract_line_id` `NOT NULL` |
 | CT7 | Kỹ thuật | Quyền và cách giao bước 1 `AVAILABLE_STOCK` cho người phụ trách nguồn hàng (giữ `GIR.SALES_CONFIRM` hay mã mới); tự điền từ nguồn tồn đã chọn. | IM15: người tạo chọn người có `GIR.SALES_CONFIRM` |
 | CT8 | Kỹ thuật | Khóa dòng PR khi kiểm tra hạn mức luồng A/C: phụ thuộc Outbound → Procurement mới (facade), thứ tự khóa dòng HĐ → dòng PR → dòng GIR; kiểm tra không tạo vòng phụ thuộc. | Outbound chưa phụ thuộc Procurement |
-| CT9 | Nghiệp vụ | Luồng C (vật tư theo PR) có bắt buộc ghi mục đích sử dụng như luồng D không? (Quyết định chỉ nêu luồng D.) | — |
-| CT10 | Nghiệp vụ | Luồng A/C dùng `issue_type = SALES_CONTRACT` hiện có (đổi nghĩa thành "theo PR"); GIR `SALES_CONTRACT` chọn trực tiếp dòng HĐ không qua PR (hiện có trong code) bị thay thế bởi luồng A. Cần xác nhận cách hiểu này. | GIR `SALES_CONTRACT` hiện chọn dòng HĐ, không qua PR |
+| CT10 | Kỹ thuật (thiết kế) | Biểu diễn luồng A–D. Hai trục cần tách: **mục đích** (hàng bán / vật tư — phân loại dòng, CM4) và **cơ chế nguồn** (theo PR / `AVAILABLE_STOCK`). Phương án: (a) giữ `issue_type` = cơ chế nguồn, đổi nghĩa `SALES_CONTRACT` thành "theo PR" — ít migration nhưng tên gây hiểu nhầm và GIR `SALES_CONTRACT` cũ (chọn dòng HĐ, không qua PR) không còn khớp luồng nào; (b) thêm giá trị mới (vd. theo PR) và ngừng dùng `SALES_CONTRACT` — rõ nghĩa, cần migration dữ liệu cũ và sửa CHECK/workflow; (c) suy ra cơ chế nguồn từ việc dòng GIR có liên kết dòng PR — không thêm giá trị, nhưng điều kiện duyệt hai bước khó ràng buộc ở DB. Ảnh hưởng: CHECK `issue_type`, `approval_step`, chọn người duyệt (IM15), lọc danh sách, dữ liệu GIR `SALES_CONTRACT` đã có. **Chưa chọn.** | `issue_type IN ('SALES_CONTRACT', 'AVAILABLE_STOCK')`; GIR `SALES_CONTRACT` hiện chọn dòng HĐ, không qua PR |
 
 ## 2. Ghi chú (không phải mâu thuẫn)
 | # | Nhận xét |
 |---|---|
 | I3 | "Bảo hành" trong lịch sử SN là trường thông tin trên chi tiết GR; quy trình bảo hành ngoài phạm vi. |
-| I8 | GIR `REJECTED` vẫn chiếm hạn mức dòng HĐ; người dùng phải Hủy để giải phóng — UI cần nhắc rõ. |
+| I8 | GIR `REJECTED` vẫn chiếm hạn mức dòng HĐ và dòng PR (CT2); người dùng phải Hủy để giải phóng — UI cần nhắc rõ. |
 | I9 | Trạng thái đề xuất Product dùng `PENDING`; đây là trạng thái đề xuất, khác `approval_status` (dùng `WAITING_FOR_APPROVE`). |
 
 ## 3. Assumption trong implementation
@@ -77,3 +74,6 @@ CM1–CM6 (ADR-0012) đã chốt nghiệp vụ — xem §4. Còn lại các đi�
 | CM4 | Phân loại dòng tường minh (schema: CT6) | 03 §1, §3 |
 | CM5 | PR vật tư được dùng mã tạm, chuẩn hóa trước khi nhập kho | 03 §1, §1a |
 | CM6 | Không chia/trùng dòng HĐ trong một PR; nhiều PR được tham chiếu cùng dòng HĐ | 03 §1 |
+| CT1 | `PO done` = mọi dòng PR có Σ dòng PO `APPROVED` bằng đúng số lượng dòng PR; chỉ quyết định hiển thị PR khi lập GIR. *Implementation: chưa có truy vấn/hiển thị.* | 03 §3, ADR-0012 |
+| CT2 | GIR `WAITING_FOR_APPROVE`/`REJECTED`/`APPROVED` chiếm hạn mức, `DRAFT`/`CANCELED` không; kiểm tra khi Gửi duyệt/Duyệt; sửa `REJECTED` không tính trùng; áp cho dòng HĐ và dòng PR. *Implementation: code hiện tính cả `DRAFT` và kiểm tra khi tạo/sửa — cần sửa.* | 03 §10.1, ADR-0010, ADR-0012 |
+| CT9 | Luồng C: mục đích sử dụng chỉ tham khảo, kế thừa từ PR nếu có, không bắt buộc | 03 §3, ADR-0012 |

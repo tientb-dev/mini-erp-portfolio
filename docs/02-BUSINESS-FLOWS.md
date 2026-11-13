@@ -26,19 +26,20 @@
 9. PO hiển thị tiến độ nhập: Chưa nhập / Nhập một phần / Đã nhập đủ; số lượng thực nhập lấy từ GR Đã duyệt. Trạng thái này độc lập trạng thái duyệt PO.
 
 ## B. Bốn luồng GIR → GI (ADR-0012)
-| Luồng | Phân loại | Nguồn (`issue_type`) | Hạn mức |
+| Luồng | Phân loại | Nguồn | Hạn mức |
 |---|---|---|---|
-| A. Hàng bán theo PR | Hàng bán | PR đã `PO done` (`SALES_CONTRACT`) | dòng PR **và** hạn mức giao dòng HĐ |
+| A. Hàng bán theo PR | Hàng bán | PR đã `PO done` | dòng PR **và** hạn mức giao dòng HĐ |
 | B. Hàng bán trực tiếp | Hàng bán | `AVAILABLE_STOCK` | hạn mức giao dòng HĐ; tồn khả dụng của người phụ trách |
-| C. Vật tư theo PR | Vật tư | PR đã `PO done` (`SALES_CONTRACT`) | dòng PR |
+| C. Vật tư theo PR | Vật tư | PR đã `PO done` | dòng PR |
 | D. Vật tư trực tiếp | Vật tư | `AVAILABLE_STOCK` | tồn khả dụng của người phụ trách; không áp hạn mức PR/HĐ |
 
 Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một phân loại (không trộn hàng bán và vật tư). Luồng A và B dùng chung hạn mức giao của dòng HĐ (03 §10.1), kể cả khi nhiều PR tham chiếu cùng dòng HĐ.
 
 ### B.1 Luồng A/C — theo PR
-1. Chỉ PR đã `PO done` của HĐ xuất hiện để chọn. `PO done` không có nghĩa là đã nhập kho; có thể lập và duyệt GIR khi hàng chưa về.
+1. Chỉ PR đã `PO done` của HĐ xuất hiện để chọn: mọi dòng PR đã được đặt mua đủ đúng số lượng trên các PO `APPROVED` (có thể qua nhiều PO, cộng theo dòng PR). `PO done` không có nghĩa là đã nhập kho; có thể lập và duyệt GIR khi hàng chưa về.
+1a. Luồng C: mục đích sử dụng chỉ là thông tin tham khảo, có thể kế thừa từ PR nếu PR có; không bắt buộc nhập lại tại GIR; không ảnh hưởng hạn mức hay phê duyệt. Phương thức lưu và mã nguồn GIR (`issue_type`) cho luồng A/C: chưa chốt kỹ thuật (OPEN-QUESTIONS CT10).
 2. Mỗi dòng GIR tham chiếu đúng một dòng PR (giữ riêng từng dòng PR, không gộp theo Product); dòng hàng bán đồng thời giữ `sales_contract_line_id` của dòng PR.
-3. Số lượng đề nghị không vượt hạn mức còn lại của dòng PR; luồng A còn không vượt hạn mức giao còn lại của dòng HĐ.
+3. Số lượng đề nghị không vượt hạn mức còn lại của dòng PR; luồng A còn không vượt hạn mức giao còn lại của dòng HĐ. Hạn mức được kiểm tra khi Gửi duyệt và Duyệt; GIR `DRAFT` không chiếm hạn mức (03 §10.1).
 4. UI hiển thị lượng đã nhập thực tế của dòng PR (dòng PR → PO → GRR → GR `APPROVED`, cộng nhiều đợt nhập; chưa nhập = 0). Chỉ để tham khảo, không phải hạn mức.
 5. Luồng A: Product phải được Sales xác nhận cho dòng HĐ trước khi Gửi duyệt (như §B.3). Phê duyệt một cấp.
 

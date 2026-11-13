@@ -83,10 +83,10 @@
 | C01 | Dòng GIR chọn dòng HĐ thuộc HĐ khác | Không cho phép |
 | C02 | GIR `SALES_CONTRACT` khi chưa có tồn | Có thể lập/duyệt GIR; GI chưa thể xuất khi thiếu tồn |
 | C03 | HĐ khách B dùng SN nhập cho HĐ khách A, cùng kho+PN | GI được chọn SN nếu khả dụng |
-| C04 | Tổng GIR (`DRAFT`/`WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED`) trên một dòng HĐ vượt số lượng dòng HĐ | Chặn khi tạo/sửa/Gửi duyệt/Duyệt |
+| C04 | Tổng GIR (`WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED`) trên một dòng HĐ vượt số lượng dòng HĐ | Chặn khi Gửi duyệt/Duyệt |
 | C05 | GIR `CANCELED` | Không chiếm hạn mức dòng HĐ |
 | C06 | Hai dòng HĐ cùng PN | Hạn mức tính riêng theo `sales_contract_line_id`, không cộng gộp |
-| C07 | Hai GIR tạo đồng thời trên cùng dòng HĐ, tổng vượt hạn mức | Chỉ một thành công |
+| C07 | Hai GIR Gửi duyệt đồng thời trên cùng dòng HĐ, tổng vượt hạn mức | Chỉ một thành công |
 | C08 | GIR `DRAFT` với Product chưa được Sales xác nhận cho dòng HĐ | Lưu được; Gửi duyệt bị chặn |
 | C09 | Sales xác nhận Product cho dòng HĐ | GIR không tự Gửi duyệt; PM Gửi duyệt được |
 | C10 | GIR tham chiếu HĐ `DRAFT` hoặc `CANCELED` | Không cho phép |
@@ -119,13 +119,26 @@
 | C36 | Như C35, GIR đề nghị 9 | Cho phép (≤ 10 của dòng PR); lượng nhập 7 không phải hạn mức GIR |
 | C37 | Hai dòng PR cùng Product, mỗi dòng 5; GIR đề nghị 6 trên một dòng PR | Chặn — hạn mức tính riêng từng dòng PR, không cộng gộp theo Product |
 | C37a | Lượng đã nhập của hai dòng PR cùng Product | Hiển thị riêng từng dòng PR, không ghép theo Product |
-| C38 | Dòng PR 10 đã có GIR `APPROVED` 10; tạo GIR mới cho cùng dòng PR | Chặn — vượt hạn mức dòng PR (các trạng thái khác: theo CT2) |
+| C38 | Dòng PR 10 đã có GIR `APPROVED` 10; Gửi duyệt GIR mới cho cùng dòng PR | Chặn — vượt hạn mức dòng PR |
 | C39 | Dòng HĐ 10; PR-1 và PR-2 cùng tham chiếu, mỗi dòng PR 10; GIR luồng A trên PR-1 đề nghị 6, trên PR-2 đề nghị 5 | GIR thứ hai bị chặn — hai PR dùng chung hạn mức giao dòng HĐ (còn 4) |
 | C40 | Dòng HĐ 10; GIR luồng A 6; GIR luồng B cùng dòng HĐ đề nghị 5 | Chặn — A và B dùng chung hạn mức giao dòng HĐ |
-| C41 | GIR luồng A và luồng B tạo đồng thời trên cùng dòng HĐ, tổng vượt hạn mức | Chỉ một thành công |
+| C41 | GIR luồng A và luồng B Gửi duyệt đồng thời trên cùng dòng HĐ, tổng vượt hạn mức | Chỉ một thành công |
 | C42 | Luồng C: dòng PR vật tư 5, GIR đề nghị 5 | Chỉ kiểm soát hạn mức dòng PR; không đụng hạn mức dòng HĐ |
 | C43 | Luồng A với Product chưa được Sales xác nhận cho dòng HĐ | Lưu `DRAFT` được; Gửi duyệt bị chặn |
-| C44 | Luồng A/C | Phê duyệt một cấp |
+| C44 | Luồng A/C | Phê duyệt một cấp; không có bước người phụ trách nguồn hàng |
+| C45 | PR 2 dòng; dòng 1 có PO `APPROVED` đủ, dòng 2 có PO `APPROVED` 6/10 | Chưa `PO done`; PR không xuất hiện khi lập GIR theo PR |
+| C46 | Dòng PR 10 mua qua PO-1 `APPROVED` 4 và PO-2 `APPROVED` 6; các dòng khác đủ | `PO done` |
+| C47 | Dòng PR 10: PO `APPROVED` 6 và PO `WAITING_FOR_APPROVE` 4 | Chưa `PO done` (chỉ tính PO `APPROVED`) |
+| C48 | Đã `PO done`, sau đó một PO `APPROVED` được Thu hồi/Hủy | Không còn `PO done`; PR không xuất hiện khi lập GIR mới. Ảnh hưởng tới GIR đã có: chưa quy định |
+| C49 | Hai dòng PR cùng Product, dòng 1 có PO đủ, dòng 2 chưa | Chưa `PO done` — cộng theo dòng PR, không theo Product |
+| C50 | Dòng HĐ 10 đã có GIR `APPROVED` 10; lưu GIR `DRAFT` mới 5 cùng dòng HĐ | Lưu được (`DRAFT` không chiếm); Gửi duyệt bị chặn |
+| C51 | Hai GIR `DRAFT` cùng dòng HĐ 10, mỗi GIR 8 | Lưu được cả hai; GIR Gửi duyệt trước thành công, GIR sau bị chặn |
+| C52 | Dòng HĐ 10; GIR `REJECTED` 6 và GIR `APPROVED` 4; sửa GIR `REJECTED` thành 5 rồi Gửi duyệt | Cho phép (5 + 4 ≤ 10; không tính trùng 6 đang giữ) |
+| C53 | Như C52, sửa GIR `REJECTED` thành 7 | Chặn khi Gửi duyệt |
+| C54 | GIR `REJECTED` | Vẫn chiếm hạn mức dòng HĐ/dòng PR cho đến khi Hủy |
+| C55 | Hạn mức dòng PR: GIR `DRAFT` không chiếm; `WAITING_FOR_APPROVE`/`REJECTED`/`APPROVED` chiếm; `CANCELED` không | Như hạn mức dòng HĐ |
+| C56 | Luồng C, PR có mục đích sử dụng | GIR kế thừa để tham khảo; không bắt buộc nhập lại; không ảnh hưởng hạn mức/duyệt |
+| C57 | Luồng C, PR không có mục đích sử dụng | Gửi duyệt không bị chặn |
 
 ## D. GIR hàng có sẵn / GI
 | ID | Tình huống | Kết quả mong đợi |

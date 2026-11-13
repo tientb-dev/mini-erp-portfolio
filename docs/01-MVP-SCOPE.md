@@ -11,7 +11,7 @@ Quản lý hợp đồng bán hàng (HĐ) ở mức danh mục đơn giản; yê
 - **PR:** yêu cầu mua hàng để phục vụ một HĐ (gắn HĐ ở cấp chứng từ).
 - **Dòng hàng bán / dòng vật tư (PR, GIR):** phân loại tường minh trên từng dòng. Dòng hàng bán tham chiếu `sales_contract_line_id`; dòng vật tư (vật tư/phụ kiện triển khai, dự phòng) không bắt buộc. MVP không trộn hai loại trong một PR/GIR (ADR-0012).
 - **Người phụ trách nguồn hàng:** người được ghi nhận khi duyệt GR là người phụ trách lượng hàng nhập đó (thường là Sales phụ trách HĐ mà hàng được mua để phục vụ); đồng ý trước khi Quản lý kho duyệt GIR `AVAILABLE_STOCK`.
-- **`PO done`:** điều kiện để một PR xuất hiện khi lập GIR theo PR; **không** có nghĩa đã nhập kho (định nghĩa chính xác: OPEN-QUESTIONS).
+- **`PO done`:** PR có mọi dòng được đặt mua đủ đúng số lượng trên các PO `APPROVED`; là điều kiện để PR xuất hiện khi lập GIR theo PR; **không** có nghĩa đã nhập kho (03 §3).
 - **PO:** đơn đặt mua từ **một** nhà cung cấp.
 - **GRR / GR:** yêu cầu nhập / nhập kho thực tế.
 - **GIR / GI:** yêu cầu xuất / xuất kho thực tế.
@@ -22,7 +22,7 @@ Quản lý hợp đồng bán hàng (HĐ) ở mức danh mục đơn giản; yê
 1. HĐ bán: trạng thái `DRAFT`/`ACTIVE`/`CANCELED`, do Sales tạo và chốt; không có duyệt HĐ riêng. Dòng HĐ lưu nguyên hàng hóa khách ký; Sales xác nhận các Product được phép giao cho từng dòng HĐ (PM đề xuất).
 2. Danh mục hàng hóa (mã tạm, mã chính, cờ SN), khách hàng, nhà cung cấp, kho (có cờ cho phép xuất hàng có sẵn); phân quyền User → Role → Permission + kho được phép.
 3. Sáu chứng từ PR, PO, GRR, GR, GIR, GI.
-4. Hai loại nguồn GIR (`SALES_CONTRACT` — theo PR đã `PO done`; `AVAILABLE_STOCK` — hàng có sẵn từ kho được cấu hình cho phép), kết hợp với phân loại hàng bán/vật tư thành **bốn luồng**: A. Hàng bán theo PR, B. Hàng bán trực tiếp, C. Vật tư theo PR, D. Vật tư trực tiếp. Mọi GIR gắn HĐ ở cấp chứng từ (ADR-0012, 03 §3).
+4. Hai cơ chế nguồn GIR (**theo PR** đã `PO done`; **`AVAILABLE_STOCK`** — hàng có sẵn từ kho được cấu hình cho phép), kết hợp với phân loại hàng bán/vật tư thành **bốn luồng**: A. Hàng bán theo PR, B. Hàng bán trực tiếp, C. Vật tư theo PR, D. Vật tư trực tiếp. Mọi GIR gắn HĐ ở cấp chứng từ (ADR-0012, 03 §3).
 5. Một cấp phê duyệt (ngoại lệ: GIR `AVAILABLE_STOCK` hai bước người phụ trách nguồn hàng → Quản lý kho), người duyệt mặc định theo role/bước, thu hồi/từ chối/hủy theo điều kiện, thông báo trong ứng dụng.
 5a. Số chứng từ tự sinh, bất biến; không xóa chứng từ, chỉ Hủy. File đính kèm và ghi chú cơ bản trên chứng từ.
 6. Tồn kho báo cáo theo **Kho + PN**; tồn khả dụng phục vụ kiểm tra GI.

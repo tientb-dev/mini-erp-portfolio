@@ -31,6 +31,8 @@
 | A33 | Trong cùng một PR hàng bán, thêm dòng thứ hai cho cùng một dòng HĐ (chia hoặc trùng) | Không cho phép |
 | A33a | HĐ có hai dòng cùng Product; tạo PR từ HĐ | Hai dòng PR riêng, mỗi dòng giữ `sales_contract_line_id` của mình; không gộp |
 | A33b | PR-1 và PR-2 cùng tham chiếu một dòng HĐ | Cho phép |
+| A33d | Trong cùng một PO, hai dòng PO tham chiếu cùng một dòng PR (tạo hoặc sửa) | Không cho phép — `DUPLICATE_SOURCE_LINE`; dữ liệu đã lưu không đổi |
+| A33e | PO-1 và PO-2 cùng tham chiếu một dòng PR, tổng ≤ số lượng dòng PR | Cho phép |
 | A33c | PR trộn dòng hàng bán và dòng vật tư | Không cho phép trong MVP |
 | A34 | Dòng PR hàng bán tham chiếu dòng HĐ thuộc HĐ khác HĐ của PR | Không cho phép |
 | A35 | Tạo PR vật tư tại màn hình PR: chọn HĐ `ACTIVE` rồi chọn vật tư, không chọn dòng HĐ | Cho phép; dòng PR phân loại vật tư, `sales_contract_line_id` rỗng; PR gắn HĐ |

@@ -7,7 +7,7 @@
 - **PR hàng bán:** tạo từ màn hình HĐ; copy toàn bộ dòng hàng và thông tin liên quan sang form để chỉnh sửa trước khi lưu. Mỗi dòng PR giữ đúng `sales_contract_line_id`; dòng HĐ phải thuộc HĐ của PR; không gộp dòng HĐ cùng Product. Trong cùng PR không chia/tạo trùng một dòng HĐ; nhiều PR khác nhau được tham chiếu cùng dòng HĐ. Không có hạn mức Σ PR ≤ dòng HĐ (IM19).
 - **PR vật tư** (vật tư/phụ kiện triển khai/dự phòng): tạo tại màn hình PR, chọn HĐ rồi tự chọn vật tư; `sales_contract_line_id` không bắt buộc; được dùng mã tạm theo §1a (chuẩn hóa trước khi nhập kho).
 - Trùng Product không đồng nghĩa trùng dòng HĐ; hệ thống không tự suy ra hoặc tự gán `sales_contract_line_id` theo Product.
-- PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR.
+- PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR (kể cả cùng Product). Trong cùng PO mỗi dòng PR được tham chiếu tối đa một lần; một dòng PR được xuất hiện ở nhiều PO khác nhau (đã chốt 2026-11-13).
 - Tổng số lượng dòng PO Chờ duyệt + Đã duyệt gắn với dòng PR không vượt số lượng PR Đã duyệt.
 - Một GRR tham chiếu một PO Đã duyệt, một kho; mỗi dòng GRR tham chiếu một dòng PO.
 - Tổng số lượng GRR Chờ duyệt + Đã duyệt theo dòng PO không vượt số lượng PO Đã duyệt.

@@ -11,6 +11,10 @@ class CreateGrrDto {
   @ApiProperty() @IsInt() warehouseId!: number;
   @ApiProperty({ type: [SourceLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => SourceLineDto) lines!: SourceLineDto[];
 }
+class UpdateGrrDto {
+  @ApiProperty() @IsInt() version!: number;
+  @ApiProperty({ type: [SourceLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => SourceLineDto) lines!: SourceLineDto[];
+}
 class CreateGrDto {
   @ApiProperty() @IsInt() goodsReceiptRequestId!: number;
 }
@@ -35,6 +39,13 @@ export class InboundController {
   @RequirePermissions('GRR.CREATE')
   createGrr(@Req() req: AuthedRequest, @Body() dto: CreateGrrDto) {
     return this.svc.createGrr(req.user, dto.purchaseOrderId, dto.warehouseId, dto.lines);
+  }
+
+  @Patch('goods-receipt-requests/:id')
+  @HttpCode(204)
+  @RequirePermissions('GRR.CREATE')
+  updateGrr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateGrrDto) {
+    return this.svc.updateGrr(req.user, id, dto.version, dto.lines);
   }
 
   @Get('goods-receipt-requests')

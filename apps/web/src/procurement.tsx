@@ -12,12 +12,20 @@ import { ApprovalStatusChip, DataTable, ErrorAlert, PageHeader } from './ui';
 /** PR, PO and GRR share one list/detail layout; only the create form and a few header fields differ. */
 
 interface DocRow {
-  id: number; documentNumber: string; approvalStatus: string; createdBy: number; createdByName: string;
+  id: number; documentNumber: string; approvalStatus: string; version: number; createdBy: number; createdByName: string;
   assignedApproverId: number | null; assignedApproverName: string | null; createdAt: string; [extra: string]: unknown;
 }
-interface DocLine { id: number; ref: string; partNumber: string; productName: string; uom: string; quantity: string; usedQuantity?: string }
+interface DocLine { id: number; sourceLineId: number; productId?: number; ref: string; partNumber: string; productName: string; uom: string; quantity: string; usedQuantity?: string }
 interface DocDetail extends DocRow { lines: DocLine[]; children: { id: number; documentNumber: string; approvalStatus: string }[]; history: HistoryEntry[] }
-interface CreateProps { onClose: () => void; onCreated: (id: number) => void }
+/** `edit` set = the same form edits that DRAFT/REJECTED document (PATCH); source document fields stay fixed. */
+interface CreateProps { onClose: () => void; onCreated: (id: number) => void; edit?: DocDetail }
+
+/** POST a new document, or PATCH `edit` with its version (stale data → 409 STALE_VERSION). */
+async function saveDoc(path: string, edit: DocDetail | undefined, body: object): Promise<{ id: number }> {
+  if (!edit) return api<{ id: number }>(`/${path}`, { method: 'POST', body: JSON.stringify(body) });
+  await api(`/${path}/${edit.id}`, { method: 'PATCH', body: JSON.stringify({ ...body, version: edit.version }) });
+  return { id: edit.id };
+}
 
 interface DocConfig {
   /** i18n namespace and permission prefix. */
@@ -66,6 +74,7 @@ function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number; onBack
   const me = useMe();
   const [tab, setTab] = useState(0);
   const [action, setAction] = useState<DocAction | null>(null);
+  const [editing, setEditing] = useState(false);
   const doc = useQuery({ queryKey: [cfg.key, id], queryFn: () => api<DocDetail>(`/${cfg.path}/${id}`) });
   if (!doc.data || !me.data) return <ErrorAlert error={doc.error ?? me.error} />;
   const d = doc.data;
@@ -87,6 +96,7 @@ function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number; onBack
       <Button onClick={onBack}>{t('gr.back')}</Button>
       {isCreator && (editable || status === 'APPROVED') && <Button onClick={() => setAction('cancel')}>{t('doc.cancel')}</Button>}
       {isCreator && ['WAITING_FOR_APPROVE', 'APPROVED'].includes(status) && <Button onClick={() => setAction('recall')}>{t('doc.recall')}</Button>}
+      {isCreator && editable && <Button onClick={() => setEditing(true)}>{t('doc.edit')}</Button>}
       {isCreator && editable && <Button variant="contained" onClick={() => setAction('submit')}>{t('doc.submit')}</Button>}
       {isApprover && <Button color="error" onClick={() => setAction('reject')}>{t('doc.reject')}</Button>}
       {isApprover && <Button variant="contained" onClick={() => setAction('approve')}>{t('doc.approve')}</Button>}
@@ -122,6 +132,7 @@ function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number; onBack
           {tab === 2 && <HistoryList history={d.history} />}
         </Stack>
       </Paper>
+      {editing && <cfg.Create edit={d} onClose={() => setEditing(false)} onCreated={() => { setEditing(false); void qc.invalidateQueries({ queryKey: [cfg.key] }); }} />}
       {action && (
         <DocActionDialog basePath={`/${cfg.path}/${id}`} action={action} approversPath={`/${cfg.path}/${id}/approvers`} approved={status === 'APPROVED'}
           onClose={() => setAction(null)}
@@ -146,27 +157,29 @@ function QtyField({ value, max, onChange, label }: { value: string; max: number;
   );
 }
 
-function CreatePrDialog({ onClose, onCreated }: CreateProps) {
+function CreatePrDialog({ onClose, onCreated, edit }: CreateProps) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [scId, setScId] = useState('');
-  const [lines, setLines] = useState<Record<number, { productId: string; quantity: string }>>({});
+  const [scId, setScId] = useState(edit ? String(edit.salesContractId) : '');
+  // Keyed by HĐ line: a PR holds at most one line per HĐ line (CM6, enforced by the API).
+  const [lines, setLines] = useState<Record<number, { id?: number; productId: string; quantity: string }>>(
+    () => Object.fromEntries((edit?.lines ?? []).map((l) => [l.sourceLineId, { id: l.id, productId: String(l.productId), quantity: String(num(l.quantity)) }])));
   const contracts = useQuery({ queryKey: ['scs'], queryFn: () => api<ScOption[]>('/sales-contracts') });
   const scLines = useQuery({ queryKey: ['sc-lines', scId], queryFn: () => api<ScLineOption[]>(`/sales-contracts/${scId}/lines`), enabled: Boolean(scId) });
   const products = useQuery({ queryKey: ['products'], queryFn: () => api<Product[]>('/products') });
   const chosen = Object.entries(lines).filter(([, l]) => l.productId && num(l.quantity) > 0);
   const create = useMutation({
-    mutationFn: () => api<{ id: number }>('/purchase-requisitions', {
-      method: 'POST',
-      body: JSON.stringify({ salesContractId: Number(scId), lines: chosen.map(([lineId, l]) => ({ salesContractLineId: Number(lineId), productId: Number(l.productId), quantity: num(l.quantity) })) }),
+    mutationFn: () => saveDoc('purchase-requisitions', edit, {
+      ...(edit ? {} : { salesContractId: Number(scId) }),
+      lines: chosen.map(([lineId, l]) => ({ id: l.id, salesContractLineId: Number(lineId), productId: Number(l.productId), quantity: num(l.quantity) })),
     }),
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['pr'] }); onCreated(r.id); },
   });
   return (
-    <FormDialog title={t('pr.create')} submitLabel={t('pr.create')} error={create.error} pending={create.isPending}
+    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('pr.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'pr.create')} error={create.error} pending={create.isPending}
       canSubmit={Boolean(scId && chosen.length)} onSubmit={() => create.mutate()} onClose={onClose}>
-      <Typography variant="body2" color="text.secondary">{t('pr.createHint')}</Typography>
-      <TextField select label={t('gir.salesContract')} value={scId} onChange={(e) => { setScId(e.target.value); setLines({}); }} required
+      <EditHint edit={edit} hint={t('pr.createHint')} />
+      <TextField select disabled={Boolean(edit)} label={t('gir.salesContract')} value={scId} onChange={(e) => { setScId(e.target.value); setLines({}); }} required
         helperText={contracts.data && !contracts.data.some((c) => c.status === 'ACTIVE') ? t('pr.noActiveContract') : undefined}>
         {(contracts.data ?? []).filter((c) => c.status === 'ACTIVE').map((c) => <MenuItem key={c.id} value={c.id}>{c.documentNumber}: {c.customerName}</MenuItem>)}
       </TextField>
@@ -216,22 +229,39 @@ const pickedLines = (lines: SourceLine[] | undefined, qty: Record<number, string
   (lines ?? []).filter((l) => num(qty[l.id] ?? 0) > 0).map((l) => ({ sourceLineId: l.id, quantity: num(qty[l.id]) }));
 const withinRemaining = (lines: SourceLine[] | undefined, qty: Record<number, string>) => (lines ?? []).every((l) => num(qty[l.id] ?? 0) <= num(l.remaining));
 
-function CreatePoDialog({ onClose, onCreated }: CreateProps) {
+/** Adds existing line ids when editing; edit lines whose source is no longer listed (nothing left) are kept unchanged. */
+function withEditLines(picked: { sourceLineId: number; quantity: number }[], edit: DocDetail | undefined, listed: SourceLine[] | undefined) {
+  if (!edit) return picked;
+  const ids = new Map(edit.lines.map((l) => [l.sourceLineId, l.id]));
+  const shown = new Set((listed ?? []).map((l) => l.id));
+  return [
+    ...picked.map((p) => ({ ...p, id: ids.get(p.sourceLineId) })),
+    ...edit.lines.filter((l) => !shown.has(l.sourceLineId)).map((l) => ({ id: l.id, sourceLineId: l.sourceLineId, quantity: num(l.quantity) })),
+  ];
+}
+const editQty = (edit?: DocDetail) => Object.fromEntries((edit?.lines ?? []).map((l) => [l.sourceLineId, String(num(l.quantity))]));
+
+function EditHint({ edit, hint }: { edit?: DocDetail; hint: string }) {
+  const { t } = useTranslation();
+  return <Typography variant="body2" color="text.secondary">{edit?.approvalStatus === 'REJECTED' ? t('doc.editRejectedHint') : hint}</Typography>;
+}
+
+function CreatePoDialog({ onClose, onCreated, edit }: CreateProps) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [supplierId, setSupplierId] = useState('');
-  const [qty, setQty] = useState<Record<number, string>>({});
+  const [supplierId, setSupplierId] = useState(edit ? String(edit.supplierId) : '');
+  const [qty, setQty] = useState<Record<number, string>>(() => editQty(edit));
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/suppliers') });
   const lines = useQuery({ queryKey: ['pr-lines-for-po'], queryFn: () => api<SourceLine[]>('/purchase-requisition-lines/available-for-po') });
-  const picked = pickedLines(lines.data, qty);
+  const picked = withEditLines(pickedLines(lines.data, qty), edit, lines.data);
   const create = useMutation({
-    mutationFn: () => api<{ id: number }>('/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierId: Number(supplierId), lines: picked }) }),
+    mutationFn: () => saveDoc('purchase-orders', edit, { supplierId: Number(supplierId), lines: picked }),
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['po'] }); void qc.invalidateQueries({ queryKey: ['pr-lines-for-po'] }); onCreated(r.id); },
   });
   return (
-    <FormDialog title={t('po.create')} submitLabel={t('po.create')} error={create.error ?? lines.error} pending={create.isPending}
+    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('po.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'po.create')} error={create.error ?? lines.error} pending={create.isPending}
       canSubmit={Boolean(supplierId && picked.length && withinRemaining(lines.data, qty))} onSubmit={() => create.mutate()} onClose={onClose}>
-      <Typography variant="body2" color="text.secondary">{t('po.createHint')}</Typography>
+      <EditHint edit={edit} hint={t('po.createHint')} />
       <TextField select label={t('po.supplier')} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required
         helperText={suppliers.data?.length === 0 ? t('po.noSupplier') : undefined}>
         {(suppliers.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code}: {s.name}</MenuItem>)}
@@ -242,33 +272,31 @@ function CreatePoDialog({ onClose, onCreated }: CreateProps) {
   );
 }
 
-function CreateGrrDialog({ onClose, onCreated }: CreateProps) {
+function CreateGrrDialog({ onClose, onCreated, edit }: CreateProps) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const me = useMe();
-  const [poId, setPoId] = useState('');
-  const [warehouseId, setWarehouseId] = useState('');
-  const [qty, setQty] = useState<Record<number, string>>({});
+  const [poId, setPoId] = useState(edit ? String(edit.purchaseOrderId) : '');
+  const [warehouseId, setWarehouseId] = useState(edit ? String(edit.warehouseId) : '');
+  const [qty, setQty] = useState<Record<number, string>>(() => editQty(edit));
   const pos = useQuery({ queryKey: ['po', 'list', false], queryFn: () => api<DocRow[]>('/purchase-orders?assignedToMe=false') });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/warehouses') });
   const lines = useQuery({ queryKey: ['po-lines-for-grr', poId], queryFn: () => api<SourceLine[]>(`/purchase-orders/${poId}/lines-available-for-grr`), enabled: Boolean(poId) });
-  const picked = pickedLines(lines.data, qty);
+  const picked = withEditLines(pickedLines(lines.data, qty), edit, lines.data);
   const create = useMutation({
-    mutationFn: () => api<{ id: number }>('/goods-receipt-requests', {
-      method: 'POST', body: JSON.stringify({ purchaseOrderId: Number(poId), warehouseId: Number(warehouseId), lines: picked }),
-    }),
+    mutationFn: () => saveDoc('goods-receipt-requests', edit, edit ? { lines: picked } : { purchaseOrderId: Number(poId), warehouseId: Number(warehouseId), lines: picked }),
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['grr'] }); void qc.invalidateQueries({ queryKey: ['po-lines-for-grr'] }); onCreated(r.id); },
   });
   const approvedPos = (pos.data ?? []).filter((p) => p.approvalStatus === 'APPROVED');
   return (
-    <FormDialog title={t('grr.create')} submitLabel={t('grr.create')} error={create.error ?? lines.error} pending={create.isPending}
+    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('grr.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'grr.create')} error={create.error ?? lines.error} pending={create.isPending}
       canSubmit={Boolean(poId && warehouseId && picked.length && withinRemaining(lines.data, qty))} onSubmit={() => create.mutate()} onClose={onClose}>
-      <Typography variant="body2" color="text.secondary">{t('grr.createHint')}</Typography>
-      <TextField select label={t('gr.po')} value={poId} onChange={(e) => { setPoId(e.target.value); setQty({}); }} required
+      <EditHint edit={edit} hint={t('grr.createHint')} />
+      <TextField select disabled={Boolean(edit)} label={t('gr.po')} value={poId} onChange={(e) => { setPoId(e.target.value); setQty({}); }} required
         helperText={pos.data && !approvedPos.length ? t('grr.noPo') : undefined}>
         {approvedPos.map((p) => <MenuItem key={p.id} value={p.id}>{p.documentNumber}: {String(p.supplierName)}</MenuItem>)}
       </TextField>
-      <TextField select label={t('inventory.warehouse')} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
+      <TextField select disabled={Boolean(edit)} label={t('inventory.warehouse')} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
         {(warehouses.data ?? []).filter((w) => me.data?.warehouseIds.includes(w.id)).map((w) => <MenuItem key={w.id} value={w.id}>{w.code}: {w.name}</MenuItem>)}
       </TextField>
       {poId && lines.data?.length === 0 && <Typography variant="body2" color="text.secondary">{t('grr.noLines')}</Typography>}

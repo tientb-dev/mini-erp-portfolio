@@ -23,6 +23,11 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       status = HttpStatus.CONFLICT;
       code = 'DUPLICATE_VALUE';
       detail = 'A record with the same unique value already exists';
+    } else if (exception instanceof QueryFailedError && (exception as { code?: string }).code === '23503') {
+      // FK violation: e.g. deleting a document line that another document still references.
+      status = HttpStatus.CONFLICT;
+      code = 'RECORD_IN_USE';
+      detail = 'The record is referenced by another document';
     } else {
       this.logger.error(exception);
     }

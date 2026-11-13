@@ -6,6 +6,7 @@ import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
+export interface SourceLineInput { id?: number; sourceLineId: number; quantity: number }
 export interface DetailInput { id: number; serialNumber?: string | null; location?: string | null; warrantyInfo?: string | null }
 
 /** GRR and GR (03 §1, §2). */
@@ -27,22 +28,50 @@ export class InboundService {
         `INSERT INTO goods_receipt_requests (document_number, purchase_order_id, warehouse_id, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
         [number, purchaseOrderId, warehouseId, user.id],
       );
-      for (const l of lines) {
-        const [pol] = await m.query(
-          `SELECT pol.unit_of_measure_id, prl.product_id FROM purchase_order_lines pol
-             JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
-            WHERE pol.id = $1 AND pol.purchase_order_id = $2`,
-          [l.sourceLineId, purchaseOrderId],
-        );
-        if (!pol) throw new BusinessError("SOURCE_LINE_MISMATCH", `PO line ${l.sourceLineId} does not belong to the PO`);
-        await ProductUsage.markUsed(m, pol.product_id, { stock: true }); // product now appears on a GRR (03 §1b)
-        await m.query(
-          `INSERT INTO goods_receipt_request_lines (goods_receipt_request_id, purchase_order_line_id, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4)`,
-          [grr.id, l.sourceLineId, pol.unit_of_measure_id, l.quantity],
-        );
-      }
+      for (const l of lines) await this.writeGrrLine(m, grr.id, purchaseOrderId, l);
       await this.checkGrrLimits(m, grr.id, true);
       return { id: grr.id as number, documentNumber: number };
+    });
+  }
+
+  /** New line: must be a line of the GRR PO, UoM inherited (T7). Existing line: only the quantity changes. */
+  private async writeGrrLine(m: EntityManager, grrId: number, purchaseOrderId: number, l: SourceLineInput) {
+    if (l.id) {
+      wf.assertLineUpdated(await m.query(
+        `UPDATE goods_receipt_request_lines SET quantity = $4 WHERE id = $1 AND goods_receipt_request_id = $2 AND purchase_order_line_id = $3`,
+        [l.id, grrId, l.sourceLineId, l.quantity],
+      ), l.id);
+      return;
+    }
+    const [pol] = await m.query(
+      `SELECT pol.unit_of_measure_id, prl.product_id FROM purchase_order_lines pol
+         JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
+        WHERE pol.id = $1 AND pol.purchase_order_id = $2`,
+      [l.sourceLineId, purchaseOrderId],
+    );
+    if (!pol) throw new BusinessError("SOURCE_LINE_MISMATCH", `PO line ${l.sourceLineId} does not belong to the PO`);
+    await ProductUsage.markUsed(m, pol.product_id, { stock: true }); // product now appears on a GRR (03 §1b)
+    await m.query(
+      `INSERT INTO goods_receipt_request_lines (goods_receipt_request_id, purchase_order_line_id, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4)`,
+      [grrId, l.sourceLineId, pol.unit_of_measure_id, l.quantity],
+    );
+  }
+
+  /**
+   * Edit a DRAFT/REJECTED GRR by its creator: line quantities, add/remove PO lines. PO and warehouse stay the same.
+   * Σ GRR ≤ PO is re-checked under the PO line locks (03 §1); the PO must still be APPROVED (source re-check).
+   */
+  updateGrr(user: CurrentUser, id: number, version: number, lines: SourceLineInput[]) {
+    return this.ds.transaction(async (m) => {
+      const doc = await wf.lockDocument(m, "GRR", id);
+      wf.assertWarehouse(user, doc.warehouse_id!);
+      wf.assertEditable(doc, user, version);
+      const [{ purchase_order_id: poId }] = await m.query(`SELECT purchase_order_id FROM goods_receipt_requests WHERE id = $1`, [id]);
+      await this.checkGrrSource(m, id);
+      await wf.deleteOmittedLines(m, "goods_receipt_request_lines", "goods_receipt_request_id", id, lines.flatMap((l) => (l.id ? [l.id] : [])));
+      for (const l of lines) await this.writeGrrLine(m, id, poId, l);
+      await this.checkGrrLimits(m, id, true);
+      await wf.markEdited(m, "GRR", id, user.id);
     });
   }
 
@@ -370,7 +399,7 @@ export class InboundService {
 
   async getGrr(id: number, user: CurrentUser) {
     const [grr] = await this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.warehouse_id AS "warehouseId", po.document_number AS "poNumber", sp.name AS "supplierName", w.code AS "warehouseCode"
+      `SELECT ${wf.DOC_COLUMNS}, d.warehouse_id AS "warehouseId", d.purchase_order_id AS "purchaseOrderId", po.document_number AS "poNumber", sp.name AS "supplierName", w.code AS "warehouseCode"
          FROM goods_receipt_requests d JOIN purchase_orders po ON po.id = d.purchase_order_id
          JOIN suppliers sp ON sp.id = po.supplier_id JOIN warehouses w ON w.id = d.warehouse_id
         WHERE d.id = $1`,
@@ -381,7 +410,8 @@ export class InboundService {
       throw new ForbiddenException('Warehouse is outside your scope');
     }
     const lines = await this.ds.query(
-      `SELECT l.id, pr.document_number AS "ref", p.part_number AS "partNumber", p.name AS "productName", u.code AS uom, l.quantity
+      `SELECT l.id, l.purchase_order_line_id AS "sourceLineId", pr.document_number AS "ref", p.part_number AS "partNumber",
+              p.name AS "productName", u.code AS uom, l.quantity
          FROM goods_receipt_request_lines l
          JOIN purchase_order_lines pol ON pol.id = l.purchase_order_line_id
          JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id

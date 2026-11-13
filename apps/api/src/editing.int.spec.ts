@@ -108,11 +108,13 @@ describe('Document editing (integration)', () => {
   });
 
   it('PR: creator edits DRAFT (product → UoM snapshot); REJECTED stays REJECTED until resubmitted and approved again', async () => {
-    const { sc, lineId } = await activeContract();
+    const sc = (await post(admin, '/sales-contracts', { customerId, lines: [scLine(10, 'A'), scLine(10, 'B')] }).expect(201)).body.id;
+    await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
+    const [lineId, lineB] = (await get(admin, `/sales-contracts/${sc}`)).body.lines.map((l: { id: number }) => l.id);
     const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 3 }] }).expect(201)).body.id;
     let d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     await patch(admin, `/purchase-requisitions/${pr}`, {
-      version: d.version, lines: [{ id: d.lines[0].id, salesContractLineId: lineId, productId: p2, quantity: 4 }, { salesContractLineId: lineId, productId: p1, quantity: 1 }],
+      version: d.version, lines: [{ id: d.lines[0].id, salesContractLineId: lineId, productId: p2, quantity: 4 }, { salesContractLineId: lineB, productId: p1, quantity: 1 }],
     }).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     expect(d.lines.map((l: { partNumber: string; uom: string; quantity: string }) => [l.partNumber, l.uom, Number(l.quantity)])).toEqual([['PN-E2', 'BOX', 4], ['PN-E1', 'PCS', 1]]);
@@ -151,6 +153,43 @@ describe('Document editing (integration)', () => {
     expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: v, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 5 }] }).expect(409)).body.code)
       .toBe('RECORD_IN_USE'); // deleting it is blocked too
     await patch(admin, `/purchase-requisitions/${pr}`, { version: v, lines: [{ id: prLine, salesContractLineId: lineId, productId: p1, quantity: 8 }] }).expect(204);
+  });
+
+  it('PR: an HĐ line at most once per PR (CM6); other PRs and other HĐ lines with the same product stay separate', async () => {
+    const sc = (await post(admin, '/sales-contracts', { customerId, lines: [scLine(5, 'A'), scLine(5, 'B')] }).expect(201)).body.id;
+    await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
+    const [a, b] = (await get(admin, `/sales-contracts/${sc}`)).body.lines.map((l: { id: number }) => l.id);
+    const dup = [{ salesContractLineId: a, productId: p1, quantity: 1 }, { salesContractLineId: a, productId: p2, quantity: 2 }];
+    expect((await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: dup }).expect(422)).body.code).toBe('DUPLICATE_SOURCE_LINE');
+
+    // Two HĐ lines with the same product → two PR lines; a second PR may reference the same HĐ line.
+    const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [
+      { salesContractLineId: a, productId: p1, quantity: 1 }, { salesContractLineId: b, productId: p1, quantity: 2 }] }).expect(201)).body.id;
+    await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: a, productId: p1, quantity: 3 }] }).expect(201);
+    const before = (await get(admin, `/purchase-requisitions/${pr}`)).body;
+    expect(before.lines.map((l: { sourceLineId: number }) => l.sourceLineId).sort()).toEqual([a, b].sort());
+
+    // Edit that would point both lines at HĐ line a → rejected, nothing saved.
+    const [l1, l2] = before.lines;
+    expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: before.version, lines: [
+      { id: l1.id, salesContractLineId: a, productId: p1, quantity: 1 }, { id: l2.id, salesContractLineId: a, productId: p1, quantity: 2 }] }).expect(422)).body.code)
+      .toBe('DUPLICATE_SOURCE_LINE');
+    expect((await get(admin, `/purchase-requisitions/${pr}`)).body).toEqual(before);
+  });
+
+  it('PO: a PR line at most once per PO; several POs may share it within the PR quantity', async () => {
+    const prLine = await approvedPrLine(10);
+    expect((await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: prLine, quantity: 2 }, { sourceLineId: prLine, quantity: 3 }] }).expect(422)).body.code)
+      .toBe('DUPLICATE_SOURCE_LINE');
+    const po1 = (await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: prLine, quantity: 4 }] }).expect(201)).body.id;
+    await approved('purchase-orders', po1);
+    const po2 = (await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: prLine, quantity: 6 }] }).expect(201)).body.id;
+    const before = (await get(admin, `/purchase-orders/${po2}`)).body;
+    expect((await patch(admin, `/purchase-orders/${po2}`, { version: before.version, supplierId, lines: [
+      { id: before.lines[0].id, sourceLineId: prLine, quantity: 3 }, { sourceLineId: prLine, quantity: 3 }] }).expect(422)).body.code)
+      .toBe('DUPLICATE_SOURCE_LINE');
+    expect((await get(admin, `/purchase-orders/${po2}`)).body).toEqual(before);
+    await approved('purchase-orders', po2); // 4 + 6 = PR quantity
   });
 
   it('PO: edit supplier/quantities; Σ PO ≤ PR re-checked; concurrent edits on one version → one wins (03 §1, §2)', async () => {

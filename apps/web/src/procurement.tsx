@@ -161,7 +161,7 @@ function CreatePrDialog({ onClose, onCreated, edit }: CreateProps) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [scId, setScId] = useState(edit ? String(edit.salesContractId) : '');
-  // shortcut: one PR line per HĐ line, as this form creates them; a PR with a repeated HĐ line (API only) keeps just the last one when edited here.
+  // Keyed by HĐ line: a PR holds at most one line per HĐ line (CM6, enforced by the API).
   const [lines, setLines] = useState<Record<number, { id?: number; productId: string; quantity: string }>>(
     () => Object.fromEntries((edit?.lines ?? []).map((l) => [l.sourceLineId, { id: l.id, productId: String(l.productId), quantity: String(num(l.quantity)) }])));
   const contracts = useQuery({ queryKey: ['scs'], queryFn: () => api<ScOption[]>('/sales-contracts') });

@@ -19,6 +19,7 @@ export class ProcurementService {
   constructor(private readonly ds: DataSource) {}
 
   createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[]) {
+    wf.assertUniqueSourceLines(lines.map((l) => l.salesContractLineId));
     return this.ds.transaction(async (m) => {
       await SalesContractFacade.lockActiveLines(m, salesContractId, lines.map((l) => l.salesContractLineId));
       const number = await wf.nextDocumentNumber(m, 'PR');
@@ -59,6 +60,8 @@ export class ProcurementService {
 
   /** Edit a DRAFT/REJECTED PR by its creator: lines (HĐ line, product → UoM, quantity); the HĐ stays the same. */
   updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[]) {
+    // The request is the full line set (omitted lines are deleted), so checking it covers the saved result.
+    wf.assertUniqueSourceLines(lines.map((l) => l.salesContractLineId));
     return this.ds.transaction(async (m) => {
       const [head] = await m.query(`SELECT sales_contract_id FROM purchase_requisitions WHERE id = $1`, [id]);
       if (!head) throw new NotFoundException();
@@ -74,6 +77,7 @@ export class ProcurementService {
 
   /** PO from lines of APPROVED PRs, one supplier; each PO line inherits the PR line UoM (T7). */
   createPurchaseOrder(user: CurrentUser, supplierId: number, lines: SourceLineInput[]) {
+    wf.assertUniqueSourceLines(lines.map((l) => l.sourceLineId));
     return this.ds.transaction(async (m) => {
       const number = await wf.nextDocumentNumber(m, 'PO');
       const [po] = await m.query(`INSERT INTO purchase_orders (document_number, supplier_id, created_by) VALUES ($1, $2, $3) RETURNING id`, [
@@ -108,6 +112,7 @@ export class ProcurementService {
 
   /** Edit a DRAFT/REJECTED PO by its creator: supplier and line quantities; Σ PO ≤ PR re-checked under lock (03 §1). */
   updatePurchaseOrder(user: CurrentUser, id: number, version: number, supplierId: number, lines: SourceLineInput[]) {
+    wf.assertUniqueSourceLines(lines.map((l) => l.sourceLineId));
     return this.ds.transaction(async (m) => {
       const doc = await wf.lockDocument(m, 'PO', id);
       wf.assertEditable(doc, user, version);

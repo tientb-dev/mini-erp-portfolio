@@ -98,6 +98,12 @@ export function assertLineUpdated([, affected]: [unknown, number], lineId: numbe
   if (!affected) throw new BusinessError('LINE_NOT_EDITABLE', `Line ${lineId} is not on this document or is referenced by another document`, HttpStatus.CONFLICT);
 }
 
+/** One document references each source line at most once (CM6 for PR → HĐ line; same rule for PO → PR line). */
+export function assertUniqueSourceLines(sourceLineIds: number[]): void {
+  const dup = sourceLineIds.find((id, i) => sourceLineIds.indexOf(id) !== i);
+  if (dup !== undefined) throw new BusinessError('DUPLICATE_SOURCE_LINE', `Source line ${dup} is referenced more than once on this document`);
+}
+
 export async function record(m: EntityManager, type: DocType, id: number, action: string, actorId: number, reason?: string) {
   await m.query(`INSERT INTO approval_histories (document_type, document_id, action, actor_id, reason) VALUES ($1, $2, $3, $4, $5)`, [
     type, id, action, actorId, reason ?? null,

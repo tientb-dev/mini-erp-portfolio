@@ -50,7 +50,7 @@ describe('Document editing (integration)', () => {
   const scLine = (quantity: number, itemCode = 'SW') => ({ itemCode, itemName: `Item ${itemCode}`, uomName: 'Cái', quantity });
 
   async function activeContract(qty = 10) {
-    const sc = (await post(admin, '/sales-contracts', { customerId, lines: [scLine(qty)] }).expect(201)).body.id;
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(qty)] }).expect(201)).body.id;
     await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
     const [line] = (await get(admin, `/sales-contracts/${sc}`).expect(200)).body.lines;
     return { sc: sc as number, lineId: line.id as number };
@@ -76,8 +76,62 @@ describe('Document editing (integration)', () => {
     return { po: po as number, poLine: (await get(admin, `/purchase-orders/${po}`)).body.lines[0].id as number };
   }
 
+  it('responsible sales: required to activate, editable while DRAFT, locked once ACTIVE (C83, C83a, C83b, CT17)', async () => {
+    const sales = await login(app, 'sales', 'role-users-test');
+    const pm = await login(app, 'pm', 'role-users-test');
+    const salesId = (await get(sales, '/auth/me')).body.id;
+    const [{ id: pmId }] = await ds.query(`SELECT id FROM users WHERE username = 'pm'`);
+
+    const candidates = (await get(sales, '/sales-contracts/responsible-sales-candidates').expect(200)).body.map((u: { id: number }) => u.id);
+    expect(candidates).toEqual(expect.arrayContaining([salesId, adminId]));
+    expect(candidates).not.toContain(pmId); // PM cannot manage HĐ, so cannot be responsible sales
+    await get(pm, '/sales-contracts/responsible-sales-candidates').expect(403);
+
+    // Saved without a responsible sales: allowed as DRAFT, activation is blocked.
+    const sc = (await post(sales, '/sales-contracts', { customerId, lines: [scLine(1)] }).expect(201)).body.id;
+    expect((await post(sales, `/sales-contracts/${sc}/activate`).expect(422)).body.code).toBe('RESPONSIBLE_SALES_REQUIRED');
+    let d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    expect(d).toMatchObject({ status: 'DRAFT', responsibleSalesUserId: null });
+
+    // Ineligible user is rejected on create and edit.
+    expect((await post(sales, '/sales-contracts', { customerId, responsibleSalesUserId: pmId, lines: [scLine(1)] }).expect(422)).body.code)
+      .toBe('RESPONSIBLE_SALES_INVALID');
+    const edit = (responsibleSalesUserId: number) => ({ version: d.version, customerId, responsibleSalesUserId, lines: [scLine(1)] });
+    expect((await patch(sales, `/sales-contracts/${sc}`, edit(pmId)).expect(422)).body.code).toBe('RESPONSIBLE_SALES_INVALID');
+
+    // C83b: without SALES_CONTRACT.CREATE the responsible sales cannot be changed.
+    await patch(pm, `/sales-contracts/${sc}`, edit(salesId)).expect(403);
+
+    // C83: change it while DRAFT (admin → sales), then activate.
+    await patch(sales, `/sales-contracts/${sc}`, edit(adminId)).expect(204);
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    await patch(sales, `/sales-contracts/${sc}`, edit(salesId)).expect(204);
+
+    // PATCH semantics: omitted keeps, null clears, id assigns.
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    await patch(sales, `/sales-contracts/${sc}`, { version: d.version, customerId, lines: [scLine(2)] }).expect(204);
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    expect(d.responsibleSalesUserId).toBe(salesId);
+    expect(Number(d.lines[0].quantity)).toBe(2);
+    await patch(sales, `/sales-contracts/${sc}`, { version: d.version, customerId, responsibleSalesUserId: null, lines: [scLine(1)] }).expect(204);
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    expect(d.responsibleSalesUserId).toBeNull();
+    expect((await post(sales, `/sales-contracts/${sc}/activate`).expect(422)).body.code).toBe('RESPONSIBLE_SALES_REQUIRED');
+    await patch(sales, `/sales-contracts/${sc}`, { version: d.version, customerId, responsibleSalesUserId: salesId, lines: [scLine(1)] }).expect(204);
+    await post(sales, `/sales-contracts/${sc}/activate`).expect(204);
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    expect(d).toMatchObject({ status: 'ACTIVE', responsibleSalesUserId: salesId, responsibleSalesName: 'Nhân viên Sales' });
+    expect((await get(sales, '/sales-contracts')).body.find((r: { id: number }) => r.id === sc).responsibleSalesName).toBe('Nhân viên Sales');
+
+    // C83a: locked once ACTIVE.
+    expect((await patch(sales, `/sales-contracts/${sc}`, edit(adminId)).expect(409)).body.code).toBe('INVALID_STATUS');
+
+    // DB guard: an ACTIVE contract cannot lose its responsible sales.
+    await expect(ds.query(`UPDATE sales_contracts SET responsible_sales_user_id = NULL WHERE id = $1`, [sc])).rejects.toThrow(/chk_sales_contracts_responsible_sales/);
+  });
+
   it('HĐ DRAFT: edit customer and lines in place, keep number and line ids; ACTIVE is locked (03 §9.1, G10)', async () => {
-    const sc = (await post(admin, '/sales-contracts', { customerId, lines: [scLine(5, 'A'), scLine(3, 'B')] }).expect(201)).body.id;
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(5, 'A'), scLine(3, 'B')] }).expect(201)).body.id;
     const before = (await get(admin, `/sales-contracts/${sc}`)).body;
     const [a, b] = before.lines;
     const sales = await login(app, 'sales', 'role-users-test');
@@ -90,7 +144,7 @@ describe('Document editing (integration)', () => {
       .toBe('RECORD_IN_USE');
 
     await patch(sales, `/sales-contracts/${sc}`, {
-      version: before.version, customerId: customer2,
+      version: before.version, customerId: customer2, responsibleSalesUserId: adminId,
       lines: [{ id: a.id, ...scLine(7, 'A2') }, { id: b.id, ...scLine(3, 'B') }, scLine(2, 'C')],
     }).expect(204);
     const after = (await get(admin, `/sales-contracts/${sc}`)).body;
@@ -108,7 +162,7 @@ describe('Document editing (integration)', () => {
   });
 
   it('PR: creator edits DRAFT (product → UoM snapshot); REJECTED stays REJECTED until resubmitted and approved again', async () => {
-    const sc = (await post(admin, '/sales-contracts', { customerId, lines: [scLine(10, 'A'), scLine(10, 'B')] }).expect(201)).body.id;
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(10, 'A'), scLine(10, 'B')] }).expect(201)).body.id;
     await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
     const [lineId, lineB] = (await get(admin, `/sales-contracts/${sc}`)).body.lines.map((l: { id: number }) => l.id);
     const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 3 }] }).expect(201)).body.id;
@@ -156,7 +210,7 @@ describe('Document editing (integration)', () => {
   });
 
   it('PR: an HĐ line at most once per PR (CM6); other PRs and other HĐ lines with the same product stay separate', async () => {
-    const sc = (await post(admin, '/sales-contracts', { customerId, lines: [scLine(5, 'A'), scLine(5, 'B')] }).expect(201)).body.id;
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(5, 'A'), scLine(5, 'B')] }).expect(201)).body.id;
     await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
     const [a, b] = (await get(admin, `/sales-contracts/${sc}`)).body.lines.map((l: { id: number }) => l.id);
     const dup = [{ salesContractLineId: a, productId: p1, quantity: 1 }, { salesContractLineId: a, productId: p2, quantity: 2 }];

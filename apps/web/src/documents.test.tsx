@@ -92,15 +92,17 @@ describe('Document editing (IM18)', () => {
   it('Sales edits a DRAFT contract in the create form; lines keep their ids and the version is sent', async () => {
     const draft = {
       id: 4, documentNumber: 'SC-2026-000002', status: 'DRAFT', version: 2, customerId: 8, customerCode: 'C1', customerName: 'Customer 1', createdBy: 2,
-      createdByName: 'Sales', createdAt: '2026-11-13T00:00:00Z', pendingProposals: 0,
+      createdByName: 'Sales', createdAt: '2026-11-13T00:00:00Z', pendingProposals: 0, responsibleSalesUserId: 2, responsibleSalesName: 'Sales A',
       lines: [{ id: 12, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', quantity: '10.000', products: [] }],
     };
     const posts = mockApi({
       '/auth/me': me(['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CREATE']), '/customers': [{ id: 8, code: 'C1', name: 'Customer 1' }],
       '/sales-contracts/4': draft, '/sales-contracts': [draft],
+      '/sales-contracts/responsible-sales-candidates': [{ id: 2, fullName: 'Sales A' }, { id: 3, fullName: 'Sales B' }],
     });
     wrap(<SalesContractsPage />);
     fireEvent.click(await screen.findByText('SC-2026-000002'));
+    expect(await screen.findByText('Sales A')).toBeTruthy(); // responsible sales shown on the detail
     fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
     const qty = await screen.findByLabelText(/Số lượng/);
     expect((qty as HTMLInputElement).value).toBe('10');
@@ -108,7 +110,7 @@ describe('Document editing (IM18)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     await waitFor(() => expect(posts).toEqual([{
       url: '/sales-contracts/4',
-      body: { version: 2, customerId: 8, lines: [{ id: 12, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', quantity: 12 }] },
+      body: { version: 2, customerId: 8, responsibleSalesUserId: 2, lines: [{ id: 12, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', quantity: 12 }] },
     }]));
   });
 

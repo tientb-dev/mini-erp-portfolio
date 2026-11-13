@@ -44,14 +44,28 @@ export class SalesContractFacade {
 export class SalesContractsService {
   constructor(private readonly ds: DataSource) {}
 
-  create(user: CurrentUser, customerId: number, lines: ScLineInput[]) {
+  /** Users who may be the responsible sales: active and allowed to manage HĐ (SALES_CONTRACT.CREATE, 04 §2). */
+  responsibleSalesCandidates(m: EntityManager = this.ds.manager): Promise<{ id: number; username: string; fullName: string }[]> {
+    return wf.usersWithPermission(m, 'SALES_CONTRACT.CREATE', 0);
+  }
+
+  private async assertResponsibleSales(m: EntityManager, userId: number | null) {
+    if (userId === null) return;
+    if (!(await this.responsibleSalesCandidates(m)).some((u) => u.id === userId)) {
+      throw new BusinessError('RESPONSIBLE_SALES_INVALID', 'The responsible sales must be an active user allowed to manage sales contracts');
+    }
+  }
+
+  create(user: CurrentUser, customerId: number, responsibleSalesUserId: number | null, lines: ScLineInput[]) {
     return this.ds.transaction(async (m) => {
       const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
       if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
+      await this.assertResponsibleSales(m, responsibleSalesUserId);
       const number = await wf.nextDocumentNumber(m, 'SC');
-      const [sc] = await m.query(`INSERT INTO sales_contracts (document_number, customer_id, created_by) VALUES ($1, $2, $3) RETURNING id`, [
-        number, customerId, user.id,
-      ]);
+      const [sc] = await m.query(
+        `INSERT INTO sales_contracts (document_number, customer_id, responsible_sales_user_id, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [number, customerId, responsibleSalesUserId, user.id],
+      );
       for (const l of lines) {
         await m.query(`INSERT INTO sales_contract_lines (sales_contract_id, item_code, item_name, uom_name, quantity) VALUES ($1, $2, $3, $4, $5)`, [
           sc.id, l.itemCode, l.itemName, l.uomName, l.quantity,
@@ -66,7 +80,8 @@ export class SalesContractsService {
    * (product proposals) stay valid; new lines are inserted; omitted lines are deleted unless still referenced.
    * ACTIVE contracts are locked; PR/GIR only reference ACTIVE ones, so a DRAFT is never referenced by them.
    */
-  update(user: CurrentUser, id: number, version: number, customerId: number, lines: ScLineInput[]) {
+  /** `responsibleSalesUserId`: undefined keeps the current value, null clears it, a number assigns it (validated). */
+  update(user: CurrentUser, id: number, version: number, customerId: number, responsibleSalesUserId: number | null | undefined, lines: ScLineInput[]) {
     return this.ds.transaction(async (m) => {
       // FOR UPDATE serializes with activate/cancel and with PR/GIR creation (FOR SHARE in lockActiveLines).
       const [sc] = await m.query(`SELECT status, version FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
@@ -75,6 +90,7 @@ export class SalesContractsService {
       if (sc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
       const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
       if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
+      if (responsibleSalesUserId !== undefined) await this.assertResponsibleSales(m, responsibleSalesUserId);
       await wf.deleteOmittedLines(m, 'sales_contract_lines', 'sales_contract_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
       for (const l of lines) {
         if (l.id) {
@@ -88,14 +104,25 @@ export class SalesContractsService {
           ]);
         }
       }
-      await m.query(`UPDATE sales_contracts SET customer_id = $2, version = version + 1, updated_by = $3, updated_at = now() WHERE id = $1`, [id, customerId, user.id]);
+      await m.query(
+        `UPDATE sales_contracts SET customer_id = $2, responsible_sales_user_id = CASE WHEN $5 THEN $4::int ELSE responsible_sales_user_id END,
+                version = version + 1, updated_by = $3, updated_at = now() WHERE id = $1`,
+        [id, customerId, user.id, responsibleSalesUserId ?? null, responsibleSalesUserId !== undefined],
+      );
     });
   }
 
-  /** DRAFT → ACTIVE; ACTIVE never returns to DRAFT (H2). */
+  /** DRAFT → ACTIVE; ACTIVE never returns to DRAFT (H2). Requires a responsible sales, which is locked from then on (CT17). */
   async activate(id: number) {
-    const [, count] = await this.ds.query(`UPDATE sales_contracts SET status = 'ACTIVE', version = version + 1 WHERE id = $1 AND status = 'DRAFT'`, [id]);
-    if (!count) throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be activated', HttpStatus.CONFLICT);
+    const [, count] = await this.ds.query(
+      `UPDATE sales_contracts SET status = 'ACTIVE', version = version + 1 WHERE id = $1 AND status = 'DRAFT' AND responsible_sales_user_id IS NOT NULL`,
+      [id],
+    );
+    if (count) return;
+    const [sc] = await this.ds.query(`SELECT status FROM sales_contracts WHERE id = $1`, [id]);
+    if (!sc) throw new NotFoundException();
+    if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be activated', HttpStatus.CONFLICT);
+    throw new BusinessError('RESPONSIBLE_SALES_REQUIRED', 'Assign a responsible sales before activating the contract');
   }
 
   /** Only DRAFT/ACTIVE contracts with no PR/GIR that is not CANCELED (H2, 03 §9.1). */
@@ -119,10 +146,11 @@ export class SalesContractsService {
   list() {
     return this.ds.query(
       `SELECT s.id, s.document_number AS "documentNumber", s.status, c.name AS "customerName", s.created_at AS "createdAt",
-              u.full_name AS "createdByName",
+              u.full_name AS "createdByName", rs.full_name AS "responsibleSalesName",
               (SELECT COUNT(*)::int FROM sales_contract_line_products x JOIN sales_contract_lines l ON l.id = x.sales_contract_line_id
                 WHERE l.sales_contract_id = s.id AND x.status = 'PENDING') AS "pendingProposals"
-         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by ORDER BY s.id DESC`,
+         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
+         LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id ORDER BY s.id DESC`,
     );
   }
 
@@ -131,8 +159,10 @@ export class SalesContractsService {
       `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId",
               c.code AS "customerCode", c.name AS "customerName",
               s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt",
+              s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName",
               s.updated_at AS "updatedAt", (SELECT full_name FROM users WHERE id = s.updated_by) AS "updatedByName"
-         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by WHERE s.id = $1`,
+         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
+         LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id WHERE s.id = $1`,
       [id],
     );
     if (!sc) throw new NotFoundException();

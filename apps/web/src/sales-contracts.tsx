@@ -9,13 +9,13 @@ import { FormDialog } from './pages';
 import { DataTable, ErrorAlert, PageHeader, StatusChip } from './ui';
 import { StatusTone } from './theme';
 
-interface ScRow { id: number; documentNumber: string; status: string; customerName: string; createdByName: string; createdAt: string; pendingProposals: number }
+interface ScRow { id: number; documentNumber: string; status: string; customerName: string; createdByName: string; createdAt: string; pendingProposals: number; responsibleSalesName: string | null }
 interface Proposal {
   id: number; productId: number; partNumber: string; name: string; status: string; reason: string; decisionNote: string | null;
   proposedByName: string; decidedByName: string | null; decidedAt: string | null;
 }
 interface ScLine { id: number; itemCode: string; itemName: string; uomName: string; quantity: string; products: Proposal[] }
-interface ScDetail extends ScRow { customerId: number; customerCode: string; createdBy: number; version: number; lines: ScLine[] }
+interface ScDetail extends ScRow { customerId: number; customerCode: string; createdBy: number; version: number; responsibleSalesUserId: number | null; lines: ScLine[] }
 
 const scTone: Record<string, StatusTone> = { DRAFT: 'neutral', ACTIVE: 'success', CANCELED: 'muted' };
 const proposalTone: Record<string, StatusTone> = { PENDING: 'pending', APPROVED: 'success', REJECTED: 'danger' };
@@ -36,6 +36,7 @@ export function SalesContractsPage() {
     { field: 'documentNumber', headerName: t('sc.number'), width: 170 },
     { field: 'status', headerName: t('common.status'), width: 130, renderCell: (p) => <ScStatusChip status={p.value} /> },
     { field: 'customerName', headerName: t('sc.customer'), flex: 1, minWidth: 180 },
+    { field: 'responsibleSalesName', headerName: t('sc.responsibleSales'), width: 170, valueFormatter: (v: string | null) => v ?? t('sc.noResponsibleSales') },
     { field: 'pendingProposals', headerName: t('sc.pendingProposals'), type: 'number', width: 150 },
     { field: 'createdByName', headerName: t('gr.createdBy'), width: 160 },
     { field: 'createdAt', headerName: t('gr.createdAt'), width: 170, valueFormatter: fmtDate },
@@ -61,12 +62,14 @@ function CreateScDialog({ onClose, onCreated, edit }: { onClose: () => void; onC
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [customerId, setCustomerId] = useState(edit ? String(edit.customerId) : '');
+  const [responsibleSalesUserId, setResponsibleSalesUserId] = useState(edit?.responsibleSalesUserId ? String(edit.responsibleSalesUserId) : '');
   const [lines, setLines] = useState(edit ? edit.lines.map(({ id, itemCode, itemName, uomName, quantity }) => ({ id, itemCode, itemName, uomName, quantity: String(Number(quantity)) })) : [{ ...emptyLine }]);
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/customers') });
+  const salesUsers = useQuery({ queryKey: ['responsible-sales'], queryFn: () => api<{ id: number; fullName: string }[]>('/sales-contracts/responsible-sales-candidates') });
   const valid = lines.every((l) => l.itemCode.trim() && l.itemName.trim() && l.uomName.trim() && Number(l.quantity) > 0);
   const create = useMutation({
     mutationFn: async () => {
-      const body = { customerId: Number(customerId), lines: lines.map((l) => ({ ...l, quantity: Number(l.quantity) })) };
+      const body = { customerId: Number(customerId), responsibleSalesUserId: responsibleSalesUserId ? Number(responsibleSalesUserId) : null, lines: lines.map((l) => ({ ...l, quantity: Number(l.quantity) })) };
       if (!edit) return api<{ id: number }>('/sales-contracts', { method: 'POST', body: JSON.stringify(body) });
       await api(`/sales-contracts/${edit.id}`, { method: 'PATCH', body: JSON.stringify({ ...body, version: edit.version }) });
       return { id: edit.id };
@@ -80,6 +83,11 @@ function CreateScDialog({ onClose, onCreated, edit }: { onClose: () => void; onC
       <TextField select label={t('sc.customer')} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required
         helperText={customers.data?.length === 0 ? t('sc.noCustomer') : undefined}>
         {(customers.data ?? []).map((c) => <MenuItem key={c.id} value={c.id}>{c.code}: {c.name}</MenuItem>)}
+      </TextField>
+      <TextField select label={t('sc.responsibleSales')} value={responsibleSalesUserId} onChange={(e) => setResponsibleSalesUserId(e.target.value)}
+        helperText={t('sc.responsibleSalesHint')}>
+        <MenuItem value="">{t('sc.noResponsibleSales')}</MenuItem>
+        {(salesUsers.data ?? []).map((u) => <MenuItem key={u.id} value={u.id}>{u.fullName}</MenuItem>)}
       </TextField>
       <Typography variant="body2" color="text.secondary">{t('sc.linesHint')}</Typography>
       {lines.map((l, i) => (
@@ -132,6 +140,7 @@ function ScDetailView({ id, onBack }: { id: number; onBack: () => void }) {
           <Stack spacing={1.5}>
             <Field label={t('common.status')}><ScStatusChip status={d.status} /></Field>
             <Field label={t('sc.customer')}>{d.customerCode}: {d.customerName}</Field>
+            <Field label={t('sc.responsibleSales')}>{d.responsibleSalesName ?? t('sc.noResponsibleSales')}</Field>
             <Field label={t('gr.createdBy')}>{d.createdByName}, {fmtDate(d.createdAt)}</Field>
           </Stack>
         </Paper>

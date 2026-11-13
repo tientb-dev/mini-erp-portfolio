@@ -41,7 +41,7 @@ async function main() {
     const customer = (await one(`SELECT id FROM customers WHERE code = 'KH-DEMO'`, [])).id;
     const supplier = (await one(`SELECT id FROM suppliers WHERE code = 'NCC-DEMO'`, [])).id;
 
-    const sc = await sales.create(creator, customer, [
+    const sc = await sales.create(creator, customer, creator.id, [
       { itemCode: 'RT-AX3000', itemName: 'Router Wi-Fi AX3000', uomName: 'Cái', quantity: 3 },
       { itemCode: 'CB-CAT6', itemName: 'Cáp mạng Cat6', uomName: 'Cái', quantity: 2 },
     ]);

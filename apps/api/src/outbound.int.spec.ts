@@ -63,7 +63,7 @@ describe('Outbound: GIR → GI (integration)', () => {
   async function contract(routerQty: number, cableQty: number, confirm = true) {
     const svc = app.get(SalesContractsService);
     const [{ id: cust }] = await ds.query(`INSERT INTO customers (code, name) VALUES ($1, 'C') RETURNING id`, [`C${Math.random()}`]);
-    const sc = await svc.create(pmUser, cust, [
+    const sc = await svc.create(pmUser, cust, salesId, [
       { itemCode: 'R', itemName: 'Router', uomName: 'Cái', quantity: routerQty },
       { itemCode: 'C', itemName: 'Cable', uomName: 'Cái', quantity: cableQty },
     ]);

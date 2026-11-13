@@ -38,7 +38,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
   });
 
   async function activeContract(qty = 10) {
-    const sc = (await post(admin, '/sales-contracts', { customerId, lines: [{ itemCode: 'SW', itemName: 'Switch 24 port', uomName: 'Cái', quantity: qty }] }).expect(201)).body.id;
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: (await get(admin, '/auth/me')).body.id, lines: [{ itemCode: 'SW', itemName: 'Switch 24 port', uomName: 'Cái', quantity: qty }] }).expect(201)).body.id;
     await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
     const [line] = (await get(admin, `/sales-contracts/${sc}`).expect(200)).body.lines;
     return { sc: sc as number, lineId: line.id as number };

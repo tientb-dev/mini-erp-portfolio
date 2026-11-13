@@ -10,6 +10,7 @@ describe('Inbound chain and GR (integration)', () => {
   let creator: string; // admin: creates documents
   let approver: string; // approver: assigned approver
   let approverId: number;
+  let salesUserId: number;
   let hcmId: number;
   let snProductId: number;
   let bulkProductId: number;
@@ -23,6 +24,7 @@ describe('Inbound chain and GR (integration)', () => {
     creator = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
     approver = await login(app, process.env.SEED_APPROVER_USERNAME!, process.env.SEED_APPROVER_PASSWORD!);
     approverId = (await http().get('/auth/me').set(as(approver))).body.id;
+    salesUserId = (await http().get('/auth/me').set(as(creator))).body.id;
     [{ id: hcmId }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
     const [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
     snProductId = (await post(creator, '/products', { partNumber: 'PN-SN', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
@@ -44,7 +46,7 @@ describe('Inbound chain and GR (integration)', () => {
     const cust = (await post(creator, '/customers', { code: `C-${tag}`, name: 'Customer' }).expect(201)).body.id;
     const sup = (await post(creator, '/suppliers', { code: `S-${tag}`, name: 'Supplier' }).expect(201)).body.id;
     const sc = (await post(creator, '/sales-contracts', {
-      customerId: cust,
+      customerId: cust, responsibleSalesUserId: salesUserId,
       lines: [{ itemCode: 'R', itemName: 'Router', uomName: 'Cái', quantity: 100 }, { itemCode: 'C', itemName: 'Cable', uomName: 'Cái', quantity: 100 }],
     }).expect(201)).body.id;
     await post(creator, `/sales-contracts/${sc}/activate`).expect(204);
@@ -92,7 +94,7 @@ describe('Inbound chain and GR (integration)', () => {
 
   it('rejects referencing a DRAFT sales contract (G03)', async () => {
     const cust = (await post(creator, '/customers', { code: 'C-DRAFT', name: 'X' })).body.id;
-    const sc = (await post(creator, '/sales-contracts', { customerId: cust, lines: [{ itemCode: 'A', itemName: 'A', uomName: 'Cái', quantity: 1 }] })).body.id;
+    const sc = (await post(creator, '/sales-contracts', { customerId: cust, responsibleSalesUserId: salesUserId, lines: [{ itemCode: 'A', itemName: 'A', uomName: 'Cái', quantity: 1 }] })).body.id;
     const [line] = (await http().get(`/sales-contracts/${sc}/lines`).set(as(creator))).body;
     const res = await post(creator, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: line.id, productId: snProductId, quantity: 1 }] });
     expect(res.status).toBe(422);

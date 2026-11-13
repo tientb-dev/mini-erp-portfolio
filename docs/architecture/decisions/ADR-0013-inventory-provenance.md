@@ -80,7 +80,7 @@ Thiết kế P2:
 | R9 | `first_goods_receipt_id` chuyển sang GR sớm nhất khi Thu hồi cần `approved_at` còn hiệu lực trên GR; hai GR cùng dòng PR Thu hồi đồng thời | Khóa dòng PR (FOR UPDATE) trước khi tính lại; tie-break theo id |
 
 ## 6. Quyết định kỹ thuật bổ sung (tự chọn, 2026-11-14)
-- **Dữ liệu cũ:** không backfill phức tạp. Migration lô tạo lô cho GR Đã duyệt hiện có, HĐ nguồn suy từ chuỗi PR, Sales = `sales_contracts.responsible_sales_user_id` (backfill = `created_by`); GI Đã duyệt cũ được phân bổ FIFO trong migration; GIR `AVAILABLE_STOCK` chưa `APPROVED` không có HĐ nguồn → chuyển `DRAFT` (ghi lịch sử). Môi trường demo được phép reset seed.
+- **Dữ liệu cũ:** không backfill phức tạp. Migration lô tạo lô cho GR Đã duyệt hiện có, HĐ nguồn suy từ chuỗi PR, Sales = `sales_contracts.responsible_sales_user_id` (HĐ cũ: **NULL**, không mặc định người tạo — PR 1; lô của HĐ chưa có Sales cần xử lý ở PR 3); GI Đã duyệt cũ được phân bổ FIFO trong migration; GIR `AVAILABLE_STOCK` chưa `APPROVED` không có HĐ nguồn → chuyển `DRAFT` (ghi lịch sử). Môi trường demo được phép reset seed.
 - `goods_receipts.approved_at` ghi lần duyệt còn hiệu lực (ghi đè khi duyệt lại); lô chụp `approved_at` này làm khóa FIFO, tie-break `id`.
 - Phạm vi nguồn là một hàm domain thuần trong Inventory (`StockScope`: kho + product + HĐ nguồn? + Sales?) dùng cho cả GIR và GI; có unit test.
 - Mã lỗi: `INSUFFICIENT_STOCK` (dùng lại), `GR_STOCK_IN_USE`, `GR_REFERENCED_BY_GIR`, `SOURCE_CONTRACT_INVALID`, `RESPONSIBLE_SALES_LOCKED`.
@@ -90,7 +90,7 @@ Mỗi PR: một migration (có `down`), test PostgreSQL thật tham chiếu ID 0
 
 | PR | Nội dung | Migration | Test chính |
 |---|---|---|---|
-| 1. Sales phụ trách HĐ | Cột, API/UI chọn Sales khi `DRAFT`, khóa khi `ACTIVE` | `sales_contracts.responsible_sales_user_id` (backfill `created_by`, NOT NULL) | C83–C83b |
+| 1. Sales phụ trách HĐ | Cột, API/UI chọn Sales khi `DRAFT`, khóa khi `ACTIVE` | `sales_contracts.responsible_sales_user_id` nullable; CHECK `ACTIVE ⇒ NOT NULL` (`NOT VALID` cho HĐ cũ); HĐ cũ để NULL | C83–C83b |
 | 2. Tiến độ nhập PO | `purchase_order_lines.received_quantity` cập nhật qua facade Procurement khi Duyệt GR; tình trạng nhập kho PO; `goods_receipts.approved_at` | Cột + backfill từ GR Đã duyệt | C68–C68b |
 | 3. Lô tồn kho | `inventory_lots` ghi khi Duyệt GR (HĐ nguồn, Sales, `approved_at`); `inventory_transactions.inventory_lot_id`; đối chiếu Σ lô = `inventories`; màn tồn kho thêm chiều | Bảng + backfill lô | C71, C72; truy vấn đối chiếu |
 | 4. Phân bổ GI FIFO | `goods_issue_line_allocations`; Gửi duyệt GI phân bổ + giữ chỗ lô; Duyệt trừ lô; Từ chối/Thu hồi giải phóng; GI hiện tại (chưa có nguồn A/C) dùng phạm vi Kho + PN tạm thời | Bảng + backfill GI cũ | C73; đồng thời 2 GI cùng lô |

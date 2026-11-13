@@ -14,6 +14,8 @@ class ScLineDto {
 }
 class CreateScDto {
   @ApiProperty() @IsInt() customerId!: number;
+  @ApiPropertyOptional({ nullable: true, description: 'Responsible sales; required before activation, editable only while DRAFT' })
+  @IsOptional() @IsInt() responsibleSalesUserId?: number | null;
   @ApiProperty({ type: [ScLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => ScLineDto) lines!: ScLineDto[];
 }
 class UpdateScDto extends CreateScDto {
@@ -42,14 +44,20 @@ export class SalesContractsController {
   @Post('sales-contracts')
   @RequirePermissions('SALES_CONTRACT.CREATE')
   create(@Req() req: AuthedRequest, @Body() dto: CreateScDto) {
-    return this.svc.create(req.user, dto.customerId, dto.lines);
+    return this.svc.create(req.user, dto.customerId, dto.responsibleSalesUserId ?? null, dto.lines);
+  }
+
+  @Get('sales-contracts/responsible-sales-candidates')
+  @RequirePermissions('SALES_CONTRACT.CREATE')
+  responsibleSalesCandidates() {
+    return this.svc.responsibleSalesCandidates();
   }
 
   @Patch('sales-contracts/:id')
   @HttpCode(204)
   @RequirePermissions('SALES_CONTRACT.CREATE')
   update(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateScDto) {
-    return this.svc.update(req.user, id, dto.version, dto.customerId, dto.lines);
+    return this.svc.update(req.user, id, dto.version, dto.customerId, dto.responsibleSalesUserId ?? null, dto.lines);
   }
 
   @Post('sales-contracts/:id/activate')

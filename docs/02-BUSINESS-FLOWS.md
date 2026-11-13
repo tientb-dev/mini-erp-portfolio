@@ -54,9 +54,9 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 8. GR được dòng GIR chưa `CANCELED` hiển thị làm GR tham chiếu thì không được Thu hồi (03 §2.2).
 
 ### B.2 Luồng B/D — trực tiếp từ tồn kho (`AVAILABLE_STOCK`)
-1. Không cần PR. Chọn tồn theo **Kho → Người phụ trách nguồn hàng → Product**; một GIR chỉ một kho và một người phụ trách, được chọn nhiều Product của người đó. Kho hoặc người phụ trách khác → GIR khác.
+1. Không cần PR. Chọn tồn theo **Kho → Sales nguồn → HĐ nguồn → Product** (CT16): một GIR chỉ **một HĐ nguồn → một HĐ đích**, một Sales nguồn và một kho; được chọn nhiều Product. Mượn từ HĐ nguồn, Sales hoặc kho khác → lập GIR riêng.
 2. Chỉ chọn kho có `allow_available_stock_issue`. Ví dụ hợp lệ: kho hàng thừa chờ bán; không hợp lệ: kho dự án, kho bảo hành/hàng hỏng.
-3. UI hiển thị tồn khả dụng theo kho, người phụ trách và Product. Luồng B: số lượng ≤ min(hạn mức giao dòng HĐ còn lại, tồn khả dụng); luồng D: ≤ tồn khả dụng. Phải đủ tồn khả dụng khi Gửi duyệt (CT13); GIR không giữ chỗ tồn; GI kiểm tra lại khi thực xuất.
+3. UI hiển thị tồn khả dụng theo kho, người phụ trách và Product. Luồng B: số lượng ≤ min(hạn mức giao dòng HĐ còn lại, tồn khả dụng); luồng D: ≤ tồn khả dụng. Được lưu `DRAFT` khi chưa đủ tồn; **bắt buộc đủ tồn khả dụng khi Gửi duyệt**, kiểm tra lại khi Sales nguồn đồng ý và khi Quản lý kho duyệt; GIR không giữ chỗ tồn; GI kiểm tra lại khi thực xuất.
 4. Luồng B: bắt buộc dòng HĐ và Product được Sales xác nhận (§B.3). Luồng D: không cần PR hay dòng HĐ, **bắt buộc ghi mục đích sử dụng**.
 5. **Hai bước duyệt tuần tự** (ngoại lệ): người phụ trách nguồn hàng đồng ý → Quản lý kho duyệt. Người phụ trách nguồn hàng có thể khác Sales của HĐ nhận hàng. GIR chỉ `APPROVED` sau bước Quản lý kho; tồn được kiểm tra lại khi duyệt.
 6. GIR đã Gửi duyệt không sửa trực tiếp; muốn sửa (kể cả giảm số lượng) phải Thu hồi về `DRAFT`, sửa, Gửi duyệt lại và duyệt lại từ bước người phụ trách nguồn hàng.
@@ -65,7 +65,7 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 Dòng hàng bán (A, B) tham chiếu `sales_contract_line_id` và một Product. PM có thể lưu `DRAFT` với Product chưa được Sales xác nhận cho dòng HĐ; **Gửi duyệt bị chặn** cho đến khi Sales xác nhận; sau đó PM chủ động Gửi duyệt (không tự động). UI hiển thị số lượng HĐ, đã đề nghị ở GIR khác, còn được đề nghị. Dòng vật tư (C, D) không áp dụng.
 
 ### B.4 GI và hoàn thành xuất (mọi luồng)
-1. Quản lý kho lập GI: chọn dòng GIR cần xuất và số lượng; kiểm tra tồn khả dụng tại GI (03 §4). Luồng A/C chỉ xuất tồn có HĐ nguồn là HĐ của GIR; luồng B/D xuất tồn của người phụ trách nguồn hàng đã đồng ý (03 §5). Hàng không SN phân bổ FIFO theo thời điểm Duyệt GR trong phạm vi nguồn được phép.
+1. Quản lý kho lập GI: chọn dòng GIR cần xuất và số lượng; kiểm tra tồn khả dụng tại GI (03 §4). Luồng A/C chỉ xuất tồn có HĐ nguồn là HĐ của GIR; luồng B/D chỉ xuất tồn thuộc HĐ nguồn + Sales nguồn của GIR (03 §5). Hàng không SN phân bổ FIFO theo thời điểm Duyệt GR trong phạm vi nguồn được phép.
 2. Với PN quản lý SN, chọn đúng số SN khả dụng; Gửi duyệt GI giữ chỗ; Duyệt GI trừ tồn thực tế.
 3. Nhiều GI có thể xuất từng phần của một GIR. Quản lý kho "Xác nhận hoàn thành xuất" (từ màn hình GI, hiệu lực cho cả GIR) → GIR `COMPLETED`, giải phóng phần chưa xuất khỏi hạn mức (03 §10.3).
 

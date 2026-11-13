@@ -44,10 +44,10 @@ Các đề xuất bổ trợ chưa bị thay đổi và vẫn áp dụng: class-
 |---|---|---|
 | 1 | **Identity & Access** | User, đăng nhập, role, permission, phạm vi kho; hàm kiểm tra quyền |
 | 2 | **Master Data** | Danh mục hàng hóa: mã tạm (`temporary_products`), mã chính (`products`), nhóm hàng, đơn vị tính, khách hàng, nhà cung cấp, kho; bản dịch danh mục |
-| 3 | **Sales Contracts** | HĐ (`DRAFT`/`ACTIVE`/`CANCELED`, không duyệt), dòng HĐ, Product được phép giao theo dòng HĐ (đề xuất PM, xác nhận Sales), hạn mức GIR theo dòng HĐ (ADR-0009, ADR-0010) |
+| 3 | **Sales Contracts** | HĐ (`DRAFT`/`ACTIVE`/`CANCELED`, không duyệt), dòng HĐ, Product được phép giao theo dòng HĐ (đề xuất PM, xác nhận Sales), hạn mức GIR hàng bán theo dòng HĐ; dòng vật tư chỉ gắn HĐ (ADR-0009, ADR-0010, ADR-0012) |
 | 4 | **Procurement** | PR, PO; mapping mã tạm → mã chính trên dòng PR (ADR-0008); hạn mức dòng PR → dòng PO; hạn mức và tiến độ nhập trên dòng PO |
 | 5 | **Inbound** | GRR, GR, chi tiết GR; một GR chưa Hủy cho mỗi GRR |
-| 6 | **Outbound** | GIR (`SALES_CONTRACT` / `AVAILABLE_STOCK`), GI; hạn mức dòng GIR → dòng GI; hoàn thành xuất (`COMPLETED`) (ADR-0010) |
+| 6 | **Outbound** | GIR (`SALES_CONTRACT` / `AVAILABLE_STOCK`; bốn luồng hàng bán/vật tư theo PR/trực tiếp, ADR-0012), GI; hạn mức dòng GIR → dòng GI; hoàn thành xuất (`COMPLETED`) (ADR-0010) |
 | 7 | **Inventory** | Số dư Kho + PN, giữ chỗ, SN, lịch sử biến động, lịch sử SN |
 | 8 | **Workflow & Notifications** | Vòng đời `approval_status` (một cấp; hai bước cho GIR `AVAILABLE_STOCK`), người duyệt mặc định/được chỉ định, lý do, ghi chú, đính kèm, cấp `document_number` (ADR-0011), thông báo trong ứng dụng |
 
@@ -70,11 +70,12 @@ Inbound ──► Procurement ──► Sales Contracts ◄── Outbound
 ### 2.1a Điểm khóa đồng thời mới (2026-11-13)
 | Thao tác | Dòng bị khóa |
 |---|---|
-| Tạo/sửa/Gửi duyệt/Duyệt/Hủy GIR; hoàn thành xuất | dòng HĐ (`pessimistic_write`) — hạn mức theo `sales_contract_line_id` |
+| Tạo/sửa/Gửi duyệt/Duyệt/Hủy GIR hàng bán (luồng A, B); hoàn thành xuất | dòng HĐ (`pessimistic_write`) — hạn mức dùng chung theo `sales_contract_line_id`; dòng vật tư không khóa dòng HĐ (ADR-0012) |
+| Tạo/sửa/Gửi duyệt/Duyệt/Hủy GIR theo PR (luồng A, C) | dòng PR (`pessimistic_write`, qua facade Procurement) — *đề xuất, chưa triển khai* |
 | Tạo GI, hoàn thành xuất, Thu hồi GIR | dòng GIR (`pessimistic_write`) |
 | Cấp `document_number` | bộ đếm (loại, năm) (ADR-0011) |
 | Sửa nội dung/Hủy HĐ vs tạo PR/GIR tham chiếu | dòng HĐ / HĐ |
-Thứ tự khóa khi một thao tác cần nhiều điểm: dòng HĐ → dòng GIR → `inventories` → `inventory_serials`.
+Thứ tự khóa khi một thao tác cần nhiều điểm: dòng HĐ → dòng GIR → `inventories` → `inventory_serials`. Đề xuất cho luồng A (chưa chốt): dòng HĐ → dòng PR → dòng GIR. Outbound → Procurement là phụ thuộc mới, cần kiểm tra không tạo vòng trong §3.2.
 
 ### 2.2 Procurement lấy tiến độ nhập từ Inbound — [ADR-0003](decisions/ADR-0003-procurement-inbound-progress.md)
 
@@ -182,7 +183,7 @@ Ngoại lệ đã có giữ nguyên: `GR.DECLARE_DETAILS` cho phép sửa chi ti
 
 ## 7. Workflow — [ADR-0007](decisions/ADR-0007-workflow.md), [ADR-0010](decisions/ADR-0010-gir-limits-approval-completion.md), [ADR-0011](decisions/ADR-0011-document-numbering-and-no-delete.md)
 
-- Một cấp phê duyệt cho PR, PO, GRR, GR, GIR `SALES_CONTRACT`, GI. **Ngoại lệ:** GIR `AVAILABLE_STOCK` hai bước Sales → Quản lý kho. HĐ không phê duyệt (`DRAFT`/`ACTIVE`/`CANCELED`).
+- Một cấp phê duyệt cho PR, PO, GRR, GR, GIR `SALES_CONTRACT`, GI. **Ngoại lệ:** GIR `AVAILABLE_STOCK` hai bước người phụ trách nguồn hàng → Quản lý kho. HĐ không phê duyệt (`DRAFT`/`ACTIVE`/`CANCELED`).
 - `approval_status`: `DRAFT`, `WAITING_FOR_APPROVE`, `APPROVED`, `REJECTED`, `CANCELED`. Thu hồi luôn về `DRAFT`.
 - Chuyển trạng thái bằng `UPDATE` có điều kiện trạng thái hiện tại để chống xử lý trùng.
 - Trạng thái thực hiện GIR (`COMPLETED`) **tách khỏi** `approval_status`.

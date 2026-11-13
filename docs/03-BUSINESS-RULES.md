@@ -2,7 +2,11 @@
 **Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
 
 ## 1. Số lượng và liên kết mua hàng — đã chốt
-- Mỗi PR thuộc một HĐ `ACTIVE`; mỗi dòng PR tham chiếu `sales_contract_line_id` và giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
+- Mỗi PR thuộc một HĐ `ACTIVE` (cấp chứng từ); mỗi dòng PR giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
+- **Phân loại dòng** (đã chốt 2026-11-13, ADR-0012): mỗi dòng PR có phân loại tường minh hàng bán/vật tư; MVP không trộn hai loại trong một PR.
+- **PR hàng bán:** tạo từ màn hình HĐ; copy toàn bộ dòng hàng và thông tin liên quan sang form để chỉnh sửa trước khi lưu. Mỗi dòng PR giữ đúng `sales_contract_line_id`; dòng HĐ phải thuộc HĐ của PR; không gộp dòng HĐ cùng Product. Trong cùng PR không chia/tạo trùng một dòng HĐ; nhiều PR khác nhau được tham chiếu cùng dòng HĐ. Không có hạn mức Σ PR ≤ dòng HĐ (IM19).
+- **PR vật tư** (vật tư/phụ kiện triển khai/dự phòng): tạo tại màn hình PR, chọn HĐ rồi tự chọn vật tư; `sales_contract_line_id` không bắt buộc; được dùng mã tạm theo §1a (chuẩn hóa trước khi nhập kho).
+- Trùng Product không đồng nghĩa trùng dòng HĐ; hệ thống không tự suy ra hoặc tự gán `sales_contract_line_id` theo Product.
 - PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR.
 - Tổng số lượng dòng PO Chờ duyệt + Đã duyệt gắn với dòng PR không vượt số lượng PR Đã duyệt.
 - Một GRR tham chiếu một PO Đã duyệt, một kho; mỗi dòng GRR tham chiếu một dòng PO.
@@ -88,19 +92,32 @@
 - Lịch sử Duyệt/Thu hồi phải được lưu ở cấp chứng từ để audit. Inventory chỉ giữ dữ liệu của lần duyệt còn hiệu lực (không có reversal ledger trong MVP).
 - Người tạo GR thực hiện Thu hồi khi thỏa quyền và điều kiện; cần lý do (theo §6).
 
-## 3. Hai loại GIR — đã chốt (cập nhật 2026-11-13)
-- **Cả hai loại đều bắt buộc HĐ `ACTIVE` và dòng HĐ.** Không cần PO/PR hoặc hàng đã nhập.
-- Mỗi dòng GIR tham chiếu `sales_contract_line_id` và một Product. **Chặn Gửi duyệt** nếu Product chưa được Sales xác nhận cho dòng HĐ đó (§9.2); GIR `DRAFT` được lưu với Product chưa xác nhận. Sau khi Sales xác nhận, PM chủ động Gửi duyệt.
-- **`SALES_CONTRACT`:** chọn HĐ và kho dự kiến xuất; phê duyệt một cấp.
-- **`AVAILABLE_STOCK`:** dùng hàng có sẵn trong kho hợp lệ để phục vụ HĐ.
-  - Chỉ chọn kho có `allow_available_stock_issue` (đề xuất tên thuộc tính). Kho hàng thừa chờ bán: hợp lệ; kho dự án, kho bảo hành/hàng hỏng: mặc định **không** hợp lệ.
-  - Số lượng đề nghị ≤ min(hạn mức dòng HĐ còn lại, tồn khả dụng của Product tại kho). UI chặn vượt; backend kiểm tra khi lưu/Gửi duyệt và kiểm tra lại tồn khi duyệt; tồn không đủ → không duyệt.
-  - **Hai bước duyệt tuần tự (ngoại lệ):** Sales phụ trách hàng hóa xác nhận quyền dùng nguồn hàng → Quản lý kho duyệt GIR và khả năng đáp ứng. GIR chỉ `APPROVED` sau bước Quản lý kho. Product, kho nguồn, số lượng là nội dung Sales đã xác nhận.
-  - Từ chối ở bước Sales hoặc Quản lý kho → GIR `REJECTED`, thông báo PM; muốn tiếp tục phải Thu hồi/sửa và duyệt lại từ bước Sales.
+## 3. GIR: hai loại nguồn, bốn luồng — đã chốt (cập nhật 2026-11-13, ADR-0012)
+- **Mọi GIR bắt buộc HĐ `ACTIVE` ở cấp chứng từ** và một kho. Mỗi dòng GIR có phân loại tường minh hàng bán/vật tư; MVP không trộn hai loại trong một GIR.
+- Bốn luồng:
+  - **A. Hàng bán theo PR**: nguồn là dòng PR hàng bán thuộc PR đã `PO done`; giữ riêng từng dòng PR; kiểm soát hạn mức dòng PR và hạn mức giao còn lại của dòng HĐ.
+  - **B. Hàng bán trực tiếp** (`AVAILABLE_STOCK`): không cần PR; bắt buộc dòng HĐ và Product được Sales xác nhận; kiểm soát hạn mức giao dòng HĐ.
+  - **C. Vật tư theo PR**: nguồn là dòng PR vật tư thuộc PR đã `PO done`; giữ riêng từng dòng PR; kiểm soát hạn mức dòng PR; không áp hạn mức dòng HĐ. Mục đích sử dụng (đã chốt, CT9): chỉ tham khảo, có thể kế thừa từ PR, không bắt buộc nhập lại, không là điều kiện hạn mức hay phê duyệt.
+  - **D. Vật tư trực tiếp** (`AVAILABLE_STOCK`): không cần PR/dòng HĐ; vẫn gắn HĐ; **bắt buộc ghi mục đích sử dụng**; không áp hạn mức PR/HĐ.
+- **Hàng bán (A, B) dùng chung hạn mức giao của dòng HĐ** (§10.1), kể cả khi nhiều PR tham chiếu cùng dòng HĐ.
+- **Hạn mức dòng PR (A, C):** Σ số lượng dòng GIR tham chiếu một dòng PR không vượt số lượng dòng PR Đã duyệt. Trạng thái chiếm hạn mức, thời điểm kiểm tra và đồng thời theo §10.1 (CT2).
+- **`PO done`** (đã chốt 2026-11-13, CT1): một PR đạt `PO done` khi **mọi dòng PR** có tổng số lượng trên các dòng PO `APPROVED` (còn hiệu lực theo workflow) **bằng đúng** số lượng yêu cầu của dòng đó. Một dòng PR có thể mua qua nhiều PO; cộng dồn theo tham chiếu dòng PR, không theo Product; tổng đặt mua không vượt số lượng dòng PR (§1). Thiếu bất kỳ dòng nào → chưa `PO done`. `PO done` quyết định PR có hiển thị khi lập GIR theo PR và là điều kiện Gửi duyệt GIR A/C (xem quy tắc mất `PO done`); không có nghĩa là đã nhập kho; GIR A/C có thể lập và duyệt khi hàng chưa về.
+- **Mất `PO done`** (đã chốt 2026-11-13): `PO done` là **điều kiện để Gửi duyệt** GIR A/C, kiểm tra tại backend ở mỗi lần Gửi duyệt (GIR `DRAFT`, và GIR `REJECTED` sửa rồi Gửi duyệt lại), không chỉ khi hiển thị danh sách PR. PR không còn `PO done` → chặn Gửi duyệt. GIR **đã Gửi duyệt hợp lệ** không bị tự động Hủy, Thu hồi hay đổi trạng thái khi PR mất `PO done` sau đó; tiếp tục theo workflow và hạn mức hiện hữu (không hồi tố). PR đạt lại `PO done` → được Gửi duyệt.
+- **Lượng đã nhập tham khảo (A, C):** cộng số lượng GR `APPROVED` theo chuỗi dòng PR → dòng PO → dòng GRR → dòng GR; chưa nhập hiển thị 0. Không ghép theo Product; **không dùng làm hạn mức GIR**.
+- Dòng hàng bán tham chiếu `sales_contract_line_id` và một Product. **Chặn Gửi duyệt** nếu Product chưa được Sales xác nhận cho dòng HĐ đó (§9.2); GIR `DRAFT` được lưu với Product chưa xác nhận. Sau khi Sales xác nhận, PM chủ động Gửi duyệt. Dòng vật tư không áp dụng điều kiện này và không chiếm hạn mức dòng HĐ.
+- Không tự suy ra, tự gán hoặc tự gộp dòng HĐ/dòng PR theo Product.
+- **Luồng theo PR (A, C):** phê duyệt một cấp (mặc định 03 §6); không áp dụng duyệt hai bước của `AVAILABLE_STOCK`. Giá trị `issue_type` cho luồng A/C: chưa chốt kỹ thuật (OPEN-QUESTIONS CT10).
+- **`AVAILABLE_STOCK` (B, D):** dùng hàng có sẵn trong kho hợp lệ để phục vụ HĐ.
+  - Chỉ chọn kho có `allow_available_stock_issue`. Kho hàng thừa chờ bán: hợp lệ; kho dự án, kho bảo hành/hàng hỏng: mặc định **không** hợp lệ.
+  - Chọn tồn theo **Kho → Người phụ trách nguồn hàng → Product**. Một GIR chỉ một kho và một người phụ trách nguồn hàng; được nhiều Product của người đó. MVP không hỗ trợ nhiều kho trong một GIR hay nhóm kho.
+  - Số lượng đề nghị ≤ tồn khả dụng của Product thuộc người phụ trách tại kho; luồng B còn ≤ hạn mức giao dòng HĐ còn lại. UI chặn vượt; backend kiểm tra khi lưu/Gửi duyệt và kiểm tra lại tồn khi duyệt; tồn không đủ → không duyệt.
+  - **Hai bước duyệt tuần tự (ngoại lệ):** người phụ trách nguồn hàng đồng ý → Quản lý kho duyệt GIR và khả năng đáp ứng. GIR chỉ `APPROVED` sau bước Quản lý kho. Người phụ trách nguồn hàng có thể khác Sales của HĐ nhận hàng. Product, kho nguồn, số lượng là nội dung người phụ trách đã đồng ý.
+  - Từ chối ở bước người phụ trách nguồn hàng hoặc Quản lý kho → GIR `REJECTED`, thông báo PM; muốn tiếp tục phải Thu hồi/sửa và duyệt lại từ bước đầu.
 - **GIR không giữ chỗ Inventory**; GI giữ chỗ theo §4.
-- GIR đã Gửi duyệt không sửa trực tiếp; sửa (kể cả chỉ giảm số lượng) phải Thu hồi về `DRAFT`, sửa, Gửi duyệt lại; với `AVAILABLE_STOCK` duyệt lại từ bước Sales.
+- GIR đã Gửi duyệt không sửa trực tiếp; sửa (kể cả chỉ giảm số lượng) phải Thu hồi về `DRAFT`, sửa, Gửi duyệt lại; với `AVAILABLE_STOCK` duyệt lại từ bước người phụ trách nguồn hàng.
 - Một GIR có một kho; có thể có nhiều GI xuất từng đợt.
-- Các quy tắc **hạn mức PO/PR dành cho GIR kiểu cũ** đã bị thay thế.
+- Các quy tắc **GIR chọn dòng PO và hạn mức PO** kiểu cũ đã bị thay thế; hạn mức dòng PR của luồng A/C là quy tắc mới theo ADR-0012.
+- **Phân biệt số lượng:** dòng HĐ, PR, PO, GR thực nhập, GIR đề nghị/được duyệt, GI thực xuất và tồn khả dụng là các đại lượng riêng; không dùng cái này thay cái khác. Tồn khả dụng được kiểm soát tại GI (§4).
 - Hạn mức, hoàn thành xuất, thu hồi: §10.
 
 ## 4. GI — đã chốt
@@ -122,6 +139,7 @@
 - Màn hình tồn kho phục vụ xem báo cáo; phép kiểm tồn khả dụng phục vụ lập/Gửi duyệt/Duyệt GI; không phải hai sổ tồn kho độc lập.
 - SN khả dụng = SN thuộc GR Đã duyệt ở kho, chưa xuất qua GI Đã duyệt, chưa giữ chỗ bởi GI Chờ duyệt.
 - Hàng tồn dùng chung giữa các HĐ, khách hàng và PR.
+- **Người phụ trách nguồn hàng** (đã chốt 2026-11-13, ADR-0012): ghi nhận khi duyệt GR, thường là Sales phụ trách HĐ mà hàng được mua để phục vụ (không mặc định là Sales của HĐ nhận hàng). Tồn kho phải phân biệt được lượng theo người phụ trách, không chỉ theo Kho + PN; phục vụ chọn nguồn của GIR `AVAILABLE_STOCK`. Mô hình dữ liệu và cơ chế phân bổ xuất theo dòng GR/lô: chưa chốt kỹ thuật.
 - Không quản lý tồn theo PO, PR, HĐ hay vị trí.
 
 ## 6. Vòng đời chứng từ — đã chốt chung
@@ -169,18 +187,19 @@
 - PM đề xuất Product (kèm lý do); Sales xác nhận hoặc từ chối theo từng dòng HĐ. Lưu người xác nhận, thời điểm, ghi chú hoặc số phụ lục; không quản lý quy trình ký phụ lục.
 - Mapping PR → Product (chuẩn hóa hàng mua, §1a) và xác nhận Product cho dòng HĐ (hàng được phép giao) là **hai trách nhiệm tách biệt**, không gộp.
 - Đề xuất mapping dòng HĐ ↔ Product có trạng thái `PENDING` → `APPROVED` | `REJECTED` (PM tạo, Sales quyết định). Đây là trạng thái của đề xuất, không phải `approval_status` chứng từ.
-- Không cho thu hồi xác nhận (`APPROVED`) đang được GIR chưa `CANCELED` sử dụng.
+- Không cho thu hồi xác nhận (`APPROVED`) đang được dòng GIR hàng bán chưa `CANCELED` sử dụng. Dòng GIR vật tư cùng Product không tính là sử dụng xác nhận này.
 - Đề xuất `PENDING`/`REJECTED` không làm Product thành "đã sử dụng" (§1c).
 - Không có hạn mức riêng theo từng Product; chỉ hạn mức theo dòng HĐ (§10.1).
 
 ## 10. Hạn mức, hoàn thành xuất, thu hồi GIR — đã chốt (2026-11-13)
 ### 10.1 Hạn mức theo dòng HĐ
-- Quản lý theo **`sales_contract_line_id`**, không cộng gộp theo PN.
-- GIR `DRAFT`, `WAITING_FOR_APPROVE`, `APPROVED`, `REJECTED` chiếm hạn mức; `CANCELED` không chiếm.
+- Quản lý theo **`sales_contract_line_id`**, không cộng gộp theo PN. Chỉ dòng GIR hàng bán chiếm hạn mức; luồng A (theo PR) và B (trực tiếp) **dùng chung** một hạn mức của dòng HĐ, kể cả khi nhiều PR tham chiếu cùng dòng HĐ. Dòng GIR vật tư không chiếm (ADR-0012).
+- **Trạng thái chiếm hạn mức** (đã chốt 2026-11-13, CT2; **thay thế** quy tắc cũ "GIR `DRAFT` chiếm hạn mức"): `WAITING_FOR_APPROVE`, `REJECTED`, `APPROVED` chiếm; `DRAFT` và `CANCELED` không chiếm. `REJECTED` giữ hạn mức vì có thể sửa và Gửi duyệt lại. Áp dụng như nhau cho hạn mức giao dòng HĐ và hạn mức dòng PR (§3).
 - GIR `COMPLETED` chỉ chiếm bằng số lượng thực xuất (GI `APPROVED`).
 - UI hiển thị số lượng HĐ, đã đề nghị ở GIR khác, còn được đề nghị.
-- Backend kiểm tra khi tạo/sửa/Gửi duyệt/Duyệt, chống race condition bằng transaction/khóa.
-- `AVAILABLE_STOCK` còn bị giới hạn bởi tồn khả dụng (§3).
+- Backend kiểm tra hạn mức khi **Gửi duyệt** (kể cả GIR `DRAFT` đã tạo từ trước) và kiểm tra lại khi **Duyệt**. Lưu `DRAFT` không bị chặn bởi hạn mức (UI vẫn hiển thị số còn lại). Sửa số lượng GIR `REJECTED`: kiểm tra lại hạn mức, không tính trùng lượng chính GIR đó đang giữ. Chống race condition bằng transaction/khóa khi nhiều GIR cùng dùng một hạn mức.
+- Lượng đã thực xuất (GI `APPROVED`) tính theo quy tắc hiện hữu: GIR `COMPLETED` chỉ chiếm bằng lượng thực xuất (§10.3); không cộng trùng GIR và GI.
+- `AVAILABLE_STOCK` còn bị giới hạn bởi tồn khả dụng của người phụ trách nguồn hàng (§3). Luồng A còn bị giới hạn bởi hạn mức dòng PR (§3).
 
 ### 10.2 Phụ trách
 - PM phụ trách GIR; Quản lý kho phụ trách GI.
@@ -200,7 +219,7 @@
 - GIR `APPROVED` chưa có GI: được Thu hồi.
 - GIR đã có GI: chỉ Thu hồi khi mọi GI liên quan đã Hủy và không có xuất kho thực tế.
 - GIR đang trong quy trình duyệt không sửa trực tiếp.
-- `AVAILABLE_STOCK`: Thu hồi làm mất hiệu lực xác nhận của vòng duyệt cũ; duyệt lại từ Sales.
+- `AVAILABLE_STOCK`: Thu hồi làm mất hiệu lực xác nhận của vòng duyệt cũ; duyệt lại từ bước người phụ trách nguồn hàng.
 - Điều kiện Thu hồi PR/PO/GRR và quy tắc Inventory đã chốt giữ nguyên.
 
 ## 11. Đánh số và hủy chứng từ — đã chốt (2026-11-13)

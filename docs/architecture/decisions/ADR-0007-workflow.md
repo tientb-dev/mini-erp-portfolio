@@ -3,7 +3,7 @@
 - **Trạng thái:** Đã chấp nhận — 2026-11-12
 
 ## Quyết định
-- Một cấp phê duyệt cho PR, PO, GRR, GR, GIR `SALES_CONTRACT`, GI theo 03 §6. **Ngoại lệ duy nhất:** GIR `AVAILABLE_STOCK` hai bước tuần tự Sales → Quản lý kho (ADR-0010). HĐ không duyệt, dùng `DRAFT`/`ACTIVE`/`CANCELED` (ADR-0009).
+- Một cấp phê duyệt cho PR, PO, GRR, GR, GIR `SALES_CONTRACT`, GI theo 03 §6. **Ngoại lệ duy nhất:** GIR `AVAILABLE_STOCK` hai bước tuần tự người phụ trách nguồn hàng → Quản lý kho (ADR-0010, ADR-0012). HĐ không duyệt, dùng `DRAFT`/`ACTIVE`/`CANCELED` (ADR-0009).
 - Thu hồi luôn về `DRAFT`, phải Gửi duyệt và duyệt lại (W2, 2026-11-13). Điều kiện Thu hồi PR/PO/GRR/GR giữ như đã chốt.
 - Không xóa chứng từ; chỉ `CANCELED` (ADR-0011).
 - `approval_status` chỉ mang trạng thái phê duyệt. Mã: `DRAFT`, `WAITING_FOR_APPROVE` (không dùng `PENDING`), `APPROVED`, `REJECTED`, `CANCELED` (không dùng `CANCELLED`) — cập nhật 2026-11-13. Quy tắc chuyển trạng thái không đổi. Trạng thái thực hiện (tiến độ nhập PO, hoàn tất/đóng sớm GIR) là trường riêng.

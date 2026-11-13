@@ -1,0 +1,157 @@
+import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { DataSource, EntityManager } from 'typeorm';
+import type { CurrentUser } from '../identity/auth';
+import { ProductUsage } from '../master-data/product-usage';
+import * as wf from '../workflow/workflow';
+import { BusinessError } from '../workflow/workflow';
+
+export interface ScLineInput { itemCode: string; itemName: string; uomName: string; quantity: number }
+
+/**
+ * Facade for other modules (Procurement, Outbound). Runs inside the caller's transaction.
+ * Lock order: HĐ line first (ARCHITECTURE §2.1a).
+ */
+export class SalesContractFacade {
+  /** Locks HĐ lines (id order) of an ACTIVE contract; throws if any line is missing or the contract is not ACTIVE. */
+  static async lockActiveLines(m: EntityManager, salesContractId: number, lineIds: number[]): Promise<Map<number, { quantity: string }>> {
+    const [sc] = await m.query(`SELECT status FROM sales_contracts WHERE id = $1 FOR SHARE`, [salesContractId]);
+    if (!sc) throw new NotFoundException('Sales contract not found');
+    if (sc.status !== 'ACTIVE') throw new BusinessError('SALES_CONTRACT_NOT_ACTIVE', 'Only ACTIVE sales contracts can be referenced');
+    const ids = [...new Set(lineIds)].sort((a, b) => a - b);
+    const rows: { id: number; quantity: string }[] = await m.query(
+      `SELECT id, quantity FROM sales_contract_lines WHERE sales_contract_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE`,
+      [salesContractId, ids],
+    );
+    if (rows.length !== ids.length) throw new BusinessError('SALES_CONTRACT_LINE_MISMATCH', 'Every line must belong to the selected sales contract');
+    return new Map(rows.map((r) => [r.id, r]));
+  }
+
+  /** Line + product pairs that Sales has not APPROVED for delivery (03 §9.2). */
+  static async unapprovedProducts(m: EntityManager, pairs: { salesContractLineId: number; productId: number }[]): Promise<typeof pairs> {
+    if (!pairs.length) return [];
+    return m.query(
+      `SELECT p.line AS "salesContractLineId", p.product AS "productId"
+         FROM unnest($1::int[], $2::int[]) AS p(line, product)
+        WHERE NOT EXISTS (SELECT 1 FROM sales_contract_line_products x
+                           WHERE x.sales_contract_line_id = p.line AND x.product_id = p.product AND x.status = 'APPROVED')`,
+      [pairs.map((p) => p.salesContractLineId), pairs.map((p) => p.productId)],
+    );
+  }
+}
+
+/** HĐ (DRAFT/ACTIVE/CANCELED, no approval workflow) and deliverable products per line (ADR-0009). */
+@Injectable()
+export class SalesContractsService {
+  constructor(private readonly ds: DataSource) {}
+
+  create(user: CurrentUser, customerId: number, lines: ScLineInput[]) {
+    return this.ds.transaction(async (m) => {
+      const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
+      if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
+      const number = await wf.nextDocumentNumber(m, 'SC');
+      const [sc] = await m.query(`INSERT INTO sales_contracts (document_number, customer_id, created_by) VALUES ($1, $2, $3) RETURNING id`, [
+        number, customerId, user.id,
+      ]);
+      for (const l of lines) {
+        await m.query(`INSERT INTO sales_contract_lines (sales_contract_id, item_code, item_name, uom_name, quantity) VALUES ($1, $2, $3, $4, $5)`, [
+          sc.id, l.itemCode, l.itemName, l.uomName, l.quantity,
+        ]);
+      }
+      return { id: sc.id as number, documentNumber: number };
+    });
+  }
+
+  /** DRAFT → ACTIVE; ACTIVE never returns to DRAFT (H2). */
+  async activate(id: number) {
+    const [, count] = await this.ds.query(`UPDATE sales_contracts SET status = 'ACTIVE' WHERE id = $1 AND status = 'DRAFT'`, [id]);
+    if (!count) throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be activated', HttpStatus.CONFLICT);
+  }
+
+  /** Only DRAFT/ACTIVE contracts with no PR/GIR that is not CANCELED (H2, 03 §9.1). */
+  cancel(id: number) {
+    return this.ds.transaction(async (m) => {
+      // FOR UPDATE waits for PR/GIR creation, which holds the contract FOR SHARE (lockActiveLines).
+      const [sc] = await m.query(`SELECT status FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
+      if (!sc) throw new NotFoundException();
+      if (sc.status === 'CANCELED') throw new BusinessError('INVALID_STATUS', 'The sales contract is already canceled', HttpStatus.CONFLICT);
+      // shortcut: reads Procurement/Outbound tables directly (reverse of the module graph) until they expose a usage count.
+      const [ref] = await m.query(
+        `SELECT 1 FROM purchase_requisitions WHERE sales_contract_id = $1 AND approval_status <> 'CANCELED'
+         UNION ALL SELECT 1 FROM goods_issue_requests WHERE sales_contract_id = $1 AND approval_status <> 'CANCELED' LIMIT 1`,
+        [id],
+      );
+      if (ref) throw new BusinessError('SALES_CONTRACT_IN_USE', 'The contract is referenced by a PR or GIR that is not canceled', HttpStatus.CONFLICT);
+      await m.query(`UPDATE sales_contracts SET status = 'CANCELED' WHERE id = $1`, [id]);
+    });
+  }
+
+  list() {
+    return this.ds.query(
+      `SELECT s.id, s.document_number AS "documentNumber", s.status, c.name AS "customerName", s.created_at AS "createdAt",
+              u.full_name AS "createdByName",
+              (SELECT COUNT(*)::int FROM sales_contract_line_products x JOIN sales_contract_lines l ON l.id = x.sales_contract_line_id
+                WHERE l.sales_contract_id = s.id AND x.status = 'PENDING') AS "pendingProposals"
+         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by ORDER BY s.id DESC`,
+    );
+  }
+
+  async get(id: number) {
+    const [sc] = await this.ds.query(
+      `SELECT s.id, s.document_number AS "documentNumber", s.status, c.code AS "customerCode", c.name AS "customerName",
+              s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt"
+         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by WHERE s.id = $1`,
+      [id],
+    );
+    if (!sc) throw new NotFoundException();
+    return { ...sc, lines: await this.lines(id) };
+  }
+
+  /** Lines with confirmed (APPROVED) products and GIR quota usage, for GIR forms. */
+  lines(id: number) {
+    return this.ds.query(
+      `SELECT l.id, l.item_code AS "itemCode", l.item_name AS "itemName", l.uom_name AS "uomName", l.quantity,
+              COALESCE((SELECT json_agg(json_build_object('id', x.id, 'productId', p.id, 'partNumber', p.part_number, 'name', p.name,
+                                                          'status', x.status, 'reason', x.reason, 'decisionNote', x.decision_note,
+                                                          'proposedByName', pu.full_name, 'decidedByName', du.full_name, 'decidedAt', x.decided_at) ORDER BY x.id)
+                          FROM sales_contract_line_products x JOIN products p ON p.id = x.product_id
+                          JOIN users pu ON pu.id = x.proposed_by LEFT JOIN users du ON du.id = x.decided_by
+                         WHERE x.sales_contract_line_id = l.id), '[]') AS products
+         FROM sales_contract_lines l WHERE l.sales_contract_id = $1 ORDER BY l.id`,
+      [id],
+    );
+  }
+
+  /** PM proposes a product (incl. substitutes) for a HĐ line, with a reason (03 §9.2). */
+  propose(user: CurrentUser, salesContractLineId: number, productId: number, reason: string) {
+    return this.ds.transaction(async (m) => {
+      const [line] = await m.query(
+        `SELECT s.status FROM sales_contract_lines l JOIN sales_contracts s ON s.id = l.sales_contract_id WHERE l.id = $1`,
+        [salesContractLineId],
+      );
+      if (!line) throw new NotFoundException('Sales contract line not found');
+      if (line.status === 'CANCELED') throw new BusinessError('SALES_CONTRACT_CANCELED', 'The sales contract is canceled');
+      const [p] = await m.query(`SELECT 1 FROM products WHERE id = $1 AND is_active`, [productId]);
+      if (!p) throw new BusinessError('PRODUCT_NOT_FOUND', `Product ${productId} not found or inactive`);
+      const [{ id }] = await m.query(
+        `INSERT INTO sales_contract_line_products (sales_contract_line_id, product_id, reason, proposed_by) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [salesContractLineId, productId, reason, user.id],
+      );
+      return { id: id as number };
+    });
+  }
+
+  /** Sales approves/rejects a PENDING proposal; stores who, when and the note/appendix number. */
+  decide(user: CurrentUser, proposalId: number, approve: boolean, note: string | undefined) {
+    return this.ds.transaction(async (m) => {
+      const [x] = await m.query(`SELECT status, product_id FROM sales_contract_line_products WHERE id = $1 FOR UPDATE`, [proposalId]);
+      if (!x) throw new NotFoundException('Proposal not found');
+      if (x.status !== 'PENDING') throw new BusinessError('INVALID_STATUS', `Proposal is ${x.status}`, HttpStatus.CONFLICT);
+      // An approved proposal counts as product usage (H5: pending/rejected do not).
+      if (approve) await ProductUsage.markUsed(m, x.product_id, { stock: false });
+      await m.query(
+        `UPDATE sales_contract_line_products SET status = $2, decided_by = $3, decided_at = now(), decision_note = $4 WHERE id = $1`,
+        [proposalId, approve ? 'APPROVED' : 'REJECTED', user.id, note ?? null],
+      );
+    });
+  }
+}

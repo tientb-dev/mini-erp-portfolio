@@ -1,0 +1,16 @@
+{
+  "name": "mini-erp-portfolio",
+  "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "dev:api": "pnpm --filter api start:dev",
+    "dev:web": "pnpm --filter web dev",
+    "migrate": "pnpm --filter api migration:run",
+    "seed": "pnpm --filter api seed",
+    "seed:demo": "pnpm --filter api seed:demo",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build"
+  }
+}

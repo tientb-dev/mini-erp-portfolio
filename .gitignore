@@ -1,0 +1,38 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# env
+.env
+.env.*
+!.env.example
+
+# tests
+playwright-report/
+test-results/
+blob-report/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# local claude settings
+.claude/settings.local.json
+
+# Playwright MCP artifacts
+.playwright-mcp/

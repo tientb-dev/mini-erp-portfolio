@@ -106,6 +106,18 @@ describe('Document editing (integration)', () => {
     await patch(sales, `/sales-contracts/${sc}`, edit(adminId)).expect(204);
     d = (await get(sales, `/sales-contracts/${sc}`)).body;
     await patch(sales, `/sales-contracts/${sc}`, edit(salesId)).expect(204);
+
+    // PATCH semantics: omitted keeps, null clears, id assigns.
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    await patch(sales, `/sales-contracts/${sc}`, { version: d.version, customerId, lines: [scLine(2)] }).expect(204);
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    expect(d.responsibleSalesUserId).toBe(salesId);
+    expect(Number(d.lines[0].quantity)).toBe(2);
+    await patch(sales, `/sales-contracts/${sc}`, { version: d.version, customerId, responsibleSalesUserId: null, lines: [scLine(1)] }).expect(204);
+    d = (await get(sales, `/sales-contracts/${sc}`)).body;
+    expect(d.responsibleSalesUserId).toBeNull();
+    expect((await post(sales, `/sales-contracts/${sc}/activate`).expect(422)).body.code).toBe('RESPONSIBLE_SALES_REQUIRED');
+    await patch(sales, `/sales-contracts/${sc}`, { version: d.version, customerId, responsibleSalesUserId: salesId, lines: [scLine(1)] }).expect(204);
     await post(sales, `/sales-contracts/${sc}/activate`).expect(204);
     d = (await get(sales, `/sales-contracts/${sc}`)).body;
     expect(d).toMatchObject({ status: 'ACTIVE', responsibleSalesUserId: salesId, responsibleSalesName: 'Nhân viên Sales' });

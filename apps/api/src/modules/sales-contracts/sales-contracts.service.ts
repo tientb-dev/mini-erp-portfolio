@@ -80,7 +80,8 @@ export class SalesContractsService {
    * (product proposals) stay valid; new lines are inserted; omitted lines are deleted unless still referenced.
    * ACTIVE contracts are locked; PR/GIR only reference ACTIVE ones, so a DRAFT is never referenced by them.
    */
-  update(user: CurrentUser, id: number, version: number, customerId: number, responsibleSalesUserId: number | null, lines: ScLineInput[]) {
+  /** `responsibleSalesUserId`: undefined keeps the current value, null clears it, a number assigns it (validated). */
+  update(user: CurrentUser, id: number, version: number, customerId: number, responsibleSalesUserId: number | null | undefined, lines: ScLineInput[]) {
     return this.ds.transaction(async (m) => {
       // FOR UPDATE serializes with activate/cancel and with PR/GIR creation (FOR SHARE in lockActiveLines).
       const [sc] = await m.query(`SELECT status, version FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
@@ -89,7 +90,7 @@ export class SalesContractsService {
       if (sc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
       const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
       if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
-      await this.assertResponsibleSales(m, responsibleSalesUserId);
+      if (responsibleSalesUserId !== undefined) await this.assertResponsibleSales(m, responsibleSalesUserId);
       await wf.deleteOmittedLines(m, 'sales_contract_lines', 'sales_contract_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
       for (const l of lines) {
         if (l.id) {
@@ -104,8 +105,9 @@ export class SalesContractsService {
         }
       }
       await m.query(
-        `UPDATE sales_contracts SET customer_id = $2, responsible_sales_user_id = $4, version = version + 1, updated_by = $3, updated_at = now() WHERE id = $1`,
-        [id, customerId, user.id, responsibleSalesUserId],
+        `UPDATE sales_contracts SET customer_id = $2, responsible_sales_user_id = CASE WHEN $5 THEN $4::int ELSE responsible_sales_user_id END,
+                version = version + 1, updated_by = $3, updated_at = now() WHERE id = $1`,
+        [id, customerId, user.id, responsibleSalesUserId ?? null, responsibleSalesUserId !== undefined],
       );
     });
   }

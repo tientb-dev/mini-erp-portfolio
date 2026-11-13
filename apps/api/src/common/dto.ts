@@ -3,6 +3,7 @@ import { IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, MaxLength } from "
 
 /** A line created from a source document line (PO from PR, GRR from PO, ...). */
 export class SourceLineDto {
+  @ApiPropertyOptional({ description: "Existing line id when editing; omit for a new line" }) @IsOptional() @IsInt() id?: number;
   @ApiProperty() @IsInt() sourceLineId!: number;
   @ApiProperty() @IsPositive() quantity!: number;
 }

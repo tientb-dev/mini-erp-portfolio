@@ -5,7 +5,7 @@ import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
-export interface ScLineInput { itemCode: string; itemName: string; uomName: string; quantity: number }
+export interface ScLineInput { id?: number; itemCode: string; itemName: string; uomName: string; quantity: number }
 
 /**
  * Facade for other modules (Procurement, Outbound). Runs inside the caller's transaction.
@@ -61,9 +61,40 @@ export class SalesContractsService {
     });
   }
 
+  /**
+   * Sales edits a DRAFT contract: customer and lines (03 §9.1). Lines with `id` are updated in place so their ids
+   * (product proposals) stay valid; new lines are inserted; omitted lines are deleted unless still referenced.
+   * ACTIVE contracts are locked; PR/GIR only reference ACTIVE ones, so a DRAFT is never referenced by them.
+   */
+  update(user: CurrentUser, id: number, version: number, customerId: number, lines: ScLineInput[]) {
+    return this.ds.transaction(async (m) => {
+      // FOR UPDATE serializes with activate/cancel and with PR/GIR creation (FOR SHARE in lockActiveLines).
+      const [sc] = await m.query(`SELECT status, version FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
+      if (!sc) throw new NotFoundException();
+      if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be edited', HttpStatus.CONFLICT);
+      if (sc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
+      const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
+      if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
+      await wf.deleteOmittedLines(m, 'sales_contract_lines', 'sales_contract_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
+      for (const l of lines) {
+        if (l.id) {
+          wf.assertLineUpdated(await m.query(
+            `UPDATE sales_contract_lines SET item_code = $3, item_name = $4, uom_name = $5, quantity = $6 WHERE id = $1 AND sales_contract_id = $2`,
+            [l.id, id, l.itemCode, l.itemName, l.uomName, l.quantity],
+          ), l.id);
+        } else {
+          await m.query(`INSERT INTO sales_contract_lines (sales_contract_id, item_code, item_name, uom_name, quantity) VALUES ($1, $2, $3, $4, $5)`, [
+            id, l.itemCode, l.itemName, l.uomName, l.quantity,
+          ]);
+        }
+      }
+      await m.query(`UPDATE sales_contracts SET customer_id = $2, version = version + 1, updated_by = $3, updated_at = now() WHERE id = $1`, [id, customerId, user.id]);
+    });
+  }
+
   /** DRAFT → ACTIVE; ACTIVE never returns to DRAFT (H2). */
   async activate(id: number) {
-    const [, count] = await this.ds.query(`UPDATE sales_contracts SET status = 'ACTIVE' WHERE id = $1 AND status = 'DRAFT'`, [id]);
+    const [, count] = await this.ds.query(`UPDATE sales_contracts SET status = 'ACTIVE', version = version + 1 WHERE id = $1 AND status = 'DRAFT'`, [id]);
     if (!count) throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be activated', HttpStatus.CONFLICT);
   }
 
@@ -97,8 +128,10 @@ export class SalesContractsService {
 
   async get(id: number) {
     const [sc] = await this.ds.query(
-      `SELECT s.id, s.document_number AS "documentNumber", s.status, c.code AS "customerCode", c.name AS "customerName",
-              s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt"
+      `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId",
+              c.code AS "customerCode", c.name AS "customerName",
+              s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt",
+              s.updated_at AS "updatedAt", (SELECT full_name FROM users WHERE id = s.updated_by) AS "updatedByName"
          FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by WHERE s.id = $1`,
       [id],
     );

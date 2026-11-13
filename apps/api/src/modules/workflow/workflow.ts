@@ -69,6 +69,35 @@ export function assertVersion(doc: DocHeader, version: number): void {
   if (doc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
 }
 
+/**
+ * Edit guard shared by PR/PO/GRR (04 §1: the creator edits DRAFT/REJECTED; the approver never edits).
+ * Status stays as is: a REJECTED document must still be submitted again and approved from the start.
+ */
+export function assertEditable(doc: DocHeader, user: CurrentUser, version: number): void {
+  assertCreator(doc, user);
+  assertStatus(doc, ['DRAFT', 'REJECTED']);
+  assertVersion(doc, version);
+}
+
+/** Bumps the version and logs an EDIT entry in the document history (audit trail). */
+export async function markEdited(m: EntityManager, type: DocType, id: number, actorId: number) {
+  await m.query(`UPDATE ${DOC_TYPES[type].table} SET version = version + 1, updated_at = now() WHERE id = $1`, [id]);
+  await record(m, type, id, 'EDIT', actorId);
+}
+
+/**
+ * Deletes lines left out of an edit; `table`/`parentColumn` are never user input. Kept lines keep their id, so
+ * references from other documents stay valid; deleting a referenced line fails on its FK (409 RECORD_IN_USE).
+ */
+export async function deleteOmittedLines(m: EntityManager, table: string, parentColumn: string, parentId: number, keepIds: number[]) {
+  await m.query(`DELETE FROM ${table} WHERE ${parentColumn} = $1 AND id <> ALL($2::int[])`, [parentId, keepIds]);
+}
+
+/** `UPDATE` (TypeORM returns `[rows, affected]`) matched nothing: the line is not on this document or may not change that way. */
+export function assertLineUpdated([, affected]: [unknown, number], lineId: number): void {
+  if (!affected) throw new BusinessError('LINE_NOT_EDITABLE', `Line ${lineId} is not on this document or is referenced by another document`, HttpStatus.CONFLICT);
+}
+
 export async function record(m: EntityManager, type: DocType, id: number, action: string, actorId: number, reason?: string) {
   await m.query(`INSERT INTO approval_histories (document_type, document_id, action, actor_id, reason) VALUES ($1, $2, $3, $4, $5)`, [
     type, id, action, actorId, reason ?? null,

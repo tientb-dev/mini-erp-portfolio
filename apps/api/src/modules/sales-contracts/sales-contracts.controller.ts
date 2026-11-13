@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayNotEmpty, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, ValidateNested } from 'class-validator';
@@ -6,6 +6,7 @@ import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { SalesContractsService } from './sales-contracts.service';
 
 class ScLineDto {
+  @ApiPropertyOptional({ description: 'Existing line id when editing; omit for a new line' }) @IsOptional() @IsInt() id?: number;
   @ApiProperty() @IsString() @IsNotEmpty() itemCode!: string;
   @ApiProperty() @IsString() @IsNotEmpty() itemName!: string;
   @ApiProperty() @IsString() @IsNotEmpty() uomName!: string;
@@ -14,6 +15,9 @@ class ScLineDto {
 class CreateScDto {
   @ApiProperty() @IsInt() customerId!: number;
   @ApiProperty({ type: [ScLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => ScLineDto) lines!: ScLineDto[];
+}
+class UpdateScDto extends CreateScDto {
+  @ApiProperty() @IsInt() version!: number;
 }
 class ProposeDto {
   @ApiProperty() @IsInt() productId!: number;
@@ -39,6 +43,13 @@ export class SalesContractsController {
   @RequirePermissions('SALES_CONTRACT.CREATE')
   create(@Req() req: AuthedRequest, @Body() dto: CreateScDto) {
     return this.svc.create(req.user, dto.customerId, dto.lines);
+  }
+
+  @Patch('sales-contracts/:id')
+  @HttpCode(204)
+  @RequirePermissions('SALES_CONTRACT.CREATE')
+  update(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateScDto) {
+    return this.svc.update(req.user, id, dto.version, dto.customerId, dto.lines);
   }
 
   @Post('sales-contracts/:id/activate')

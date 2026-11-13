@@ -1,14 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Query, Req } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, IsInt, IsNotEmpty, IsPositive, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { ProcurementService } from './procurement.service';
 
 class PrLineDto {
+  @ApiPropertyOptional({ description: "Existing line id when editing; omit for a new line" }) @IsOptional() @IsInt() id?: number;
   @ApiProperty() @IsInt() salesContractLineId!: number;
   @ApiProperty() @IsInt() productId!: number;
   @ApiProperty() @IsPositive() quantity!: number;
@@ -20,6 +21,14 @@ class CreatePrDto {
 class CreatePoDto {
   @ApiProperty() @IsInt() supplierId!: number;
   @ApiProperty({ type: [SourceLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => SourceLineDto) lines!: SourceLineDto[];
+}
+
+class UpdatePrDto {
+  @ApiProperty() @IsInt() version!: number;
+  @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
+}
+class UpdatePoDto extends CreatePoDto {
+  @ApiProperty() @IsInt() version!: number;
 }
 
 /** PR, PO: list, detail, create, workflow actions. */
@@ -65,6 +74,13 @@ export class ProcurementController {
     return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines);
   }
 
+  @Patch('purchase-requisitions/:id')
+  @HttpCode(204)
+  @RequirePermissions('PR.CREATE')
+  updatePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePrDto) {
+    return this.svc.updatePurchaseRequisition(req.user, id, dto.version, dto.lines);
+  }
+
   @Get('purchase-requisitions/:id/lines')
   @RequirePermissions('PR.VIEW')
   prLines(@Param('id', ParseIntPipe) id: number) {
@@ -75,6 +91,13 @@ export class ProcurementController {
   @RequirePermissions('PO.CREATE')
   createPo(@Req() req: AuthedRequest, @Body() dto: CreatePoDto) {
     return this.svc.createPurchaseOrder(req.user, dto.supplierId, dto.lines);
+  }
+
+  @Patch('purchase-orders/:id')
+  @HttpCode(204)
+  @RequirePermissions('PO.CREATE')
+  updatePo(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePoDto) {
+    return this.svc.updatePurchaseOrder(req.user, id, dto.version, dto.supplierId, dto.lines);
   }
 
   @Get('purchase-orders/:id/lines')

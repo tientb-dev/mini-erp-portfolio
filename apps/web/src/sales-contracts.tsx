@@ -15,7 +15,7 @@ interface Proposal {
   proposedByName: string; decidedByName: string | null; decidedAt: string | null;
 }
 interface ScLine { id: number; itemCode: string; itemName: string; uomName: string; quantity: string; products: Proposal[] }
-interface ScDetail extends ScRow { customerCode: string; createdBy: number; lines: ScLine[] }
+interface ScDetail extends ScRow { customerId: number; customerCode: string; createdBy: number; version: number; lines: ScLine[] }
 
 const scTone: Record<string, StatusTone> = { DRAFT: 'neutral', ACTIVE: 'success', CANCELED: 'muted' };
 const proposalTone: Record<string, StatusTone> = { PENDING: 'pending', APPROVED: 'success', REJECTED: 'danger' };
@@ -54,24 +54,28 @@ export function SalesContractsPage() {
   );
 }
 
-const emptyLine = { itemCode: '', itemName: '', uomName: '', quantity: '' };
+const emptyLine: { id?: number; itemCode: string; itemName: string; uomName: string; quantity: string } = { itemCode: '', itemName: '', uomName: '', quantity: '' };
 
-function CreateScDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
+/** Create form; with `edit` it edits a DRAFT contract in place (PATCH, lines keep their ids). */
+function CreateScDialog({ onClose, onCreated, edit }: { onClose: () => void; onCreated: (id: number) => void; edit?: ScDetail }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [customerId, setCustomerId] = useState('');
-  const [lines, setLines] = useState([{ ...emptyLine }]);
+  const [customerId, setCustomerId] = useState(edit ? String(edit.customerId) : '');
+  const [lines, setLines] = useState(edit ? edit.lines.map(({ id, itemCode, itemName, uomName, quantity }) => ({ id, itemCode, itemName, uomName, quantity: String(Number(quantity)) })) : [{ ...emptyLine }]);
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/customers') });
   const valid = lines.every((l) => l.itemCode.trim() && l.itemName.trim() && l.uomName.trim() && Number(l.quantity) > 0);
   const create = useMutation({
-    mutationFn: () => api<{ id: number }>('/sales-contracts', {
-      method: 'POST', body: JSON.stringify({ customerId: Number(customerId), lines: lines.map((l) => ({ ...l, quantity: Number(l.quantity) })) }),
-    }),
-    onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['scs'] }); onCreated(r.id); },
+    mutationFn: async () => {
+      const body = { customerId: Number(customerId), lines: lines.map((l) => ({ ...l, quantity: Number(l.quantity) })) };
+      if (!edit) return api<{ id: number }>('/sales-contracts', { method: 'POST', body: JSON.stringify(body) });
+      await api(`/sales-contracts/${edit.id}`, { method: 'PATCH', body: JSON.stringify({ ...body, version: edit.version }) });
+      return { id: edit.id };
+    },
+    onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['scs'] }); void qc.invalidateQueries({ queryKey: ['sc', r.id] }); onCreated(r.id); },
   });
   const set = (i: number, k: keyof typeof emptyLine, v: string) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
   return (
-    <FormDialog title={t('sc.create')} submitLabel={t('sc.save')} error={create.error} pending={create.isPending}
+    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('sc.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'sc.save')} error={create.error} pending={create.isPending}
       canSubmit={Boolean(customerId && lines.length && valid)} onSubmit={() => create.mutate()} onClose={onClose}>
       <TextField select label={t('sc.customer')} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required
         helperText={customers.data?.length === 0 ? t('sc.noCustomer') : undefined}>
@@ -100,7 +104,7 @@ function CreateScDialog({ onClose, onCreated }: { onClose: () => void; onCreated
   );
 }
 
-type Dialog = { kind: 'activate' | 'cancel' } | { kind: 'propose'; line: ScLine } | { kind: 'approve' | 'reject'; proposal: Proposal };
+type Dialog = { kind: 'activate' | 'cancel' | 'edit' } | { kind: 'propose'; line: ScLine } | { kind: 'approve' | 'reject'; proposal: Proposal };
 
 function ScDetailView({ id, onBack }: { id: number; onBack: () => void }) {
   const { t } = useTranslation();
@@ -116,6 +120,7 @@ function ScDetailView({ id, onBack }: { id: number; onBack: () => void }) {
     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
       <Button onClick={onBack}>{t('gr.back')}</Button>
       {can('SALES_CONTRACT.CREATE') && d.status !== 'CANCELED' && <Button onClick={() => setDialog({ kind: 'cancel' })}>{t('sc.cancel')}</Button>}
+      {can('SALES_CONTRACT.CREATE') && d.status === 'DRAFT' && <Button onClick={() => setDialog({ kind: 'edit' })}>{t('doc.edit')}</Button>}
       {can('SALES_CONTRACT.CREATE') && d.status === 'DRAFT' && <Button variant="contained" onClick={() => setDialog({ kind: 'activate' })}>{t('sc.activate')}</Button>}
     </Stack>
   );
@@ -171,6 +176,7 @@ function ScDetailView({ id, onBack }: { id: number; onBack: () => void }) {
         ))}
       </Stack>
       {dialog && (dialog.kind === 'activate' || dialog.kind === 'cancel') && <ScStatusDialog id={id} kind={dialog.kind} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog?.kind === 'edit' && <CreateScDialog edit={d} onClose={() => setDialog(null)} onCreated={done} />}
       {dialog?.kind === 'propose' && <ProposeDialog line={dialog.line} onClose={() => setDialog(null)} onDone={done} />}
       {dialog && (dialog.kind === 'approve' || dialog.kind === 'reject') && (
         <DecideDialog proposal={dialog.proposal} approve={dialog.kind === 'approve'} onClose={() => setDialog(null)} onDone={done} />

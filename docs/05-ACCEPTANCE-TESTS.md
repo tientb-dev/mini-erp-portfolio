@@ -145,6 +145,16 @@
 | C59 | GIR `REJECTED` luồng A/C sửa và Gửi duyệt lại khi PR không còn `PO done` | Gửi duyệt bị chặn; GIR vẫn `REJECTED` |
 | C60 | GIR luồng A/C đã Gửi duyệt hợp lệ (`WAITING_FOR_APPROVE` hoặc `APPROVED`), sau đó PR mất `PO done` | GIR không bị tự Hủy/Thu hồi/đổi trạng thái; tiếp tục duyệt, lập GI theo workflow và hạn mức hiện hữu |
 | C61 | Như C58, sau đó PR đạt lại `PO done` (PO `APPROVED` mới bù đủ) | Gửi duyệt được |
+| C62 | GIR luồng A lập và Gửi duyệt khi PR `PO done` nhưng chưa có GR | Được lập, Gửi duyệt, Duyệt; không kiểm tồn |
+| C63 | Dòng GIR A/C chưa có GR `APPROVED` trong chuỗi dòng PR | GR tham chiếu và kho để trống; Chưa nhập kho |
+| C64 | GIR A `APPROVED`; GR đầu tiên của dòng PR (kho HCM) được duyệt | Dòng GIR tự hiển thị GR đó + kho HCM; số lượng, trạng thái, người duyệt GIR không đổi |
+| C65 | Như C64, GIR đang `WAITING_FOR_APPROVE` | Vẫn tự cập nhật GR tham chiếu; GIR tiếp tục chờ duyệt |
+| C66 | Như C64, sau đó GR thứ hai (kho HN) được duyệt | GR tham chiếu vẫn là GR đầu tiên (kho HCM) |
+| C67 | Dòng GIR có GR tham chiếu | Không giữ chỗ, không phân bổ tồn; GI chọn tồn theo 03 §4–§5 |
+| C68 | Dòng PR 10, GR đã duyệt 4 | Dòng GIR hiển thị Nhập kho một phần (căn cứ so sánh: CT12) |
+| C69 | GI cho GIR luồng A của HĐ-B; kho chỉ có hàng nhập từ PR của HĐ-A | Không chọn được hàng/SN của HĐ-A |
+| C70 | GIR `AVAILABLE_STOCK` của HĐ-B dùng tồn thuộc Sales HĐ-A; Sales HĐ-A đồng ý, Quản lý kho duyệt; GI xuất | Xuất được; không tự sinh hoàn bù |
+| C71 | Báo cáo tồn kho | Truy vết được theo Kho, Product, Sales phụ trách, HĐ nguồn, GR |
 
 ## D. GIR hàng có sẵn / GI
 | ID | Tình huống | Kết quả mong đợi |

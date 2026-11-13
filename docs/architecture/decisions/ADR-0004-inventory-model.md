@@ -3,6 +3,8 @@
 - **Trạng thái:** Đã chấp nhận (định hướng; cột cụ thể quyết định ở ERD) — 2026-11-12, cập nhật 2026-11-12 theo quy tắc GR mới (03 §2)
 
 > **Sửa đổi bởi ADR-0012 (2026-11-13):** tồn kho phải phân biệt lượng theo **người phụ trách nguồn hàng** (ghi nhận khi duyệt GR), không chỉ Warehouse + PN. Cách mở rộng các bảng dưới đây và cơ chế phân bổ xuất theo dòng GR/lô chưa chốt (OPEN-QUESTIONS).
+>
+> **Sửa đổi bởi ADR-0013 (2026-11-13):** tồn truy vết theo Kho, Product, Sales phụ trách, HĐ nguồn, GR; GIR luồng A/C chỉ xuất tồn của chính HĐ. Thiết kế đề xuất: lô theo dòng GR + `inventories` làm tổng (chờ review).
 
 ## Quyết định — bảng
 | Bảng | Vai trò |

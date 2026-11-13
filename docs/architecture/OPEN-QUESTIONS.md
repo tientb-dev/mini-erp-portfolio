@@ -7,8 +7,11 @@ CM1–CM6 và CT1, CT2, CT9 (ADR-0012) đã chốt nghiệp vụ — xem §4 (k�
 
 | # | Loại | Câu hỏi | Hiện trạng code |
 |---|---|---|---|
-| CT3 | Nghiệp vụ + kỹ thuật | GI của luồng A/C lấy tồn từ đâu: tồn chung Kho + PN như trước, hay chỉ tồn của người phụ trách nguồn hàng tương ứng? Cơ chế phân bổ xuất theo dòng GR/lô (FIFO, chỉ định, …). | `inventories` duy nhất theo `(warehouse_id, product_id)` |
-| CT4 | Kỹ thuật | Mô hình tồn kho theo người phụ trách nguồn hàng: thêm chiều vào `inventories`/`inventory_serials` hay bảng phân bổ riêng; ảnh hưởng ràng buộc không âm tồn, giữ chỗ GI và Thu hồi GR (03 §2.2). | Không có cột người phụ trách |
+| CT3 | Nghiệp vụ + kỹ thuật | *Nguồn tồn đã chốt (A/C: HĐ nguồn = HĐ của GIR; B/D: người phụ trách đã đồng ý — 03 §5).* Còn mở: hàng **không SN** có nhiều lô cùng nguồn thì phân bổ thế nào (đề xuất FIFO theo thời điểm duyệt GR, ADR-0013 §3)? Luồng B/D có được trộn lô của nhiều HĐ cùng người phụ trách trong một GI? | `inventories` duy nhất theo `(warehouse_id, product_id)` |
+| CT4 | Kỹ thuật | Mô hình tồn có nguồn gốc: **đề xuất** lô theo dòng GR (`inventory_lots`) + giữ `inventories` làm tổng — ADR-0013 §3, **chờ review**. | Không có chiều nguồn |
+| CT11 | Nghiệp vụ | GR tham chiếu trên dòng GIR bị **Thu hồi** (03 §2.2): giữ nguyên, xóa trống, hay chuyển sang GR `APPROVED` kế tiếp? (Quy tắc "không ghi đè" chỉ nói GR tiếp theo.) | Chưa có |
+| CT12 | Nghiệp vụ | Tình trạng nhập kho dòng GIR so với gì: số lượng **dòng PR** (Σ GR `APPROVED` của dòng PR), hay số lượng **dòng GIR**? Khi nhiều GIR dùng chung một dòng PR, hai cách cho kết quả khác nhau. | Chưa có |
+| CT13 | Nghiệp vụ | Luồng B/D: (a) có hiển thị GR tham chiếu không (đề xuất: lô được chọn ở GI, không hiển thị ở GIR)? (b) "GIR không phụ thuộc tồn" có thay quy tắc hiện hành "B/D ≤ tồn khả dụng khi lưu/Gửi duyệt/Duyệt" không? Tạm giữ quy tắc hiện hành. | B/D kiểm tồn ở GIR |
 | CT5 | Nghiệp vụ + kỹ thuật | Người phụ trách nguồn hàng khi duyệt GR được xác định thế nào (mặc định "Sales phụ trách HĐ" lấy từ đâu; ai được sửa; ghi theo GR hay theo dòng GR)? | `sales_contracts` không có trường Sales phụ trách (chỉ `created_by`) |
 | CT6 | Kỹ thuật | Schema phân loại dòng (tên cột/giá trị, ở dòng hay cả header), cột mục đích sử dụng (luồng D), cột liên kết dòng GIR → dòng PR; nới `NOT NULL` của `sales_contract_line_id`. | `purchase_requisition_lines`/`goods_issue_request_lines`.`sales_contract_line_id` `NOT NULL` |
 | CT7 | Kỹ thuật | Quyền và cách giao bước 1 `AVAILABLE_STOCK` cho người phụ trách nguồn hàng (giữ `GIR.SALES_CONFIRM` hay mã mới); tự điền từ nguồn tồn đã chọn. | IM15: người tạo chọn người có `GIR.SALES_CONFIRM` |

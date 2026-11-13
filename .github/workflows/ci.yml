@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mini_erp
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: mini_erp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mini_erp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # Throwaway values for the ephemeral CI database; not real secrets.
+    # Integration tests reset the schema and run migrations + seed themselves (apps/api/src/test-utils.ts).
+    env:
+      DATABASE_URL: postgresql://mini_erp:ci-only@localhost:5432/mini_erp_test
+      TEST_DATABASE_URL: postgresql://mini_erp:ci-only@localhost:5432/mini_erp_test
+      JWT_ACCESS_SECRET: ci-only-jwt-secret
+      SEED_ADMIN_USERNAME: admin
+      SEED_ADMIN_PASSWORD: ci-admin
+      SEED_APPROVER_USERNAME: approver
+      SEED_APPROVER_PASSWORD: ci-approver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build

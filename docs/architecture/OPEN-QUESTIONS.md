@@ -3,16 +3,20 @@
 Tài liệu 01–05 là **MVP baseline** từ 2026-11-13. Câu hỏi mới phát sinh trong implementation ghi vào đây; câu hỏi **chưa chốt** không được triển khai theo giả định.
 
 ## 1. Còn mở
-Phát sinh từ ADR-0012 (dòng hàng bán / dòng vật tư, 2026-11-13):
+CM1–CM6 (ADR-0012) đã chốt nghiệp vụ — xem §4. Còn lại các điểm sau; **không triển khai theo giả định**:
 
-| # | Câu hỏi |
-|---|---|
-| CM1 | Dòng GIR vật tư dùng loại GIR nào: chỉ `SALES_CONTRACT`, cả `AVAILABLE_STOCK` (khi đó bước Sales xác nhận nghĩa là gì với vật tư), hay một `issue_type` mới? |
-| CM2 | Dòng GIR vật tư có giới hạn số lượng nào không (vd. ≤ tồn khả dụng khi lập, hoặc ≤ lượng PR vật tư của HĐ)? Hạn mức hiện có chỉ theo dòng HĐ, không áp dụng cho dòng vật tư. |
-| CM3 | Một PR/GIR có được trộn dòng hàng bán và dòng vật tư không? Màn hình HĐ có cho thêm dòng vật tư vào PR, và màn hình PR có cho chọn dòng HĐ không? |
-| CM4 | Có cần cột phân loại dòng tường minh (vd. `line_purpose`) hay chỉ dựa vào `sales_contract_line_id` rỗng/không rỗng? (Mức ERD.) |
-| CM5 | PR vật tư được chọn mã tạm (`temporary_products`) như PR thường, hay chỉ mã chính? |
-| CM6 | "Không tách/nhân đôi dòng" chỉ trong một PR, hay một dòng HĐ chỉ được map vào tối đa một dòng PR chưa `CANCELED` trên toàn HĐ? (A01 cho nhiều PR cùng HĐ; IM19 chưa có hạn mức PR ≤ dòng HĐ.) |
+| # | Loại | Câu hỏi | Hiện trạng code |
+|---|---|---|---|
+| CT1 | Nghiệp vụ (định nghĩa) | `PO done` chính xác là gì: mọi dòng PR đã có PO `APPROVED` đủ số lượng, có ít nhất một PO `APPROVED`, hay điều kiện khác? Dòng PR chỉ lên PO một phần có chọn được không? | Không có trạng thái/cột/truy vấn nào biểu diễn `PO done` |
+| CT2 | Nghiệp vụ | Trạng thái GIR nào chiếm hạn mức dòng PR (luồng A/C)? Đề xuất: giống hạn mức dòng HĐ (03 §10.1: `DRAFT`/`WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED` chiếm; `COMPLETED` chỉ chiếm lượng thực xuất). | Không có liên kết dòng GIR → dòng PR |
+| CT3 | Nghiệp vụ + kỹ thuật | GI của luồng A/C lấy tồn từ đâu: tồn chung Kho + PN như trước, hay chỉ tồn của người phụ trách nguồn hàng tương ứng? Cơ chế phân bổ xuất theo dòng GR/lô (FIFO, chỉ định, …). | `inventories` duy nhất theo `(warehouse_id, product_id)` |
+| CT4 | Kỹ thuật | Mô hình tồn kho theo người phụ trách nguồn hàng: thêm chiều vào `inventories`/`inventory_serials` hay bảng phân bổ riêng; ảnh hưởng ràng buộc không âm tồn, giữ chỗ GI và Thu hồi GR (03 §2.2). | Không có cột người phụ trách |
+| CT5 | Nghiệp vụ + kỹ thuật | Người phụ trách nguồn hàng khi duyệt GR được xác định thế nào (mặc định "Sales phụ trách HĐ" lấy từ đâu; ai được sửa; ghi theo GR hay theo dòng GR)? | `sales_contracts` không có trường Sales phụ trách (chỉ `created_by`) |
+| CT6 | Kỹ thuật | Schema phân loại dòng (tên cột/giá trị, ở dòng hay cả header), cột mục đích sử dụng (luồng D), cột liên kết dòng GIR → dòng PR; nới `NOT NULL` của `sales_contract_line_id`. | `purchase_requisition_lines`/`goods_issue_request_lines`.`sales_contract_line_id` `NOT NULL` |
+| CT7 | Kỹ thuật | Quyền và cách giao bước 1 `AVAILABLE_STOCK` cho người phụ trách nguồn hàng (giữ `GIR.SALES_CONFIRM` hay mã mới); tự điền từ nguồn tồn đã chọn. | IM15: người tạo chọn người có `GIR.SALES_CONFIRM` |
+| CT8 | Kỹ thuật | Khóa dòng PR khi kiểm tra hạn mức luồng A/C: phụ thuộc Outbound → Procurement mới (facade), thứ tự khóa dòng HĐ → dòng PR → dòng GIR; kiểm tra không tạo vòng phụ thuộc. | Outbound chưa phụ thuộc Procurement |
+| CT9 | Nghiệp vụ | Luồng C (vật tư theo PR) có bắt buộc ghi mục đích sử dụng như luồng D không? (Quyết định chỉ nêu luồng D.) | — |
+| CT10 | Nghiệp vụ | Luồng A/C dùng `issue_type = SALES_CONTRACT` hiện có (đổi nghĩa thành "theo PR"); GIR `SALES_CONTRACT` chọn trực tiếp dòng HĐ không qua PR (hiện có trong code) bị thay thế bởi luồng A. Cần xác nhận cách hiểu này. | GIR `SALES_CONTRACT` hiện chọn dòng HĐ, không qua PR |
 
 ## 2. Ghi chú (không phải mâu thuẫn)
 | # | Nhận xét |
@@ -38,7 +42,7 @@ Phát sinh từ ADR-0012 (dòng hàng bán / dòng vật tư, 2026-11-13):
 | IM12 | Người duyệt mặc định: danh sách người đủ điều kiện (permission + kho, khác người tạo); đúng 1 người thì tự chọn. Chưa có bảng cấu hình mặc định theo role/bước. | P4 tối giản |
 | IM13 | Repository dùng SQL thuần qua `EntityManager.query` của TypeORM cho chứng từ, để khóa dòng (`FOR UPDATE`) tường minh. | ARCHITECTURE §1.1 |
 | IM14 | Seed có 2 user (`admin`, `approver`) cùng role `ADMIN` vì người tạo không được tự duyệt. | Demo/kiểm thử |
-| IM15 (đã chốt) | GIR `AVAILABLE_STOCK`: người tạo chọn **cả hai** người duyệt khi Gửi duyệt (Sales xác nhận: quyền `GIR.SALES_CONFIRM`, không ràng buộc kho; Quản lý kho: `GIR.APPROVE` + kho). Bước 2 được giao tự động sau khi Sales xác nhận. | 04 §3 không nói ai chọn người duyệt bước 2 |
+| IM15 (đã chốt; cần xem lại theo CT7) | GIR `AVAILABLE_STOCK`: người tạo chọn **cả hai** người duyệt khi Gửi duyệt (Sales xác nhận: quyền `GIR.SALES_CONFIRM`, không ràng buộc kho; Quản lý kho: `GIR.APPROVE` + kho). Bước 2 được giao tự động sau khi Sales xác nhận. | 04 §3 không nói ai chọn người duyệt bước 2 |
 | IM16 (đã chốt) | Mã quyền mới: `SALES_CONTRACT.PROPOSE_PRODUCT` (PM), `SALES_CONTRACT.CONFIRM_PRODUCT` (Sales), `GIR.VIEW/CREATE/SALES_CONFIRM/APPROVE/COMPLETE`, `GI.VIEW/CREATE/APPROVE`. | Function–Action (ADR-0006) |
 | IM17 (đã chốt) | Trạng thái thực hiện GIR lưu trong cột `execution_status`; `IN_PROGRESS` được đặt khi GI đầu tiên được duyệt. | 03 §10.3 |
 | IM18 | Chưa có: sửa nội dung chứng từ Nháp/Bị từ chối trên UI và API cho HĐ, PR, PO, GRR (hiện phải Hủy rồi tạo lại; GI có API `PATCH`), thu hồi xác nhận Product của dòng HĐ, lọc "Chờ tôi duyệt" chung, thông báo trong ứng dụng, đính kèm/ghi chú, tiến độ nhập PO, Thu hồi GR Đã duyệt. | Ngoài phạm vi lượt này |
@@ -67,3 +71,9 @@ Phát sinh từ ADR-0012 (dòng hàng bán / dòng vật tư, 2026-11-13):
 | Q4, I4 | Thu hồi/Hủy PO khi không còn GRR chưa Hủy | 03 §6 |
 | I1 | Tài liệu thành MVP baseline | 01–05 |
 | CM0 | PR/GIR gắn HĐ ở cấp chứng từ; `sales_contract_line_id` chỉ bắt buộc với dòng hàng bán; dòng vật tư; không suy ra dòng HĐ từ Product | 03 §1, §3, §10.1, ADR-0012 |
+| CM1 | Vật tư trực tiếp dùng `AVAILABLE_STOCK`; nguồn hàng tách khỏi mục đích sử dụng | 03 §3, ADR-0012 §1.4 |
+| CM2 | Bốn luồng GIR; hạn mức dòng PR (A, C) và hạn mức giao dòng HĐ dùng chung (A, B); lượng nhập chỉ tham khảo; người phụ trách nguồn hàng | 03 §3, §5, §10.1, ADR-0012 |
+| CM3 | Không trộn hàng bán/vật tư trong PR/GIR ở MVP | 03 §1, §3 |
+| CM4 | Phân loại dòng tường minh (schema: CT6) | 03 §1, §3 |
+| CM5 | PR vật tư được dùng mã tạm, chuẩn hóa trước khi nhập kho | 03 §1, §1a |
+| CM6 | Không chia/trùng dòng HĐ trong một PR; nhiều PR được tham chiếu cùng dòng HĐ | 03 §1 |

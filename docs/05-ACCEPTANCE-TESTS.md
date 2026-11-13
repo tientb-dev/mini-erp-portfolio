@@ -27,10 +27,14 @@
 | A21 | Mapping dòng PR làm đổi mã hàng hiển thị trên PO đã `APPROVED` | Cho phép (ngoại lệ có chủ đích); số lượng, UoM và nội dung đã duyệt không đổi |
 | A22 | Dòng HĐ lưu mã/tên hàng chưa chuẩn hóa (không chọn mã chính) | Cho phép (thay thế quy tắc T3 cũ) |
 | A28a | Dòng PR hàng bán tham chiếu `sales_contract_line_id` của HĐ `ACTIVE` | Bắt buộc với dòng hàng bán; snapshot yêu cầu ban đầu được lưu |
-| A32 | Từ màn hình HĐ `ACTIVE`, chọn 3 dòng HĐ để lập PR | PR gắn HĐ; có 3 dòng PR, mỗi dòng giữ đúng `sales_contract_line_id` gốc |
-| A33 | Trên PR mua để bán, tìm thao tác tách/nhân đôi dòng PR | Không có chức năng này (UI và API) |
+| A32 | Tạo PR từ màn hình HĐ `ACTIVE` có 3 dòng | Form PR được copy đủ 3 dòng và thông tin liên quan; người dùng sửa trước khi lưu; mỗi dòng PR giữ đúng `sales_contract_line_id` gốc |
+| A33 | Trong cùng một PR hàng bán, thêm dòng thứ hai cho cùng một dòng HĐ (chia hoặc trùng) | Không cho phép |
+| A33a | HĐ có hai dòng cùng Product; tạo PR từ HĐ | Hai dòng PR riêng, mỗi dòng giữ `sales_contract_line_id` của mình; không gộp |
+| A33b | PR-1 và PR-2 cùng tham chiếu một dòng HĐ | Cho phép |
+| A33c | PR trộn dòng hàng bán và dòng vật tư | Không cho phép trong MVP |
 | A34 | Dòng PR hàng bán tham chiếu dòng HĐ thuộc HĐ khác HĐ của PR | Không cho phép |
-| A35 | Tạo PR vật tư từ màn hình PR: chọn HĐ `ACTIVE` và Product, không chọn dòng HĐ | Cho phép; dòng PR có `sales_contract_line_id` rỗng; PR gắn HĐ |
+| A35 | Tạo PR vật tư tại màn hình PR: chọn HĐ `ACTIVE` rồi chọn vật tư, không chọn dòng HĐ | Cho phép; dòng PR phân loại vật tư, `sales_contract_line_id` rỗng; PR gắn HĐ |
+| A35a | PR vật tư dùng mã tạm | Cho phép; GRR liên quan không Gửi duyệt được khi chưa mapping (như A13) |
 | A36 | PR vật tư chọn Product trùng Product đã được Sales xác nhận cho một dòng HĐ | Dòng PR vẫn không có `sales_contract_line_id`; hệ thống không tự gán dòng HĐ |
 | A37 | PR vật tư chọn HĐ `DRAFT` hoặc `CANCELED` | Không cho phép |
 | A23 | Tạo dòng PO từ dòng PR | Dòng PO lưu UoM = UoM snapshot dòng PR; dòng GRR tạo từ dòng PO lưu UoM = UoM dòng PO |
@@ -98,30 +102,51 @@
 | C20 | Hoàn thành xuất khi lượng thực xuất < số lượng GIR, không nhập lý do | Chặn; bắt buộc lý do |
 | C21 | GIR `APPROVED` chưa có GI / có GI `APPROVED` chưa hoàn thành / đã xác nhận hoàn thành | `execution_status` lần lượt `NOT_STARTED` / `IN_PROGRESS` / `COMPLETED` |
 | C22 | Hai dòng HĐ khác nhau; nhiều Product `APPROVED` trên một dòng HĐ | Hạn mức chỉ theo dòng HĐ, không giới hạn riêng từng Product |
-| C23 | GIR vật tư: chọn HĐ `ACTIVE` và vật tư có trong kho, không chọn dòng HĐ | Cho phép; dòng GIR có `sales_contract_line_id` rỗng; GIR gắn HĐ |
-| C24 | GIR vật tư chọn vật tư nhập từ PR của HĐ khác (hoặc không qua PR nào của HĐ này) | Cho phép |
+| C23 | Luồng D: GIR `AVAILABLE_STOCK` vật tư chọn HĐ `ACTIVE`, kho, người phụ trách và vật tư, có mục đích sử dụng | Cho phép; dòng không có `sales_contract_line_id`; GIR gắn HĐ |
+| C23a | Luồng D không ghi mục đích sử dụng | Không cho phép |
+| C24 | Luồng D chọn vật tư nhập từ PR của HĐ khác (hoặc không qua PR nào của HĐ này) | Cho phép (khi người phụ trách đồng ý) |
 | C25 | Dòng GIR vật tư dùng Product chưa từng được Sales xác nhận cho dòng HĐ nào | Gửi duyệt không bị chặn bởi điều kiện xác nhận Product |
-| C26 | Dòng HĐ số lượng 10 đã có GIR hàng bán 10; tạo GIR vật tư cùng Product | Không bị chặn bởi hạn mức dòng HĐ; hạn mức dòng HĐ vẫn 10/10 |
+| C26 | Dòng HĐ 10 đã có GIR hàng bán 10; tạo GIR vật tư (C hoặc D) cùng Product | Không bị chặn bởi hạn mức dòng HĐ; hạn mức dòng HĐ vẫn 10/10 |
 | C27 | GIR vật tư chọn Product trùng Product đã xác nhận cho một dòng HĐ | Không tự gán `sales_contract_line_id`, không trừ hạn mức dòng HĐ đó |
-| C28 | Dòng GIR hàng bán không chọn dòng HĐ | Không cho phép |
+| C28 | Dòng GIR hàng bán (A hoặc B) không có dòng HĐ | Không cho phép |
 | C29 | GIR vật tư tham chiếu HĐ `DRAFT` hoặc `CANCELED` | Không cho phép |
 | C30 | Sales thu hồi xác nhận Product chỉ được dòng GIR vật tư chưa `CANCELED` dùng | Không bị chặn bởi dòng vật tư (G12 chỉ xét dòng hàng bán) |
-| C31 | GIR vật tư Gửi duyệt/Duyệt; GI xuất vật tư có SN | Theo đúng quy tắc duyệt, người tạo không tự duyệt, phạm vi kho, SN, tồn khả dụng như GIR hàng bán |
+| C31 | GIR vật tư Gửi duyệt/Duyệt; GI xuất vật tư có SN | Theo quy tắc duyệt, người tạo không tự duyệt, phạm vi kho, SN, tồn khả dụng như GIR hàng bán |
+| C32 | GIR trộn dòng hàng bán và dòng vật tư | Không cho phép trong MVP |
+| C33 | Luồng A/C: PR chưa `PO done` | Không xuất hiện khi lập GIR theo PR |
+| C34 | Luồng A/C: PR đã `PO done` nhưng chưa có GR `APPROVED` | PR xuất hiện; lượng đã nhập hiển thị 0; vẫn lập và duyệt được GIR; GI chưa xuất được khi thiếu tồn |
+| C35 | Dòng PR 10, nhập hai đợt GR `APPROVED` 4 và 3, một GR khác `DRAFT` 2 | Lượng đã nhập hiển thị 7 (chỉ GR `APPROVED`, theo chuỗi dòng PR → PO → GRR → GR) |
+| C36 | Như C35, GIR đề nghị 9 | Cho phép (≤ 10 của dòng PR); lượng nhập 7 không phải hạn mức GIR |
+| C37 | Hai dòng PR cùng Product, mỗi dòng 5; GIR đề nghị 6 trên một dòng PR | Chặn — hạn mức tính riêng từng dòng PR, không cộng gộp theo Product |
+| C37a | Lượng đã nhập của hai dòng PR cùng Product | Hiển thị riêng từng dòng PR, không ghép theo Product |
+| C38 | Dòng PR 10 đã có GIR `APPROVED` 10; tạo GIR mới cho cùng dòng PR | Chặn — vượt hạn mức dòng PR (các trạng thái khác: theo CT2) |
+| C39 | Dòng HĐ 10; PR-1 và PR-2 cùng tham chiếu, mỗi dòng PR 10; GIR luồng A trên PR-1 đề nghị 6, trên PR-2 đề nghị 5 | GIR thứ hai bị chặn — hai PR dùng chung hạn mức giao dòng HĐ (còn 4) |
+| C40 | Dòng HĐ 10; GIR luồng A 6; GIR luồng B cùng dòng HĐ đề nghị 5 | Chặn — A và B dùng chung hạn mức giao dòng HĐ |
+| C41 | GIR luồng A và luồng B tạo đồng thời trên cùng dòng HĐ, tổng vượt hạn mức | Chỉ một thành công |
+| C42 | Luồng C: dòng PR vật tư 5, GIR đề nghị 5 | Chỉ kiểm soát hạn mức dòng PR; không đụng hạn mức dòng HĐ |
+| C43 | Luồng A với Product chưa được Sales xác nhận cho dòng HĐ | Lưu `DRAFT` được; Gửi duyệt bị chặn |
+| C44 | Luồng A/C | Phê duyệt một cấp |
 
 ## D. GIR hàng có sẵn / GI
 | ID | Tình huống | Kết quả mong đợi |
 |---|---|---|
-| D01 | GIR `AVAILABLE_STOCK` không chọn HĐ, hoặc dòng hàng bán không chọn dòng HĐ | Không cho phép; không cần PR/PO. Dòng vật tư trên `AVAILABLE_STOCK`: chờ CM1 |
+| D01 | GIR `AVAILABLE_STOCK` không chọn HĐ, hoặc dòng hàng bán (luồng B) không chọn dòng HĐ | Không cho phép; không cần PR/PO. Luồng D (vật tư) không cần dòng HĐ (C23) |
 | D02 | Kho HCM có PN-A, kho HN không có | Chỉ chọn PN-A cho loại hàng có sẵn tại HCM |
 | D12 | GIR `AVAILABLE_STOCK` chọn kho không có `allow_available_stock_issue` (vd. kho dự án) | Không cho phép |
-| D13 | Hạn mức dòng HĐ còn 8, tồn khả dụng 5 | Số lượng tối đa 5; UI chặn vượt; backend chặn khi lưu/Gửi duyệt |
+| D13 | Hạn mức dòng HĐ còn 8, tồn khả dụng của người phụ trách nguồn hàng 5 | Số lượng tối đa 5; UI chặn vượt; backend chặn khi lưu/Gửi duyệt |
 | D14 | Tồn khả dụng giảm còn 3 trong khi GIR 5 đang chờ duyệt | Không duyệt được |
-| D15 | Sales xác nhận GIR `AVAILABLE_STOCK` | Chưa `APPROVED`; chuyển sang bước Quản lý kho |
-| D16 | Quản lý kho duyệt sau Sales | GIR `APPROVED` |
-| D17 | Quản lý kho duyệt khi Sales chưa xác nhận | Không cho phép |
-| D18 | GIR `AVAILABLE_STOCK` `APPROVED` thu hồi, giảm số lượng, Gửi duyệt lại | Duyệt lại từ bước Sales; xác nhận cũ hết hiệu lực |
+| D15 | Người phụ trách nguồn hàng đồng ý GIR `AVAILABLE_STOCK` | Chưa `APPROVED`; chuyển sang bước Quản lý kho |
+| D16 | Quản lý kho duyệt sau người phụ trách nguồn hàng | GIR `APPROVED` |
+| D17 | Quản lý kho duyệt khi người phụ trách nguồn hàng chưa đồng ý | Không cho phép |
+| D18 | GIR `AVAILABLE_STOCK` `APPROVED` thu hồi, giảm số lượng, Gửi duyệt lại | Duyệt lại từ bước người phụ trách nguồn hàng; xác nhận cũ hết hiệu lực |
 | D19 | GIR `AVAILABLE_STOCK` | Không giữ chỗ tồn; chỉ GI Chờ duyệt giữ chỗ |
-| D20 | Sales hoặc Quản lý kho từ chối GIR `AVAILABLE_STOCK` | GIR `REJECTED`; PM nhận thông báo; muốn tiếp tục phải Thu hồi/sửa và duyệt lại từ bước Sales |
+| D20 | Người phụ trách nguồn hàng hoặc Quản lý kho từ chối GIR `AVAILABLE_STOCK` | GIR `REJECTED`; PM nhận thông báo; muốn tiếp tục phải Thu hồi/sửa và duyệt lại từ bước đầu |
+| D22 | GIR `AVAILABLE_STOCK` chọn hàng của hai người phụ trách nguồn hàng, hoặc từ hai kho | Không cho phép; phải tạo GIR riêng |
+| D23 | GIR `AVAILABLE_STOCK` chọn nhiều Product của cùng một người phụ trách tại một kho | Cho phép |
+| D24 | Kho HCM: PN-A của người phụ trách X là 5, của Y là 3; GIR chọn nguồn X đề nghị 6 | Chặn — tồn khả dụng tính theo người phụ trách (5), không theo tổng Kho + PN (8) |
+| D25 | Luồng B: HĐ của Sales S1, hàng của người phụ trách S2 | Bước 1 giao S2 (không phải S1) |
+| D26 | Gửi duyệt GIR `AVAILABLE_STOCK` giao bước 1 cho người không phải người phụ trách nguồn hàng của GIR | Backend chặn |
+| D27 | Duyệt GR có hàng được mua cho HĐ của Sales S1 | Người phụ trách nguồn hàng được ghi nhận cho lượng nhập đó (thường S1) |
 | D21 | Chọn kho bảo hành/hàng hỏng cho `AVAILABLE_STOCK` | Không cho phép (mặc định không hợp lệ) |
 | D03 | GI xuất 4 trong 10 đơn vị dòng GIR | Cho phép; dòng còn lại có thể được xuất đợt khác |
 | D04 | Tồn thực tế 10, GI Chờ duyệt giữ 3 | GI mới chỉ dùng tối đa 7 khả dụng |
@@ -186,7 +211,7 @@
 - Không xuất âm tồn; không giữ chỗ âm; không nhập trùng PN+SN.
 - Mọi biến động tồn phải truy về GR/GI Đã duyệt.
 - Không được sử dụng lại quy tắc 'GIR bắt buộc dòng PO' trong hai luồng mới.
-- Không vượt hạn mức GIR hàng bán theo dòng HĐ; không tự suy ra dòng HĐ từ Product; không xóa chứng từ; số chứng từ không trùng, không tái sử dụng.
+- Không vượt hạn mức GIR hàng bán theo dòng HĐ (luồng A và B dùng chung) và hạn mức dòng PR (luồng A, C); không tự suy ra dòng HĐ từ Product; lượng nhập không dùng làm hạn mức GIR; không xóa chứng từ; số chứng từ không trùng, không tái sử dụng.
 - Quy tắc chưa chốt phải được xác nhận trước khi nghiệm thu các ca tương ứng.
 
 ## Quy ước thuật ngữ và tên bảng

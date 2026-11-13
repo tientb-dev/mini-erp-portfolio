@@ -4,7 +4,7 @@
 ## 1. Nguyên tắc
 - Ưu tiên workflow thông suốt; không phân quyền chi nhánh/phòng ban phức tạp.
 - **User → Role → Permission** kết hợp danh sách kho được phép (`user_warehouses`). Không có role khác nhau theo từng kho.
-- **Một cấp phê duyệt** là mặc định. **Ngoại lệ duy nhất:** GIR `AVAILABLE_STOCK` có hai bước duyệt tuần tự (Sales → Quản lý kho). Các chứng từ khác không chuyển sang hai cấp.
+- **Một cấp phê duyệt** là mặc định. **Ngoại lệ duy nhất:** GIR `AVAILABLE_STOCK` có hai bước duyệt tuần tự (người phụ trách nguồn hàng → Quản lý kho). Các chứng từ khác không chuyển sang hai cấp.
 - Người tạo không được tự duyệt.
 - Quyền duyệt theo loại chứng từ (permission); chứng từ kho còn giới hạn theo `user_warehouses`.
 - Người duyệt được phê duyệt/từ chối, không được sửa dữ liệu chứng từ.
@@ -18,10 +18,11 @@
 ## 2. Vai trò nghiệp vụ chính
 | Vai trò | Trách nhiệm |
 |---|---|
-| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; xem tất cả HĐ (chưa phân quyền xem theo khách hàng); xác nhận/từ chối Product được phép giao cho dòng HĐ; bước duyệt 1 của GIR `AVAILABLE_STOCK` |
+| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; xem tất cả HĐ (chưa phân quyền xem theo khách hàng); xác nhận/từ chối Product được phép giao cho dòng HĐ |
+| Người phụ trách nguồn hàng | Thường là Sales phụ trách HĐ mà hàng được mua; ghi nhận khi duyệt GR. Bước 1 (đồng ý) của GIR `AVAILABLE_STOCK` lấy hàng thuộc mình; có thể khác Sales của HĐ nhận hàng |
 | PM | Tạo GIR; đề xuất Product thay thế cho dòng HĐ kèm lý do; không tự xác nhận thay Sales |
 | Quản lý kho | Phụ trách GI; duyệt GIR (bước cuối với `AVAILABLE_STOCK`); "Xác nhận hoàn thành xuất" GIR |
-Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư (ADR-0012) không thêm vai trò, mã quyền hay bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng.
+Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư và bốn luồng GIR (ADR-0012) không thêm bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng. Người được giao bước 1 của GIR `AVAILABLE_STOCK` phải là người phụ trách nguồn hàng của GIR đó (kiểm tra ở mức dữ liệu như §3); mã quyền cụ thể: chưa chốt kỹ thuật (hiện `GIR.SALES_CONFIRM`, IM15).
 
 ## 3. Người duyệt mặc định
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.
@@ -44,7 +45,7 @@ Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệ
 - Ghi nhận người chỉnh sửa cuối và thời điểm trên chi tiết GR; không yêu cầu audit diff từng ô.
 
 ## 6. Thông báo trong ứng dụng
-- Gửi duyệt → người được giao duyệt của bước hiện tại (GIR `AVAILABLE_STOCK`: Sales, sau đó Quản lý kho).
+- Gửi duyệt → người được giao duyệt của bước hiện tại (GIR `AVAILABLE_STOCK`: người phụ trách nguồn hàng, sau đó Quản lý kho).
 - Duyệt/Từ chối → người tạo (GIR: PM tạo GIR).
 - Thu hồi khi Chờ duyệt → không gửi thông báo mới.
 - Thu hồi/Hủy chứng từ Đã duyệt → thông báo người duyệt trước đó kèm lý do.

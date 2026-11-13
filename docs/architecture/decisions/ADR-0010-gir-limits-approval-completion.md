@@ -4,15 +4,15 @@
 - **Đóng:** U1, U3, U6, U8, W1 (một phần), W2 (phần GIR)
 
 ## Hạn mức
-- Hạn mức theo `sales_contract_line_id`. GIR `DRAFT`/`WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED` chiếm hạn mức; `CANCELED` không; `COMPLETED` chỉ chiếm lượng thực xuất (Σ GI `APPROVED`).
-- Kiểm tra khi tạo/sửa/Gửi duyệt/Duyệt GIR, trong transaction **khóa dòng HĐ** (`pessimistic_write`, qua facade Sales Contracts). Mọi thao tác thay đổi lượng chiếm hạn mức (kể cả Hủy GIR, hoàn thành xuất) đi qua cùng điểm khóa.
+- Hạn mức theo `sales_contract_line_id` (chỉ dòng hàng bán; luồng A theo PR và B trực tiếp dùng chung; dòng vật tư không chiếm — ADR-0012). Luồng A/C còn có hạn mức dòng PR (ADR-0012). GIR `WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED` chiếm hạn mức; `DRAFT` và `CANCELED` không (sửa đổi 2026-11-13 theo CT2, ADR-0012 — trước đây `DRAFT` chiếm); `COMPLETED` chỉ chiếm lượng thực xuất (Σ GI `APPROVED`).
+- Kiểm tra khi Gửi duyệt/Duyệt GIR (và khi sửa số lượng GIR `REJECTED`, không tính trùng chính nó), trong transaction **khóa dòng HĐ** (`pessimistic_write`, qua facade Sales Contracts). Mọi thao tác thay đổi lượng chiếm hạn mức (kể cả Hủy GIR, hoàn thành xuất) đi qua cùng điểm khóa.
 - Cách lưu lượng chiếm hạn mức (tổng hợp trên dòng HĐ hay tính bằng truy vấn) quyết định ở ERD; nếu dùng số tổng hợp thì cập nhật cùng transaction như ADR-0003.
 - `AVAILABLE_STOCK`: thêm điều kiện ≤ tồn khả dụng (đọc từ Inventory, không giữ chỗ). Kiểm tra lại khi duyệt (cả hai bước).
 - GIR không giữ chỗ Inventory; chỉ GI `WAITING_FOR_APPROVE` giữ chỗ (ADR-0004).
 
 ## Duyệt hai bước `AVAILABLE_STOCK` (ngoại lệ ADR-0007)
-- Bước 1 Sales → bước 2 Quản lý kho; `approval_status` vẫn `WAITING_FOR_APPROVE` cho đến khi bước 2 duyệt → `APPROVED`. Bước hiện tại lưu riêng (cột/bảng chốt ở ERD).
-- Thu hồi làm mất hiệu lực xác nhận các bước của vòng cũ; vòng mới bắt đầu từ Sales. Lịch sử từng bước được lưu.
+- Bước 1 người phụ trách nguồn hàng (trước đây ghi "Sales"; làm rõ bởi ADR-0012) → bước 2 Quản lý kho; `approval_status` vẫn `WAITING_FOR_APPROVE` cho đến khi bước 2 duyệt → `APPROVED`. Bước hiện tại lưu riêng (cột/bảng chốt ở ERD).
+- Thu hồi làm mất hiệu lực xác nhận các bước của vòng cũ; vòng mới bắt đầu từ bước người phụ trách nguồn hàng. Lịch sử từng bước được lưu.
 - Các loại chứng từ khác giữ một cấp.
 
 ## Hoàn thành xuất
@@ -28,5 +28,5 @@
 ## Bổ sung 2026-11-13 (đóng G1–G5)
 - `execution_status`: `NOT_STARTED` / `IN_PROGRESS` / `COMPLETED`.
 - Hoàn thành xuất chặn khi còn GI `DRAFT`/`WAITING_FOR_APPROVE`/`REJECTED`; thiếu số lượng → bắt buộc lý do.
-- Từ chối ở bước Sales hoặc Quản lý kho → `REJECTED`, thông báo PM; duyệt lại từ đầu sau Thu hồi.
+- Từ chối ở bước người phụ trách nguồn hàng hoặc Quản lý kho → `REJECTED`, thông báo PM; duyệt lại từ đầu sau Thu hồi.
 - Kho bảo hành/hàng hỏng mặc định không hợp lệ cho `AVAILABLE_STOCK`.

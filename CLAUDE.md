@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## Bối cảnh dự án
-Mini ERP MVP (dự án portfolio): hợp đồng bán hàng, mua hàng, chứng từ nhập/xuất kho, tồn kho, serial number, phê duyệt một cấp (ngoại lệ: GIR `AVAILABLE_STOCK` hai bước Sales → Quản lý kho, ADR-0010).
+Mini ERP MVP (dự án portfolio): hợp đồng bán hàng, mua hàng, chứng từ nhập/xuất kho, tồn kho, serial number, phê duyệt một cấp (ngoại lệ: GIR `AVAILABLE_STOCK` — luồng trực tiếp từ tồn kho B/D — hai bước: người phụ trách nguồn hàng đồng ý → Quản lý kho duyệt; người phụ trách nguồn hàng không nhất thiết là Sales của HĐ nhận hàng; GIR theo PR (A/C) không áp dụng bước này — ADR-0010, ADR-0012).
 - **Tech stack đã chốt:** NestJS + TypeScript, React + TypeScript, PostgreSQL, **TypeORM**, **MUI** + MUI X Data Grid Community, `react-i18next` (`vi` mặc định, `en`), pnpm workspaces. **Modular Monolith**: một API, một ứng dụng web, một database. Không dùng microservices, message broker, distributed transaction, Drizzle, Ant Design.
 - **Giai đoạn hiện tại:** tài liệu 01–05 là MVP baseline; đang implementation theo vertical slice (đã có: auth/RBAC, Product, Warehouse, Inventory, HĐ (kèm đề xuất/xác nhận Product), PR, PO, GRR, GR, GIR, GI đều có UI; Nest module theo module nghiệp vụ). Lệnh chạy/test: `README.md`. Assumption implementation ghi ở `OPEN-QUESTIONS.md` §3.
 - Phiên bản ghim có chủ đích: NestJS 11 (Nest 12 chỉ ESM, Jest không nạp được), TypeScript 5.9 (TS 7 không tương thích ts-node/ts-jest).

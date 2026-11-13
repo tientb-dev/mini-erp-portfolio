@@ -129,7 +129,7 @@
 | C45 | PR 2 dòng; dòng 1 có PO `APPROVED` đủ, dòng 2 có PO `APPROVED` 6/10 | Chưa `PO done`; PR không xuất hiện khi lập GIR theo PR |
 | C46 | Dòng PR 10 mua qua PO-1 `APPROVED` 4 và PO-2 `APPROVED` 6; các dòng khác đủ | `PO done` |
 | C47 | Dòng PR 10: PO `APPROVED` 6 và PO `WAITING_FOR_APPROVE` 4 | Chưa `PO done` (chỉ tính PO `APPROVED`) |
-| C48 | Đã `PO done`, sau đó một PO `APPROVED` được Thu hồi/Hủy | Không còn `PO done`; PR không xuất hiện khi lập GIR mới. Ảnh hưởng tới GIR đã có: chưa quy định |
+| C48 | Đã `PO done`, sau đó một PO `APPROVED` được Thu hồi/Hủy | Không còn `PO done`; PR không xuất hiện khi lập GIR mới; GIR đã có xử lý theo C58–C61 |
 | C49 | Hai dòng PR cùng Product, dòng 1 có PO đủ, dòng 2 chưa | Chưa `PO done` — cộng theo dòng PR, không theo Product |
 | C50 | Dòng HĐ 10 đã có GIR `APPROVED` 10; lưu GIR `DRAFT` mới 5 cùng dòng HĐ | Lưu được (`DRAFT` không chiếm); Gửi duyệt bị chặn |
 | C51 | Hai GIR `DRAFT` cùng dòng HĐ 10, mỗi GIR 8 | Lưu được cả hai; GIR Gửi duyệt trước thành công, GIR sau bị chặn |
@@ -139,6 +139,10 @@
 | C55 | Hạn mức dòng PR: GIR `DRAFT` không chiếm; `WAITING_FOR_APPROVE`/`REJECTED`/`APPROVED` chiếm; `CANCELED` không | Như hạn mức dòng HĐ |
 | C56 | Luồng C, PR có mục đích sử dụng | GIR kế thừa để tham khảo; không bắt buộc nhập lại; không ảnh hưởng hạn mức/duyệt |
 | C57 | Luồng C, PR không có mục đích sử dụng | Gửi duyệt không bị chặn |
+| C58 | GIR `DRAFT` luồng A/C lập khi PR `PO done`; trước khi Gửi duyệt, PR mất `PO done` | Gửi duyệt bị chặn (backend); GIR vẫn `DRAFT` |
+| C59 | GIR `REJECTED` luồng A/C sửa và Gửi duyệt lại khi PR không còn `PO done` | Gửi duyệt bị chặn; GIR vẫn `REJECTED` |
+| C60 | GIR luồng A/C đã Gửi duyệt hợp lệ (`WAITING_FOR_APPROVE` hoặc `APPROVED`), sau đó PR mất `PO done` | GIR không bị tự Hủy/Thu hồi/đổi trạng thái; tiếp tục duyệt, lập GI theo workflow và hạn mức hiện hữu |
+| C61 | Như C58, sau đó PR đạt lại `PO done` (PO `APPROVED` mới bù đủ) | Gửi duyệt được |
 
 ## D. GIR hàng có sẵn / GI
 | ID | Tình huống | Kết quả mong đợi |

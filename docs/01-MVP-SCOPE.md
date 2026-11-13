@@ -11,7 +11,7 @@ Quản lý hợp đồng bán hàng (HĐ) ở mức danh mục đơn giản; yê
 - **PR:** yêu cầu mua hàng để phục vụ một HĐ (gắn HĐ ở cấp chứng từ).
 - **Dòng hàng bán / dòng vật tư (PR, GIR):** phân loại tường minh trên từng dòng. Dòng hàng bán tham chiếu `sales_contract_line_id`; dòng vật tư (vật tư/phụ kiện triển khai, dự phòng) không bắt buộc. MVP không trộn hai loại trong một PR/GIR (ADR-0012).
 - **Người phụ trách nguồn hàng:** người được ghi nhận khi duyệt GR là người phụ trách lượng hàng nhập đó (thường là Sales phụ trách HĐ mà hàng được mua để phục vụ); đồng ý trước khi Quản lý kho duyệt GIR `AVAILABLE_STOCK`.
-- **`PO done`:** PR có mọi dòng được đặt mua đủ đúng số lượng trên các PO `APPROVED`; là điều kiện để PR xuất hiện khi lập GIR theo PR; **không** có nghĩa đã nhập kho (03 §3).
+- **`PO done`:** PR có mọi dòng được đặt mua đủ đúng số lượng trên các PO `APPROVED`; là điều kiện để PR xuất hiện khi lập GIR theo PR và để Gửi duyệt GIR A/C (không hồi tố GIR đã Gửi duyệt); **không** có nghĩa đã nhập kho (03 §3).
 - **PO:** đơn đặt mua từ **một** nhà cung cấp.
 - **GRR / GR:** yêu cầu nhập / nhập kho thực tế.
 - **GIR / GI:** yêu cầu xuất / xuất kho thực tế.

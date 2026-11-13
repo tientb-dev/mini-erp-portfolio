@@ -74,6 +74,6 @@ CM1–CM6 và CT1, CT2, CT9 (ADR-0012) đã chốt nghiệp vụ — xem §4 (k�
 | CM4 | Phân loại dòng tường minh (schema: CT6) | 03 §1, §3 |
 | CM5 | PR vật tư được dùng mã tạm, chuẩn hóa trước khi nhập kho | 03 §1, §1a |
 | CM6 | Không chia/trùng dòng HĐ trong một PR; nhiều PR được tham chiếu cùng dòng HĐ | 03 §1 |
-| CT1 | `PO done` = mọi dòng PR có Σ dòng PO `APPROVED` bằng đúng số lượng dòng PR; chỉ quyết định hiển thị PR khi lập GIR. *Implementation: chưa có truy vấn/hiển thị.* | 03 §3, ADR-0012 |
+| CT1 | `PO done` = mọi dòng PR có Σ dòng PO `APPROVED` bằng đúng số lượng dòng PR; là điều kiện hiển thị PR và điều kiện Gửi duyệt GIR A/C (kể cả Gửi duyệt lại `REJECTED`); không hồi tố GIR đã Gửi duyệt hợp lệ (C48, C58–C61). *Implementation: chưa có truy vấn/hiển thị.* | 03 §3, ADR-0012 |
 | CT2 | GIR `WAITING_FOR_APPROVE`/`REJECTED`/`APPROVED` chiếm hạn mức, `DRAFT`/`CANCELED` không; kiểm tra khi Gửi duyệt/Duyệt; sửa `REJECTED` không tính trùng; áp cho dòng HĐ và dòng PR. *Implementation: code hiện tính cả `DRAFT` và kiểm tra khi tạo/sửa — cần sửa.* | 03 §10.1, ADR-0010, ADR-0012 |
 | CT9 | Luồng C: mục đích sử dụng chỉ tham khảo, kế thừa từ PR nếu có, không bắt buộc | 03 §3, ADR-0012 |

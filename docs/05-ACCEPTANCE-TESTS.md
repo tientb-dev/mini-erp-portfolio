@@ -166,6 +166,20 @@
 | C77 | Như C76, nhưng SN của GR còn được GI chưa Hủy tham chiếu | Chặn Thu hồi (B17, B18, B23) |
 | C78 | GIR B/D Gửi duyệt khi tồn khả dụng của Sales nguồn không đủ | Chặn Gửi duyệt; GIR không giữ chỗ tồn khi đủ |
 | C79 | GIR B/D `APPROVED`; tồn giảm trước khi lập GI | GI kiểm tra lại, chặn khi không đủ |
+| C80 | Thu hồi GR không SN; lô của GR đang được GI `WAITING_FOR_APPROVE` phân bổ | Chặn toàn bộ; không phân bổ lại GI |
+| C81 | Như C80, GI đã `APPROVED` (đã xuất một phần lô), tổng Kho + PN vẫn đủ | Chặn (xét lô, không xét tổng) |
+| C82 | Như C80, GI đó bị Từ chối/Thu hồi (phân bổ đã giải phóng); không GIR hiệu lực tham chiếu | Thu hồi được |
+| C83 | Sửa Sales phụ trách HĐ `DRAFT` (S1 → S2), rồi chốt; GR từ PR của HĐ được duyệt | Lô ghi S2 |
+| C83a | Sửa Sales phụ trách HĐ `ACTIVE` | Chặn |
+| C83b | Người không có quyền sửa HĐ sửa Sales phụ trách HĐ `DRAFT` | Chặn |
+| C84 | GIR B/D của HĐ-đích chọn Product từ HĐ-nguồn X và HĐ-nguồn Y | Không cho phép; lập GIR riêng cho từng HĐ nguồn |
+| C85 | GIR B/D chọn nhiều Product cùng HĐ nguồn, cùng Sales nguồn, cùng kho | Cho phép |
+| C86 | Dòng PR có GR1 (duyệt trước) là GR tham chiếu, GR2 duyệt sau; mọi GIR tham chiếu đã Hủy; Thu hồi GR1 | GR tham chiếu chuyển sang GR2 |
+| C87 | Như C86 nhưng không còn GR `APPROVED` nào khác | GR tham chiếu để trống |
+| C89 | GIR B/D chọn HĐ nguồn = HĐ đích | Không cho phép; dùng luồng A/C |
+| C90 | GIR B/D chọn HĐ nguồn `CANCELED` | Không cho phép |
+| C91 | GIR B/D chọn HĐ nguồn `ACTIVE` đã giao xong, còn hàng dư ở kho | Cho phép; bước 1 giao Sales ghi trên lô |
+| C88 | GIR B/D đủ tồn khi Gửi duyệt; tồn giảm trước khi Quản lý kho duyệt | Chặn Duyệt; GIR giữ Chờ duyệt |
 
 ## D. GIR hàng có sẵn / GI
 | ID | Tình huống | Kết quả mong đợi |
@@ -173,7 +187,7 @@
 | D01 | GIR `AVAILABLE_STOCK` không chọn HĐ, hoặc dòng hàng bán (luồng B) không chọn dòng HĐ | Không cho phép; không cần PR/PO. Luồng D (vật tư) không cần dòng HĐ (C23) |
 | D02 | Kho HCM có PN-A, kho HN không có | Chỉ chọn PN-A cho loại hàng có sẵn tại HCM |
 | D12 | GIR `AVAILABLE_STOCK` chọn kho không có `allow_available_stock_issue` (vd. kho dự án) | Không cho phép |
-| D13 | Hạn mức dòng HĐ còn 8, tồn khả dụng của người phụ trách nguồn hàng 5 | Số lượng tối đa 5; UI chặn vượt; backend chặn khi lưu/Gửi duyệt |
+| D13 | Hạn mức dòng HĐ còn 8, tồn khả dụng của người phụ trách nguồn hàng 5 | Lưu `DRAFT` 6 được (cảnh báo); Gửi duyệt 6 bị chặn; tối đa 5 |
 | D14 | Tồn khả dụng giảm còn 3 trong khi GIR 5 đang chờ duyệt | Không duyệt được |
 | D15 | Người phụ trách nguồn hàng đồng ý GIR `AVAILABLE_STOCK` | Chưa `APPROVED`; chuyển sang bước Quản lý kho |
 | D16 | Quản lý kho duyệt sau người phụ trách nguồn hàng | GIR `APPROVED` |
@@ -181,7 +195,7 @@
 | D18 | GIR `AVAILABLE_STOCK` `APPROVED` thu hồi, giảm số lượng, Gửi duyệt lại | Duyệt lại từ bước người phụ trách nguồn hàng; xác nhận cũ hết hiệu lực |
 | D19 | GIR `AVAILABLE_STOCK` | Không giữ chỗ tồn; chỉ GI Chờ duyệt giữ chỗ |
 | D20 | Người phụ trách nguồn hàng hoặc Quản lý kho từ chối GIR `AVAILABLE_STOCK` | GIR `REJECTED`; PM nhận thông báo; muốn tiếp tục phải Thu hồi/sửa và duyệt lại từ bước đầu |
-| D22 | GIR `AVAILABLE_STOCK` chọn hàng của hai người phụ trách nguồn hàng, hoặc từ hai kho | Không cho phép; phải tạo GIR riêng |
+| D22 | GIR `AVAILABLE_STOCK` chọn hàng của hai người phụ trách nguồn hàng, hai HĐ nguồn, hoặc từ hai kho | Không cho phép; phải tạo GIR riêng |
 | D23 | GIR `AVAILABLE_STOCK` chọn nhiều Product của cùng một người phụ trách tại một kho | Cho phép |
 | D24 | Kho HCM: PN-A của người phụ trách X là 5, của Y là 3; GIR chọn nguồn X đề nghị 6 | Chặn — tồn khả dụng tính theo người phụ trách (5), không theo tổng Kho + PN (8) |
 | D25 | Luồng B: HĐ của Sales S1, hàng của người phụ trách S2 | Bước 1 giao S2 (không phải S1) |

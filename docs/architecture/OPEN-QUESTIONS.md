@@ -8,9 +8,6 @@ CM1–CM6 và CT1, CT2, CT9 (ADR-0012) đã chốt nghiệp vụ — xem §4 (k�
 | # | Loại | Câu hỏi | Hiện trạng code |
 |---|---|---|---|
 | CT4 | Kỹ thuật | Mô hình tồn có nguồn gốc: **đề xuất** lô theo dòng GR (`inventory_lots`) + `inventories` làm tổng + phân bổ GI theo lô — ADR-0013 §3, **chờ review**. | Không có chiều nguồn |
-| CT14 | Nghiệp vụ + kỹ thuật | Thu hồi GR **không SN** khi lô của GR đã bị GI (chưa Hủy) phân bổ FIFO một phần: chặn (đề xuất — giống quy tắc SN, an toàn, không cần phân bổ lại), hay cho phép nếu tổng Kho + PN vẫn đủ và **tự phân bổ lại** GI sang lô khác (03 §2.2 hiện chỉ xét tổng)? Quy tắc hiện hành là tổng Kho + PN — cần xác nhận khi chuyển sang lô. | Chưa có Thu hồi GR Đã duyệt (IM11) |
-| CT15 | Nghiệp vụ | Sales phụ trách HĐ có được **đổi** sau khi đã có GR không; nếu đổi, lô đã nhập giữ Sales cũ (chụp khi Duyệt GR — đề xuất) hay theo Sales mới? Ai được chỉ định/đổi? | `sales_contracts` chỉ có `created_by` |
-| CT16 | Nghiệp vụ | GI luồng B/D: một GI/GIR được lấy lô của **nhiều HĐ** cùng Sales nguồn không (đề xuất: có, FIFO trên mọi lô của Sales nguồn tại kho)? | Chưa có |
 | CT6 | Kỹ thuật | Schema phân loại dòng (tên cột/giá trị, ở dòng hay cả header), cột mục đích sử dụng (luồng D), cột `goods_issue_request_lines.purchase_requisition_line_id` (bắt buộc với A/C theo CT10); nới `NOT NULL` của `sales_contract_line_id`. | `purchase_requisition_lines`/`goods_issue_request_lines`.`sales_contract_line_id` `NOT NULL` |
 | CT7 | Kỹ thuật | Quyền và cách giao bước 1 `AVAILABLE_STOCK` cho người phụ trách nguồn hàng (giữ `GIR.SALES_CONFIRM` hay mã mới); tự điền từ nguồn tồn đã chọn. | IM15: người tạo chọn người có `GIR.SALES_CONFIRM` |
 | CT8 | Kỹ thuật | Khóa dòng PR khi kiểm tra hạn mức luồng A/C: phụ thuộc Outbound → Procurement mới (facade), thứ tự khóa dòng HĐ → dòng PR → dòng GIR; kiểm tra không tạo vòng phụ thuộc. | Outbound chưa phụ thuộc Procurement |
@@ -80,7 +77,15 @@ CM1–CM6 và CT1, CT2, CT9 (ADR-0012) đã chốt nghiệp vụ — xem §4 (k�
 | CT2 | GIR `WAITING_FOR_APPROVE`/`REJECTED`/`APPROVED` chiếm hạn mức, `DRAFT`/`CANCELED` không; kiểm tra khi Gửi duyệt/Duyệt; sửa `REJECTED` không tính trùng; áp cho dòng HĐ và dòng PR. *Implementation: code hiện tính cả `DRAFT` và kiểm tra khi tạo/sửa — cần sửa.* | 03 §10.1, ADR-0010, ADR-0012 |
 | CT9 | Luồng C: mục đích sử dụng chỉ tham khảo, kế thừa từ PR nếu có, không bắt buộc | 03 §3, ADR-0012 |
 | CT3 | Nguồn tồn khi xuất: A/C chỉ HĐ nguồn = HĐ của GIR; B/D Sales nguồn đã đồng ý. Hàng không SN: FIFO theo thời điểm Duyệt GR trong phạm vi nguồn được phép (C73, C74) | 03 §5, ADR-0013 |
-| CT5 | HĐ có Sales phụ trách chỉ định rõ; GR kế thừa Sales phụ trách từ HĐ nguồn (C72). *Còn mở: đổi Sales sau khi có GR — CT15.* | 03 §5, ADR-0013 |
-| CT11 | Chặn Thu hồi GR nếu đang là GR tham chiếu của dòng GIR chưa `CANCELED`; nếu không, vẫn qua kiểm tra tồn kho phụ thuộc; không tự chuyển GR tham chiếu (C75–C77). *Còn mở: lô đã phân bổ — CT14.* | 03 §2.2, §3a |
+| CT5 | HĐ có Sales phụ trách chỉ định rõ; GR kế thừa Sales phụ trách từ HĐ nguồn (C72). Chỉnh/khóa Sales: CT17. | 03 §5, ADR-0013 |
+| CT11 | Chặn Thu hồi GR nếu đang là GR tham chiếu của dòng GIR chưa `CANCELED`; nếu không, vẫn qua kiểm tra tồn kho phụ thuộc; không tự chuyển GR tham chiếu (C75–C77). Lô đã phân bổ: CT14 (đã chốt). | 03 §2.2, §3a |
 | CT12 | Chưa nhập kho / Nhập kho một phần / Đã nhập kho là tình trạng của **PO**; chỉ tính GR `APPROVED` còn hiệu lực (C68–C68c) | 03 §1, 02 §A.9 |
 | CT13 | GIR B/D phải đủ tồn khả dụng khi Gửi duyệt, không giữ chỗ; GIR A/C Gửi duyệt khi chưa có GR; GI luôn kiểm tra lại (C62, C78, C79). Luồng B/D không có GR tham chiếu | 03 §3, §3a |
+| CT14 | Thu hồi GR không SN bị chặn nếu lô đã được GI phân bổ/giữ chỗ hoặc đã xuất; không tự phân bổ lại (C80–C82) | 03 §2.2, ADR-0013 |
+| CT15 | Lô giữ Sales phụ trách tại thời điểm Duyệt GR; bất biến (C83). | 03 §5, ADR-0013 |
+| CT16 | GIR B/D: một HĐ nguồn → một HĐ đích, một Sales nguồn, một kho; nhiều Product; HĐ nguồn khác → GIR riêng (C84, C85) | 03 §3, ADR-0013 |
+| GR tham chiếu khi Thu hồi | Thu hồi hợp lệ → chuyển sang GR `APPROVED` còn hiệu lực sớm nhất của dòng PR, không có → trống (C86, C87) | 03 §2.2, ADR-0013 |
+| B/D lưu nháp | GIR B/D lưu `DRAFT` khi chưa đủ tồn; bắt buộc đủ khi Gửi duyệt, kiểm lại khi đồng ý/duyệt (D13, C88) | 03 §3 |
+| CT17 | Sales phụ trách HĐ chỉnh khi `DRAFT` theo phân quyền, khóa từ `ACTIVE`; Sales trên lô ghi khi Duyệt GR, bất biến; Sales của lô đồng ý cho mượn B/D; không chuyển giao tồn giữa Sales (C83–C83b, C91) | 03 §5, §9.1, ADR-0013 |
+| CT18 | GIR B/D: HĐ nguồn ≠ HĐ đích; cùng HĐ dùng A/C (C89) | 03 §3 |
+| CT19 | HĐ nguồn B/D không bắt buộc `ACTIVE`, không được `CANCELED` (C90, C91) | 03 §3 |

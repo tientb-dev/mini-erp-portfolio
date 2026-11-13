@@ -3,7 +3,16 @@
 Tài liệu 01–05 là **MVP baseline** từ 2026-11-13. Câu hỏi mới phát sinh trong implementation ghi vào đây; câu hỏi **chưa chốt** không được triển khai theo giả định.
 
 ## 1. Còn mở
-Không có câu hỏi nghiệp vụ mở ảnh hưởng ERD tại thời điểm baseline.
+Phát sinh từ ADR-0012 (dòng hàng bán / dòng vật tư, 2026-11-13):
+
+| # | Câu hỏi |
+|---|---|
+| CM1 | Dòng GIR vật tư dùng loại GIR nào: chỉ `SALES_CONTRACT`, cả `AVAILABLE_STOCK` (khi đó bước Sales xác nhận nghĩa là gì với vật tư), hay một `issue_type` mới? |
+| CM2 | Dòng GIR vật tư có giới hạn số lượng nào không (vd. ≤ tồn khả dụng khi lập, hoặc ≤ lượng PR vật tư của HĐ)? Hạn mức hiện có chỉ theo dòng HĐ, không áp dụng cho dòng vật tư. |
+| CM3 | Một PR/GIR có được trộn dòng hàng bán và dòng vật tư không? Màn hình HĐ có cho thêm dòng vật tư vào PR, và màn hình PR có cho chọn dòng HĐ không? |
+| CM4 | Có cần cột phân loại dòng tường minh (vd. `line_purpose`) hay chỉ dựa vào `sales_contract_line_id` rỗng/không rỗng? (Mức ERD.) |
+| CM5 | PR vật tư được chọn mã tạm (`temporary_products`) như PR thường, hay chỉ mã chính? |
+| CM6 | "Không tách/nhân đôi dòng" chỉ trong một PR, hay một dòng HĐ chỉ được map vào tối đa một dòng PR chưa `CANCELED` trên toàn HĐ? (A01 cho nhiều PR cùng HĐ; IM19 chưa có hạn mức PR ≤ dòng HĐ.) |
 
 ## 2. Ghi chú (không phải mâu thuẫn)
 | # | Nhận xét |
@@ -57,3 +66,4 @@ Không có câu hỏi nghiệp vụ mở ảnh hưởng ERD tại thời điểm
 | A1 | Local storage + metadata DB | ADR-0011 |
 | Q4, I4 | Thu hồi/Hủy PO khi không còn GRR chưa Hủy | 03 §6 |
 | I1 | Tài liệu thành MVP baseline | 01–05 |
+| CM0 | PR/GIR gắn HĐ ở cấp chứng từ; `sales_contract_line_id` chỉ bắt buộc với dòng hàng bán; dòng vật tư; không suy ra dòng HĐ từ Product | 03 §1, §3, §10.1, ADR-0012 |

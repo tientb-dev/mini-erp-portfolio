@@ -21,7 +21,7 @@
 | Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; xem tất cả HĐ (chưa phân quyền xem theo khách hàng); xác nhận/từ chối Product được phép giao cho dòng HĐ; bước duyệt 1 của GIR `AVAILABLE_STOCK` |
 | PM | Tạo GIR; đề xuất Product thay thế cho dòng HĐ kèm lý do; không tự xác nhận thay Sales |
 | Quản lý kho | Phụ trách GI; duyệt GIR (bước cuối với `AVAILABLE_STOCK`); "Xác nhận hoàn thành xuất" GIR |
-Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này.
+Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư (ADR-0012) không thêm vai trò, mã quyền hay bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng.
 
 ## 3. Người duyệt mặc định
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.

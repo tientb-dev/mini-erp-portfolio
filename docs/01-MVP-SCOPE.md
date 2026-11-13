@@ -8,7 +8,8 @@ Quản lý hợp đồng bán hàng (HĐ) ở mức danh mục đơn giản; yê
 - **PN (Part Number):** mã hàng trong danh mục hàng hóa. Trong trao đổi trước có dùng từ SKU; từ đây thống nhất PN.
 - **SN (Serial Number):** định danh một đơn vị hàng có quản lý serial.
 - **HĐ:** hợp đồng **bán hàng cho khách**, không phải PO mua từ nhà cung cấp.
-- **PR:** yêu cầu mua hàng để phục vụ một HĐ.
+- **PR:** yêu cầu mua hàng để phục vụ một HĐ (gắn HĐ ở cấp chứng từ).
+- **Dòng hàng bán / dòng vật tư (PR, GIR):** dòng hàng bán tham chiếu `sales_contract_line_id`; dòng vật tư (vật tư/phụ kiện triển khai, dự phòng) không tham chiếu dòng HĐ (ADR-0012).
 - **PO:** đơn đặt mua từ **một** nhà cung cấp.
 - **GRR / GR:** yêu cầu nhập / nhập kho thực tế.
 - **GIR / GI:** yêu cầu xuất / xuất kho thực tế.
@@ -19,7 +20,7 @@ Quản lý hợp đồng bán hàng (HĐ) ở mức danh mục đơn giản; yê
 1. HĐ bán: trạng thái `DRAFT`/`ACTIVE`/`CANCELED`, do Sales tạo và chốt; không có duyệt HĐ riêng. Dòng HĐ lưu nguyên hàng hóa khách ký; Sales xác nhận các Product được phép giao cho từng dòng HĐ (PM đề xuất).
 2. Danh mục hàng hóa (mã tạm, mã chính, cờ SN), khách hàng, nhà cung cấp, kho (có cờ cho phép xuất hàng có sẵn); phân quyền User → Role → Permission + kho được phép.
 3. Sáu chứng từ PR, PO, GRR, GR, GIR, GI.
-4. Hai loại GIR, **đều gắn HĐ và dòng HĐ**: **Xuất theo HĐ** (`SALES_CONTRACT`) và **Xuất hàng có sẵn trong kho** (`AVAILABLE_STOCK`, từ kho được cấu hình cho phép).
+4. Hai loại GIR, **đều gắn HĐ ở cấp chứng từ** (dòng hàng bán tham chiếu dòng HĐ; dòng vật tư thì không — ADR-0012): **Xuất theo HĐ** (`SALES_CONTRACT`) và **Xuất hàng có sẵn trong kho** (`AVAILABLE_STOCK`, từ kho được cấu hình cho phép).
 5. Một cấp phê duyệt (ngoại lệ: GIR `AVAILABLE_STOCK` hai bước Sales → Quản lý kho), người duyệt mặc định theo role/bước, thu hồi/từ chối/hủy theo điều kiện, thông báo trong ứng dụng.
 5a. Số chứng từ tự sinh, bất biến; không xóa chứng từ, chỉ Hủy. File đính kèm và ghi chú cơ bản trên chứng từ.
 6. Tồn kho báo cáo theo **Kho + PN**; tồn khả dụng phục vụ kiểm tra GI.
@@ -35,8 +36,9 @@ Quy trình duyệt HĐ; phụ lục/điều chỉnh/versioning HĐ; điều ch�
 - Một PO có thể gom dòng từ nhiều PR (kể cả HĐ khác nhau), nhưng chỉ có một nhà cung cấp.
 - Một PO có nhiều GRR; một GRR có tối đa một GR chưa Hủy.
 - Một GIR có nhiều GI.
-- Một dòng HĐ có nhiều dòng PR (`sales_contract_line_id`), nhiều dòng GIR (hạn mức theo dòng HĐ) và nhiều Product được Sales xác nhận cho phép giao.
-- Cả hai loại GIR đều thuộc một HĐ `ACTIVE`.
+- Một dòng HĐ có nhiều dòng PR hàng bán (`sales_contract_line_id`), nhiều dòng GIR hàng bán (hạn mức theo dòng HĐ) và nhiều Product được Sales xác nhận cho phép giao.
+- Dòng vật tư trên PR/GIR chỉ gắn HĐ qua chứng từ, không gắn dòng HĐ. Trùng Product không đồng nghĩa trùng dòng HĐ; không tự suy ra dòng HĐ từ Product (ADR-0012).
+- Cả hai loại GIR đều thuộc một HĐ `ACTIVE` (cấp chứng từ).
 - Hàng vật lý tại một kho được dùng chung theo PN, kể cả khi được mua cho HĐ/khách hàng khác.
 
 ## 6. Nguyên tắc đặc tả

@@ -4,7 +4,7 @@
 - **Đóng:** U1, U3, U6, U8, W1 (một phần), W2 (phần GIR)
 
 ## Hạn mức
-- Hạn mức theo `sales_contract_line_id`. GIR `DRAFT`/`WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED` chiếm hạn mức; `CANCELED` không; `COMPLETED` chỉ chiếm lượng thực xuất (Σ GI `APPROVED`).
+- Hạn mức theo `sales_contract_line_id` (chỉ dòng hàng bán; dòng vật tư không chiếm — ADR-0012). GIR `DRAFT`/`WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED` chiếm hạn mức; `CANCELED` không; `COMPLETED` chỉ chiếm lượng thực xuất (Σ GI `APPROVED`).
 - Kiểm tra khi tạo/sửa/Gửi duyệt/Duyệt GIR, trong transaction **khóa dòng HĐ** (`pessimistic_write`, qua facade Sales Contracts). Mọi thao tác thay đổi lượng chiếm hạn mức (kể cả Hủy GIR, hoàn thành xuất) đi qua cùng điểm khóa.
 - Cách lưu lượng chiếm hạn mức (tổng hợp trên dòng HĐ hay tính bằng truy vấn) quyết định ở ERD; nếu dùng số tổng hợp thì cập nhật cùng transaction như ADR-0003.
 - `AVAILABLE_STOCK`: thêm điều kiện ≤ tồn khả dụng (đọc từ Inventory, không giữ chỗ). Kiểm tra lại khi duyệt (cả hai bước).

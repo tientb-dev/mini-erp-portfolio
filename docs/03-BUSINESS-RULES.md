@@ -2,7 +2,10 @@
 **Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
 
 ## 1. Số lượng và liên kết mua hàng — đã chốt
-- Mỗi PR thuộc một HĐ `ACTIVE`; mỗi dòng PR tham chiếu `sales_contract_line_id` và giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
+- Mỗi PR thuộc một HĐ `ACTIVE` (cấp chứng từ); mỗi dòng PR giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
+- **Dòng hàng bán** (đã chốt 2026-11-13, ADR-0012): tạo từ màn hình HĐ bằng cách map dòng HĐ sang PR; giữ đúng `sales_contract_line_id` gốc; dòng HĐ phải thuộc HĐ của PR. Không có chức năng tách/nhân đôi dòng.
+- **Dòng vật tư** (vật tư/phụ kiện triển khai/dự phòng): tạo trực tiếp từ màn hình PR, chọn HĐ và Product; `sales_contract_line_id` không bắt buộc.
+- Trùng Product không đồng nghĩa trùng dòng HĐ; hệ thống không tự suy ra hoặc tự gán `sales_contract_line_id` theo Product.
 - PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR.
 - Tổng số lượng dòng PO Chờ duyệt + Đã duyệt gắn với dòng PR không vượt số lượng PR Đã duyệt.
 - Một GRR tham chiếu một PO Đã duyệt, một kho; mỗi dòng GRR tham chiếu một dòng PO.
@@ -89,8 +92,9 @@
 - Người tạo GR thực hiện Thu hồi khi thỏa quyền và điều kiện; cần lý do (theo §6).
 
 ## 3. Hai loại GIR — đã chốt (cập nhật 2026-11-13)
-- **Cả hai loại đều bắt buộc HĐ `ACTIVE` và dòng HĐ.** Không cần PO/PR hoặc hàng đã nhập.
-- Mỗi dòng GIR tham chiếu `sales_contract_line_id` và một Product. **Chặn Gửi duyệt** nếu Product chưa được Sales xác nhận cho dòng HĐ đó (§9.2); GIR `DRAFT` được lưu với Product chưa xác nhận. Sau khi Sales xác nhận, PM chủ động Gửi duyệt.
+- **Cả hai loại đều bắt buộc HĐ `ACTIVE` ở cấp chứng từ.** Không cần PO/PR hoặc hàng đã nhập. Quan hệ dòng HĐ chỉ bắt buộc với dòng hàng bán (ADR-0012).
+- **Dòng vật tư triển khai** (đã chốt 2026-11-13): chọn HĐ và vật tư trong kho; `sales_contract_line_id` không bắt buộc; không bắt buộc vật tư được mua từ PR của HĐ đó; không áp dụng điều kiện Sales xác nhận Product và không chiếm hạn mức dòng HĐ. Không tự suy ra dòng HĐ từ Product. Loại GIR, giới hạn số lượng và việc trộn dòng: chưa chốt (OPEN-QUESTIONS CM1–CM3).
+- Mỗi dòng GIR hàng bán tham chiếu `sales_contract_line_id` và một Product. **Chặn Gửi duyệt** nếu Product chưa được Sales xác nhận cho dòng HĐ đó (§9.2); GIR `DRAFT` được lưu với Product chưa xác nhận. Sau khi Sales xác nhận, PM chủ động Gửi duyệt.
 - **`SALES_CONTRACT`:** chọn HĐ và kho dự kiến xuất; phê duyệt một cấp.
 - **`AVAILABLE_STOCK`:** dùng hàng có sẵn trong kho hợp lệ để phục vụ HĐ.
   - Chỉ chọn kho có `allow_available_stock_issue` (đề xuất tên thuộc tính). Kho hàng thừa chờ bán: hợp lệ; kho dự án, kho bảo hành/hàng hỏng: mặc định **không** hợp lệ.
@@ -169,13 +173,13 @@
 - PM đề xuất Product (kèm lý do); Sales xác nhận hoặc từ chối theo từng dòng HĐ. Lưu người xác nhận, thời điểm, ghi chú hoặc số phụ lục; không quản lý quy trình ký phụ lục.
 - Mapping PR → Product (chuẩn hóa hàng mua, §1a) và xác nhận Product cho dòng HĐ (hàng được phép giao) là **hai trách nhiệm tách biệt**, không gộp.
 - Đề xuất mapping dòng HĐ ↔ Product có trạng thái `PENDING` → `APPROVED` | `REJECTED` (PM tạo, Sales quyết định). Đây là trạng thái của đề xuất, không phải `approval_status` chứng từ.
-- Không cho thu hồi xác nhận (`APPROVED`) đang được GIR chưa `CANCELED` sử dụng.
+- Không cho thu hồi xác nhận (`APPROVED`) đang được dòng GIR hàng bán chưa `CANCELED` sử dụng. Dòng GIR vật tư cùng Product không tính là sử dụng xác nhận này.
 - Đề xuất `PENDING`/`REJECTED` không làm Product thành "đã sử dụng" (§1c).
 - Không có hạn mức riêng theo từng Product; chỉ hạn mức theo dòng HĐ (§10.1).
 
 ## 10. Hạn mức, hoàn thành xuất, thu hồi GIR — đã chốt (2026-11-13)
 ### 10.1 Hạn mức theo dòng HĐ
-- Quản lý theo **`sales_contract_line_id`**, không cộng gộp theo PN.
+- Quản lý theo **`sales_contract_line_id`**, không cộng gộp theo PN. Chỉ dòng GIR hàng bán chiếm hạn mức; dòng GIR vật tư không chiếm (ADR-0012).
 - GIR `DRAFT`, `WAITING_FOR_APPROVE`, `APPROVED`, `REJECTED` chiếm hạn mức; `CANCELED` không chiếm.
 - GIR `COMPLETED` chỉ chiếm bằng số lượng thực xuất (GI `APPROVED`).
 - UI hiển thị số lượng HĐ, đã đề nghị ở GIR khác, còn được đề nghị.

@@ -44,7 +44,7 @@ Các đề xuất bổ trợ chưa bị thay đổi và vẫn áp dụng: class-
 |---|---|---|
 | 1 | **Identity & Access** | User, đăng nhập, role, permission, phạm vi kho; hàm kiểm tra quyền |
 | 2 | **Master Data** | Danh mục hàng hóa: mã tạm (`temporary_products`), mã chính (`products`), nhóm hàng, đơn vị tính, khách hàng, nhà cung cấp, kho; bản dịch danh mục |
-| 3 | **Sales Contracts** | HĐ (`DRAFT`/`ACTIVE`/`CANCELED`, không duyệt), dòng HĐ, Product được phép giao theo dòng HĐ (đề xuất PM, xác nhận Sales), hạn mức GIR theo dòng HĐ (ADR-0009, ADR-0010) |
+| 3 | **Sales Contracts** | HĐ (`DRAFT`/`ACTIVE`/`CANCELED`, không duyệt), dòng HĐ, Product được phép giao theo dòng HĐ (đề xuất PM, xác nhận Sales), hạn mức GIR hàng bán theo dòng HĐ; dòng vật tư chỉ gắn HĐ (ADR-0009, ADR-0010, ADR-0012) |
 | 4 | **Procurement** | PR, PO; mapping mã tạm → mã chính trên dòng PR (ADR-0008); hạn mức dòng PR → dòng PO; hạn mức và tiến độ nhập trên dòng PO |
 | 5 | **Inbound** | GRR, GR, chi tiết GR; một GR chưa Hủy cho mỗi GRR |
 | 6 | **Outbound** | GIR (`SALES_CONTRACT` / `AVAILABLE_STOCK`), GI; hạn mức dòng GIR → dòng GI; hoàn thành xuất (`COMPLETED`) (ADR-0010) |
@@ -70,7 +70,7 @@ Inbound ──► Procurement ──► Sales Contracts ◄── Outbound
 ### 2.1a Điểm khóa đồng thời mới (2026-11-13)
 | Thao tác | Dòng bị khóa |
 |---|---|
-| Tạo/sửa/Gửi duyệt/Duyệt/Hủy GIR; hoàn thành xuất | dòng HĐ (`pessimistic_write`) — hạn mức theo `sales_contract_line_id` |
+| Tạo/sửa/Gửi duyệt/Duyệt/Hủy GIR có dòng hàng bán; hoàn thành xuất | dòng HĐ (`pessimistic_write`) — hạn mức theo `sales_contract_line_id`; dòng vật tư không khóa dòng HĐ (ADR-0012) |
 | Tạo GI, hoàn thành xuất, Thu hồi GIR | dòng GIR (`pessimistic_write`) |
 | Cấp `document_number` | bộ đếm (loại, năm) (ADR-0011) |
 | Sửa nội dung/Hủy HĐ vs tạo PR/GIR tham chiếu | dòng HĐ / HĐ |

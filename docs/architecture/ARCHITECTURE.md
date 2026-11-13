@@ -85,7 +85,7 @@ Thứ tự khóa khi một thao tác cần nhiều điểm: dòng HĐ → dòng 
 |---|---|---|
 | Gửi duyệt GRR | khóa dòng PO, kiểm tra và cộng lượng đã cam kết nhập | Kiểm soát Σ GRR Chờ duyệt + Đã duyệt ≤ PO Đã duyệt |
 | Từ chối / Thu hồi / Hủy GRR | trừ lượng đã cam kết | Giải phóng hạn mức |
-| Duyệt GR | cộng lượng thực nhập | Tiến độ Chưa nhập / Nhập một phần / Đã nhập đủ |
+| Duyệt GR | cộng lượng thực nhập | Tình trạng nhập kho PO: Chưa nhập kho / Nhập kho một phần / Đã nhập kho |
 | Thu hồi GR Đã duyệt | trừ lượng thực nhập | Tiến độ nhập được tính lại |
 | Tạo / Hủy GRR | cập nhật số GRR chưa Hủy của PO | Điều kiện Thu hồi/Hủy PO Đã duyệt |
 
@@ -126,7 +126,7 @@ Nguyên tắc bắt buộc:
 - **Quan hệ SN (ADR-0004 §8):** `inventory_serials` và `goods_issue_serials` cùng tham chiếu `goods_receipt_details.id`. Khả dụng của SN luôn xác định qua `inventory_serials`; điều kiện Thu hồi GR kiểm tra `goods_issue_serials` của GI chưa Hủy.
 - Cơ chế SN duy nhất vĩnh viễn, chống ghi trùng, FK và truy vết: ADR-0004.
 
-Ngoài MVP: tồn theo người phụ trách, phân bổ tồn theo HĐ, duyệt điều phối nhiều cấp, tồn theo location (WMS). Location trên chi tiết GR chỉ là thông tin lịch sử. Hàng dùng chung theo Warehouse + PN giữ nguyên.
+Tồn theo HĐ nguồn/Sales phụ trách/GR: ADR-0013 (thiết kế lô chờ review). Ngoài MVP: duyệt điều phối nhiều cấp, tồn theo location (WMS). Location trên chi tiết GR chỉ là thông tin lịch sử.
 
 ---
 

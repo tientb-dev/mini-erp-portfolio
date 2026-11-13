@@ -46,4 +46,4 @@
 - Không reversal ledger; audit Duyệt/Thu hồi ở cấp chứng từ (I5, đã chốt).
 
 ## Ngoài phạm vi
-Tồn theo người phụ trách, phân bổ theo HĐ, duyệt điều phối nhiều cấp, tồn theo location. Hàng dùng chung theo Warehouse + PN không đổi.
+Duyệt điều phối nhiều cấp, tồn theo location. (Tồn theo người phụ trách/HĐ nguồn: chuyển sang ADR-0013.)

@@ -23,7 +23,7 @@
 8. GR Nháp có thể thiếu SN; Gửi duyệt yêu cầu đủ và hợp lệ; GR Chờ duyệt không giữ chỗ SN. Duyệt GR kiểm tra lại SN chưa từng nhập kho, rồi mới tăng tồn thực tế và tạo SN tồn kho.
 8a. GR Nháp/Bị từ chối có thể Hủy; GRR khi đó được tạo GR mới.
 8b. GR Đã duyệt có thể được người tạo Thu hồi về Nháp nếu không SN nào còn được GI chưa Hủy tham chiếu và số lượng không-SN đủ hoàn tác (chi tiết 03 §2.2); tồn kho được hoàn tác, sau đó sửa và duyệt lại.
-9. PO hiển thị tiến độ nhập: Chưa nhập / Nhập một phần / Đã nhập đủ; số lượng thực nhập lấy từ GR Đã duyệt. Trạng thái này độc lập trạng thái duyệt PO.
+9. PO có tình trạng nhập kho (03 §1, CT12): **Chưa nhập kho** (chưa dòng nào được nhập) / **Nhập kho một phần** (đã nhập nhưng chưa đủ toàn bộ) / **Đã nhập kho** (mọi dòng PO nhập đủ). Chỉ tính GR `APPROVED` còn hiệu lực; được nhập kho từng phần qua nhiều GRR/GR. Trạng thái này độc lập trạng thái duyệt PO.
 
 ## B. Bốn luồng GIR → GI (ADR-0012, ADR-0013)
 Hai luồng chính (cập nhật 2026-11-13, ADR-0013):
@@ -50,12 +50,13 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 4. UI hiển thị lượng đã nhập thực tế của dòng PR (dòng PR → PO → GRR → GR `APPROVED`, cộng nhiều đợt nhập; chưa nhập = 0). Chỉ để tham khảo, không phải hạn mức.
 5. Luồng A: Product phải được Sales xác nhận cho dòng HĐ trước khi Gửi duyệt (như §B.3). Phê duyệt một cấp.
 6. **GR tham chiếu (luồng A/C):** mỗi dòng GIR hiển thị tối đa **một GR và kho tương ứng** — GR `APPROVED` đầu tiên của chuỗi dòng PR → PO → GRR → GR. Chưa có GR được duyệt → để trống. Khi GR đầu tiên được duyệt, hệ thống tự cập nhật trên mọi dòng GIR liên quan, kể cả GIR `WAITING_FOR_APPROVE`/`APPROVED`; GR tiếp theo không ghi đè. Không đổi số lượng đề nghị hay trạng thái GIR; không giữ chỗ hay phân bổ tồn (03 §3a).
-7. **Tình trạng nhập kho** của dòng GIR: Chưa nhập kho / Nhập kho một phần / Đã nhập kho (được nhập kho từng phần). Chỉ để tham khảo (03 §3a).
+7. Tình trạng nhập kho (Chưa nhập kho / Nhập kho một phần / Đã nhập kho) thuộc **PO** (§A.9), không thuộc GIR.
+8. GR được dòng GIR chưa `CANCELED` hiển thị làm GR tham chiếu thì không được Thu hồi (03 §2.2).
 
 ### B.2 Luồng B/D — trực tiếp từ tồn kho (`AVAILABLE_STOCK`)
 1. Không cần PR. Chọn tồn theo **Kho → Người phụ trách nguồn hàng → Product**; một GIR chỉ một kho và một người phụ trách, được chọn nhiều Product của người đó. Kho hoặc người phụ trách khác → GIR khác.
 2. Chỉ chọn kho có `allow_available_stock_issue`. Ví dụ hợp lệ: kho hàng thừa chờ bán; không hợp lệ: kho dự án, kho bảo hành/hàng hỏng.
-3. UI hiển thị tồn khả dụng theo kho, người phụ trách và Product. Luồng B: số lượng ≤ min(hạn mức giao dòng HĐ còn lại, tồn khả dụng); luồng D: ≤ tồn khả dụng. GIR không giữ chỗ tồn.
+3. UI hiển thị tồn khả dụng theo kho, người phụ trách và Product. Luồng B: số lượng ≤ min(hạn mức giao dòng HĐ còn lại, tồn khả dụng); luồng D: ≤ tồn khả dụng. Phải đủ tồn khả dụng khi Gửi duyệt (CT13); GIR không giữ chỗ tồn; GI kiểm tra lại khi thực xuất.
 4. Luồng B: bắt buộc dòng HĐ và Product được Sales xác nhận (§B.3). Luồng D: không cần PR hay dòng HĐ, **bắt buộc ghi mục đích sử dụng**.
 5. **Hai bước duyệt tuần tự** (ngoại lệ): người phụ trách nguồn hàng đồng ý → Quản lý kho duyệt. Người phụ trách nguồn hàng có thể khác Sales của HĐ nhận hàng. GIR chỉ `APPROVED` sau bước Quản lý kho; tồn được kiểm tra lại khi duyệt.
 6. GIR đã Gửi duyệt không sửa trực tiếp; muốn sửa (kể cả giảm số lượng) phải Thu hồi về `DRAFT`, sửa, Gửi duyệt lại và duyệt lại từ bước người phụ trách nguồn hàng.
@@ -64,7 +65,7 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 Dòng hàng bán (A, B) tham chiếu `sales_contract_line_id` và một Product. PM có thể lưu `DRAFT` với Product chưa được Sales xác nhận cho dòng HĐ; **Gửi duyệt bị chặn** cho đến khi Sales xác nhận; sau đó PM chủ động Gửi duyệt (không tự động). UI hiển thị số lượng HĐ, đã đề nghị ở GIR khác, còn được đề nghị. Dòng vật tư (C, D) không áp dụng.
 
 ### B.4 GI và hoàn thành xuất (mọi luồng)
-1. Quản lý kho lập GI: chọn dòng GIR cần xuất và số lượng; kiểm tra tồn khả dụng tại GI (03 §4). Luồng A/C chỉ xuất tồn có HĐ nguồn là HĐ của GIR; luồng B/D xuất tồn của người phụ trách nguồn hàng đã đồng ý (03 §5). Cơ chế phân bổ hàng không SN giữa các lô cùng nguồn: OPEN-QUESTIONS CT3.
+1. Quản lý kho lập GI: chọn dòng GIR cần xuất và số lượng; kiểm tra tồn khả dụng tại GI (03 §4). Luồng A/C chỉ xuất tồn có HĐ nguồn là HĐ của GIR; luồng B/D xuất tồn của người phụ trách nguồn hàng đã đồng ý (03 §5). Hàng không SN phân bổ FIFO theo thời điểm Duyệt GR trong phạm vi nguồn được phép.
 2. Với PN quản lý SN, chọn đúng số SN khả dụng; Gửi duyệt GI giữ chỗ; Duyệt GI trừ tồn thực tế.
 3. Nhiều GI có thể xuất từng phần của một GIR. Quản lý kho "Xác nhận hoàn thành xuất" (từ màn hình GI, hiệu lực cho cả GIR) → GIR `COMPLETED`, giải phóng phần chưa xuất khỏi hạn mức (03 §10.3).
 

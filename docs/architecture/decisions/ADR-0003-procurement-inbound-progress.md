@@ -10,7 +10,7 @@ Procurement cần: hạn mức GRR theo dòng PO, tiến độ nhập trên PO, 
 Phụ thuộc một chiều **Inbound → Procurement**. Dòng PO (hoặc PO) lưu số lượng tổng hợp; Inbound cập nhật qua facade Procurement trong cùng transaction:
 - Gửi duyệt GRR: khóa dòng PO, kiểm tra và cộng lượng cam kết nhập.
 - Từ chối / Thu hồi / Hủy GRR: trừ lượng cam kết.
-- Duyệt GR: cộng lượng thực nhập → tiến độ Chưa nhập / Nhập một phần / Đã nhập đủ.
+- Duyệt GR: cộng lượng thực nhập → tình trạng nhập kho PO Chưa nhập kho / Nhập kho một phần / Đã nhập kho (03 §1).
 - Thu hồi GR Đã duyệt (bổ sung 2026-11-12): trừ lượng thực nhập, cùng transaction với hoàn tác Inventory. Lượng cam kết GRR và số GRR chưa Hủy không đổi (GRR và GR vẫn tồn tại).
 - Tạo / Hủy GRR: cập nhật số GRR chưa Hủy.
 

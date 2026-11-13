@@ -23,9 +23,15 @@
 8. GR Nháp có thể thiếu SN; Gửi duyệt yêu cầu đủ và hợp lệ; GR Chờ duyệt không giữ chỗ SN. Duyệt GR kiểm tra lại SN chưa từng nhập kho, rồi mới tăng tồn thực tế và tạo SN tồn kho.
 8a. GR Nháp/Bị từ chối có thể Hủy; GRR khi đó được tạo GR mới.
 8b. GR Đã duyệt có thể được người tạo Thu hồi về Nháp nếu không SN nào còn được GI chưa Hủy tham chiếu và số lượng không-SN đủ hoàn tác (chi tiết 03 §2.2); tồn kho được hoàn tác, sau đó sửa và duyệt lại.
-9. PO hiển thị tiến độ nhập: Chưa nhập / Nhập một phần / Đã nhập đủ; số lượng thực nhập lấy từ GR Đã duyệt. Trạng thái này độc lập trạng thái duyệt PO.
+9. PO có tình trạng nhập kho (03 §1, CT12): **Chưa nhập kho** (chưa dòng nào được nhập) / **Nhập kho một phần** (đã nhập nhưng chưa đủ toàn bộ) / **Đã nhập kho** (mọi dòng PO nhập đủ). Chỉ tính GR `APPROVED` còn hiệu lực; được nhập kho từng phần qua nhiều GRR/GR. Trạng thái này độc lập trạng thái duyệt PO.
 
-## B. Bốn luồng GIR → GI (ADR-0012)
+## B. Bốn luồng GIR → GI (ADR-0012, ADR-0013)
+Hai luồng chính (cập nhật 2026-11-13, ADR-0013):
+- **Mua HĐ nào xuất HĐ đó** (luồng A/C): chọn hàng từ các PR của chính HĐ đã `PO done`; khi thực xuất (GI) chỉ dùng tồn có HĐ nguồn là chính HĐ đó.
+- **Hàng có sẵn trong kho** (luồng B/D, `AVAILABLE_STOCK`): được dùng tồn thuộc HĐ/Sales khác; cần Sales quản lý nguồn đồng ý và Quản lý kho (Trưởng kho) duyệt. Hoàn bù (nếu có) là quyết định thủ công, không tự động.
+
+PM lập GIR theo nhu cầu HĐ, không phụ thuộc tồn thực tế; GIR luồng A/C được lập/duyệt khi chưa có GR; GI mới kiểm tra tồn khả dụng.
+
 | Luồng | Phân loại | Nguồn | Hạn mức |
 |---|---|---|---|
 | A. Hàng bán theo PR | Hàng bán | PR đã `PO done` | dòng PR **và** hạn mức giao dòng HĐ |
@@ -43,11 +49,14 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 3. Số lượng đề nghị không vượt hạn mức còn lại của dòng PR; luồng A còn không vượt hạn mức giao còn lại của dòng HĐ. Hạn mức được kiểm tra khi Gửi duyệt và Duyệt; GIR `DRAFT` không chiếm hạn mức (03 §10.1).
 4. UI hiển thị lượng đã nhập thực tế của dòng PR (dòng PR → PO → GRR → GR `APPROVED`, cộng nhiều đợt nhập; chưa nhập = 0). Chỉ để tham khảo, không phải hạn mức.
 5. Luồng A: Product phải được Sales xác nhận cho dòng HĐ trước khi Gửi duyệt (như §B.3). Phê duyệt một cấp.
+6. **GR tham chiếu (luồng A/C):** mỗi dòng GIR hiển thị tối đa **một GR và kho tương ứng** — GR `APPROVED` đầu tiên của chuỗi dòng PR → PO → GRR → GR. Chưa có GR được duyệt → để trống. Khi GR đầu tiên được duyệt, hệ thống tự cập nhật trên mọi dòng GIR liên quan, kể cả GIR `WAITING_FOR_APPROVE`/`APPROVED`; GR tiếp theo không ghi đè. Không đổi số lượng đề nghị hay trạng thái GIR; không giữ chỗ hay phân bổ tồn (03 §3a).
+7. Tình trạng nhập kho (Chưa nhập kho / Nhập kho một phần / Đã nhập kho) thuộc **PO** (§A.9), không thuộc GIR.
+8. GR được dòng GIR chưa `CANCELED` hiển thị làm GR tham chiếu thì không được Thu hồi (03 §2.2).
 
 ### B.2 Luồng B/D — trực tiếp từ tồn kho (`AVAILABLE_STOCK`)
 1. Không cần PR. Chọn tồn theo **Kho → Người phụ trách nguồn hàng → Product**; một GIR chỉ một kho và một người phụ trách, được chọn nhiều Product của người đó. Kho hoặc người phụ trách khác → GIR khác.
 2. Chỉ chọn kho có `allow_available_stock_issue`. Ví dụ hợp lệ: kho hàng thừa chờ bán; không hợp lệ: kho dự án, kho bảo hành/hàng hỏng.
-3. UI hiển thị tồn khả dụng theo kho, người phụ trách và Product. Luồng B: số lượng ≤ min(hạn mức giao dòng HĐ còn lại, tồn khả dụng); luồng D: ≤ tồn khả dụng. GIR không giữ chỗ tồn.
+3. UI hiển thị tồn khả dụng theo kho, người phụ trách và Product. Luồng B: số lượng ≤ min(hạn mức giao dòng HĐ còn lại, tồn khả dụng); luồng D: ≤ tồn khả dụng. Phải đủ tồn khả dụng khi Gửi duyệt (CT13); GIR không giữ chỗ tồn; GI kiểm tra lại khi thực xuất.
 4. Luồng B: bắt buộc dòng HĐ và Product được Sales xác nhận (§B.3). Luồng D: không cần PR hay dòng HĐ, **bắt buộc ghi mục đích sử dụng**.
 5. **Hai bước duyệt tuần tự** (ngoại lệ): người phụ trách nguồn hàng đồng ý → Quản lý kho duyệt. Người phụ trách nguồn hàng có thể khác Sales của HĐ nhận hàng. GIR chỉ `APPROVED` sau bước Quản lý kho; tồn được kiểm tra lại khi duyệt.
 6. GIR đã Gửi duyệt không sửa trực tiếp; muốn sửa (kể cả giảm số lượng) phải Thu hồi về `DRAFT`, sửa, Gửi duyệt lại và duyệt lại từ bước người phụ trách nguồn hàng.
@@ -56,12 +65,12 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 Dòng hàng bán (A, B) tham chiếu `sales_contract_line_id` và một Product. PM có thể lưu `DRAFT` với Product chưa được Sales xác nhận cho dòng HĐ; **Gửi duyệt bị chặn** cho đến khi Sales xác nhận; sau đó PM chủ động Gửi duyệt (không tự động). UI hiển thị số lượng HĐ, đã đề nghị ở GIR khác, còn được đề nghị. Dòng vật tư (C, D) không áp dụng.
 
 ### B.4 GI và hoàn thành xuất (mọi luồng)
-1. Quản lý kho lập GI: chọn dòng GIR cần xuất và số lượng; kiểm tra tồn khả dụng tại GI theo quy trình hiện có (03 §4). Nguồn tồn khi xuất cho luồng A/C và cơ chế phân bổ theo người phụ trách/dòng GR: chưa chốt (OPEN-QUESTIONS).
+1. Quản lý kho lập GI: chọn dòng GIR cần xuất và số lượng; kiểm tra tồn khả dụng tại GI (03 §4). Luồng A/C chỉ xuất tồn có HĐ nguồn là HĐ của GIR; luồng B/D xuất tồn của người phụ trách nguồn hàng đã đồng ý (03 §5). Hàng không SN phân bổ FIFO theo thời điểm Duyệt GR trong phạm vi nguồn được phép.
 2. Với PN quản lý SN, chọn đúng số SN khả dụng; Gửi duyệt GI giữ chỗ; Duyệt GI trừ tồn thực tế.
 3. Nhiều GI có thể xuất từng phần của một GIR. Quản lý kho "Xác nhận hoàn thành xuất" (từ màn hình GI, hiệu lực cho cả GIR) → GIR `COMPLETED`, giải phóng phần chưa xuất khỏi hạn mức (03 §10.3).
 
 ## D. Dùng chung hàng tồn giữa các khách hàng
-Ví dụ: PN-X nhập từ PR/HĐ của khách A vào kho HCM, nhưng GI cho HĐ của khách B vẫn có thể chọn PN-X/SN đó nếu khả dụng. Với GIR `AVAILABLE_STOCK`, việc dùng hàng của người phụ trách nguồn hàng khác cần người đó đồng ý (§B.2). Lịch sử SN phải thể hiện nguồn nhập thực tế và nguồn xuất riêng biệt.
+Hàng nhập từ PR của HĐ khách A thuộc trách nhiệm Sales phụ trách HĐ A. GIR theo PR (A/C) của HĐ khách B **không** được xuất hàng đó; chỉ GIR `AVAILABLE_STOCK` (B/D) được dùng, khi Sales quản lý nguồn đồng ý và Quản lý kho duyệt (§B.2). Hoàn bù giữa HĐ/Sales là quyết định thủ công, không tự động. Lịch sử SN phải thể hiện nguồn nhập thực tế và nguồn xuất riêng biệt.
 
 ## E. Lịch sử SN
 - Tìm theo SN (không phân biệt hoa thường, bỏ khoảng trắng đầu/cuối); khi SN trùng giữa PN khác nhau phải phân biệt theo PN.

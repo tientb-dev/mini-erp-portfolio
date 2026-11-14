@@ -43,6 +43,19 @@ export class SalesContractFacade {
     return new Map(rows.map((r) => [r.id, r.responsible_sales_user_id!]));
   }
 
+  /** A contract referenced as a stock source (B/D), read FOR SHARE: status and responsible Sales. */
+  static async sourceContract(m: EntityManager, id: number): Promise<{ status: string; responsibleSalesUserId: number | null } | undefined> {
+    const [r] = await m.query(`SELECT status, responsible_sales_user_id AS "responsibleSalesUserId" FROM sales_contracts WHERE id = $1 FOR SHARE`, [id]);
+    return r;
+  }
+
+  /** Number and status of contracts, for pickers. */
+  static async summaries(m: EntityManager, ids: number[]): Promise<Map<number, { documentNumber: string; status: string }>> {
+    const rows: { id: number; documentNumber: string; status: string }[] = await m.query(
+      `SELECT id, document_number AS "documentNumber", status FROM sales_contracts WHERE id = ANY($1)`, [ids]);
+    return new Map(rows.map((r) => [r.id, r]));
+  }
+
   /** Line + product pairs that Sales has not APPROVED for delivery (03 §9.2). */
   static async unapprovedProducts(m: EntityManager, pairs: { salesContractLineId: number; productId: number }[]): Promise<typeof pairs> {
     if (!pairs.length) return [];

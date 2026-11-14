@@ -172,6 +172,7 @@ function CreatePrDialog({ onClose, onCreated, edit }: CreateProps) {
   const [scId, setScId] = useState(edit ? String(edit.salesContractId) : '');
   // Sales goods follow the HĐ lines; materials are free lines with an optional HĐ line (CM3: one category per PR).
   const [category, setCategory] = useState<string>(edit ? String(edit.category ?? 'SALES_GOODS') : 'SALES_GOODS');
+  const [purpose, setPurpose] = useState('');
   const [materials, setMaterials] = useState<{ id?: number; productId: string; quantity: string }[]>(
     () => (edit?.category === 'MATERIAL' ? edit.lines.map((l) => ({ id: l.id, productId: String(l.productId), quantity: String(num(l.quantity)) })) : [{ productId: '', quantity: '' }]));
   // Keyed by HĐ line: a PR holds at most one line per HĐ line (CM6, enforced by the API).
@@ -185,7 +186,7 @@ function CreatePrDialog({ onClose, onCreated, edit }: CreateProps) {
   const isMaterial = category === 'MATERIAL';
   const create = useMutation({
     mutationFn: () => saveDoc('purchase-requisitions', edit, {
-      ...(edit ? {} : { salesContractId: Number(scId), category }),
+      ...(edit ? {} : { salesContractId: Number(scId), category, purpose: isMaterial && purpose.trim() ? purpose.trim() : undefined }),
       lines: isMaterial
         ? chosenMaterials.map((l) => ({ id: l.id, productId: Number(l.productId), quantity: num(l.quantity) }))
         : chosen.map(([lineId, l]) => ({ id: l.id, salesContractLineId: Number(lineId), productId: Number(l.productId), quantity: num(l.quantity) })),
@@ -204,6 +205,7 @@ function CreatePrDialog({ onClose, onCreated, edit }: CreateProps) {
         helperText={contracts.data && !contracts.data.some((c) => c.status === 'ACTIVE') ? t('pr.noActiveContract') : undefined}>
         {(contracts.data ?? []).filter((c) => c.status === 'ACTIVE').map((c) => <MenuItem key={c.id} value={c.id}>{c.documentNumber}: {c.customerName}</MenuItem>)}
       </TextField>
+      {isMaterial && !edit && <TextField label={t('gir.purpose')} value={purpose} onChange={(e) => setPurpose(e.target.value)} helperText={t('pr.purposeHint')} />}
       {isMaterial && scId && materials.map((v, i) => (
         <Stack key={i} direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ pt: 1, borderTop: 1, borderColor: 'divider' }}>
           <TextField select fullWidth label={t('pr.material', { n: i + 1 })} value={v.productId}

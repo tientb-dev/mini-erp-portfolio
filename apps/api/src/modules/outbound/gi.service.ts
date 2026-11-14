@@ -10,11 +10,14 @@ import { BusinessError } from '../workflow/workflow';
  * Stock source a GI inherits from its GIR (ADR-0013; the GI user never picks it). The warehouse is always the GIR's.
  * - PURCHASE_REQUISITION (A/C, "mua HĐ nào xuất HĐ đó"; also the retired SALES_CONTRACT type): only lots whose source HĐ
  *   is the GIR's HĐ.
- * - AVAILABLE_STOCK (B/D): needs the source HĐ + source sales recorded on the GIR, which arrive with PR code #7.
- *   Until then submitting such a GI is blocked — never widened to warehouse + product.
+ * - AVAILABLE_STOCK (B/D): only lots of the source HĐ + source Sales recorded on the GIR (CT16).
+ * A GIR without its source (legacy data) blocks the GI — never widened to warehouse + product.
  */
-export function sourceScope(gir: { issue_type: string; sales_contract_id: number }): StockScope {
+export function sourceScope(gir: { issue_type: string; sales_contract_id: number; source_sales_contract_id?: number | null; source_owner_user_id?: number | null }): StockScope {
   if (gir.issue_type === 'PURCHASE_REQUISITION' || gir.issue_type === 'SALES_CONTRACT') return { sourceSalesContractId: gir.sales_contract_id };
+  if (gir.issue_type === 'AVAILABLE_STOCK' && gir.source_sales_contract_id && gir.source_owner_user_id) {
+    return { sourceSalesContractId: gir.source_sales_contract_id, ownerUserId: gir.source_owner_user_id };
+  }
   throw new BusinessError('GIR_SOURCE_SCOPE_MISSING', 'The request does not define its stock source (source contract and sales); goods cannot be issued', HttpStatus.CONFLICT);
 }
 
@@ -116,18 +119,24 @@ export class GiService {
     return wf.eligibleApprovers(this.ds.manager, 'GI', doc.created_by, doc.warehouse_id);
   }
 
-  /** IN_STOCK serials for a GIR line's product at the GIR warehouse (selection candidates). */
+  /** IN_STOCK serials for a GIR line's product at the GIR warehouse, inside the GIR's stock source (selection candidates). */
   async availableSerials(user: CurrentUser, girLineId: number) {
     const [line] = await this.ds.query(
-      `SELECT l.product_id, g.warehouse_id FROM goods_issue_request_lines l JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id WHERE l.id = $1`,
+      `SELECT l.product_id, g.warehouse_id, g.issue_type, g.sales_contract_id, g.source_sales_contract_id, g.source_owner_user_id
+         FROM goods_issue_request_lines l JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id WHERE l.id = $1`,
       [girLineId],
     );
     if (!line) throw new NotFoundException();
     wf.assertWarehouse(user, line.warehouse_id);
+    const scope = sourceScope(line);
     return this.ds.query(
-      `SELECT goods_receipt_detail_id AS "goodsReceiptDetailId", serial_number AS "serialNumber" FROM inventory_serials
-        WHERE product_id = $1 AND warehouse_id = $2 AND status = 'IN_STOCK' ORDER BY serial_number`,
-      [line.product_id, line.warehouse_id],
+      `SELECT s.goods_receipt_detail_id AS "goodsReceiptDetailId", s.serial_number AS "serialNumber" FROM inventory_serials s
+         JOIN goods_receipt_details d ON d.id = s.goods_receipt_detail_id
+         JOIN inventory_lots lot ON lot.goods_receipt_line_id = d.goods_receipt_line_id
+        WHERE s.product_id = $1 AND s.warehouse_id = $2 AND s.status = 'IN_STOCK'
+          AND ($3::int IS NULL OR lot.source_sales_contract_id = $3) AND ($4::int IS NULL OR lot.owner_user_id = $4)
+        ORDER BY s.serial_number`,
+      [line.product_id, line.warehouse_id, scope.sourceSalesContractId ?? null, scope.ownerUserId ?? null],
     );
   }
 
@@ -185,11 +194,13 @@ export class GiService {
 
   private async lockGir(m: EntityManager, girId: number) {
     const [gir] = await m.query(
-      `SELECT approval_status, execution_status, warehouse_id, issue_type, sales_contract_id FROM goods_issue_requests WHERE id = $1 FOR UPDATE`,
+      `SELECT approval_status, execution_status, warehouse_id, issue_type, sales_contract_id, source_sales_contract_id, source_owner_user_id
+         FROM goods_issue_requests WHERE id = $1 FOR UPDATE`,
       [girId],
     );
     if (!gir) throw new NotFoundException('GIR not found');
-    return gir as { approval_status: string; execution_status: string; warehouse_id: number; issue_type: string; sales_contract_id: number };
+    return gir as { approval_status: string; execution_status: string; warehouse_id: number; issue_type: string; sales_contract_id: number;
+      source_sales_contract_id: number | null; source_owner_user_id: number | null };
   }
 
   /** GIR must be APPROVED and not COMPLETED to create/edit/submit GIs (03 §10.3). */

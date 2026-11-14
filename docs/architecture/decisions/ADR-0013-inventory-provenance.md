@@ -102,7 +102,7 @@ Mỗi PR: một migration (có `down`), test PostgreSQL thật tham chiếu ID 0
 | 4. Phân bổ GI FIFO | `goods_issue_line_allocations`; Gửi duyệt GI phân bổ + giữ chỗ lô; Duyệt trừ lô; Từ chối/Thu hồi giải phóng; GI hiện tại (chưa có nguồn A/C) dùng phạm vi Kho + PN tạm thời | Bảng + backfill GI cũ | C73; đồng thời 2 GI cùng lô |
 | 5. Liên kết dòng GIR → dòng PR (A/C) | CT6/CT10: `goods_issue_request_lines.purchase_requisition_line_id`, biểu diễn luồng; GI A/C lọc theo HĐ nguồn | Cột, nới `sales_contract_line_id`; xử lý GIR `SALES_CONTRACT` cũ | C62, C69, C74 | *Đã làm (PR code #5): `PURCHASE_REQUISITION`, phân loại cấp chứng từ, hạn mức dòng PR, `PO done` khi Gửi duyệt.*
 | 6. GR tham chiếu | `purchase_requisition_lines.first_goods_receipt_id` ghi khi Duyệt GR; hiển thị trên GIR | Cột + backfill | C63–C67 | *Đã làm (PR code #6): tính khi đọc (§4), không cột/migration; dòng GIR A/C trả `firstGoodsReceipt` + `receivedQuantity`.*
-| 7. GIR B/D theo HĐ nguồn | `source_sales_contract_id`/`source_owner_user_id`, lọc lô, bước 1 giao Sales lô, lưu nháp khi thiếu tồn | Cột + CHECK; GIR B/D cũ → `DRAFT` | C70, C78, C84–C91, D13, D22 |
+| 7. GIR B/D theo HĐ nguồn | `source_sales_contract_id`/`source_owner_user_id`, lọc lô, bước 1 giao Sales lô, lưu nháp khi thiếu tồn | Cột + CHECK; GIR B/D cũ → `DRAFT` | C70, C78, C84–C91, D13, D22 | *Đã làm (PR code #7): nguồn + mục đích trên GIR, kiểm tồn theo phạm vi nguồn, bước 1 = Sales nguồn, GI/SN kế thừa phạm vi; GIR B/D cũ chưa Hủy → migration dừng.*
 | 8. Thu hồi GR Đã duyệt | Điều kiện GIR tham chiếu + lô chưa đụng + SN; hoàn tác lô, tiến độ PO; chuyển GR tham chiếu | Không | B16–B26, C75–C77, C80–C82, C86, C87 |
 
 Thứ tự phụ thuộc: 1 → 3; 2 → 6 → 8; 3 → 4 → (5, 7) → 8. PR 1 và 2 độc lập, làm song song được.

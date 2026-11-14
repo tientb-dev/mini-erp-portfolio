@@ -229,3 +229,40 @@ describe('GIR A/C detail: first GR and received (PR code #6)', () => {
     expect(screen.getByRole('gridcell', { name: '7' })).toBeTruthy();
   });
 });
+
+describe('GIR B/D form (PR code #7)', () => {
+  it('D: picks one source HĐ + Sales in the warehouse, requires a purpose and posts the source with product-only lines', async () => {
+    const posts = mockApi({
+      '/auth/me': { id: 1, permissions: ['GIR.VIEW', 'GIR.CREATE'], warehouseIds: [2] },
+      '/warehouses/2/available-stock-sources': [
+        { sourceSalesContractId: 8, sourceSalesContractNumber: 'SC-2026-000008', sourceOwnerUserId: 5, sourceOwnerName: 'Sales A', productId: 31, partNumber: 'CB-1', productName: 'Cable', available: 6 },
+        { sourceSalesContractId: 9, sourceSalesContractNumber: 'SC-2026-000009', sourceOwnerUserId: 6, sourceOwnerName: 'Sales B', productId: 31, partNumber: 'CB-1', productName: 'Cable', available: 40 },
+      ],
+      '/sales-contracts': [{ id: 3, documentNumber: 'SC-2026-000003', status: 'ACTIVE', customerName: 'Customer' }],
+      '/warehouses': [{ id: 2, code: 'KTH', name: 'Kho hàng thừa', allowAvailableStockIssue: true }],
+      '/goods-issue-requests': [],
+    });
+    wrap(<GoodsIssueRequestsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Tạo đề nghị xuất' }));
+    const pick = async (label: RegExp, option: string) => {
+      fireEvent.mouseDown(await screen.findByRole('combobox', { name: label }));
+      fireEvent.click(await screen.findByRole('option', { name: option }));
+    };
+    await pick(/Loại xuất/, 'Xuất hàng có sẵn');
+    await pick(/Phân loại/, 'Vật tư');
+    await pick(/Hợp đồng bán/, 'SC-2026-000003: Customer');
+    await pick(/^Kho/, 'KTH: Kho hàng thừa');
+    await pick(/Nguồn hàng/, 'SC-2026-000008 · Sales A');
+    expect(await screen.findByText(/CB-1: Cable — Tồn khả dụng ở nguồn: 6/)).toBeTruthy(); // only the chosen source's stock
+    fireEvent.change(screen.getByLabelText('Số lượng'), { target: { value: '4' } });
+    const submit = screen.getAllByRole('button', { name: 'Tạo đề nghị xuất' }).at(-1)! as HTMLButtonElement;
+    expect(submit.disabled).toBe(true); // purpose missing
+    fireEvent.change(screen.getByLabelText(/Mục đích sử dụng/), { target: { value: 'Lắp đặt' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts).toEqual([{
+      url: '/goods-issue-requests',
+      body: { issueType: 'AVAILABLE_STOCK', salesContractId: 3, warehouseId: 2, purpose: 'Lắp đặt', category: 'MATERIAL', sourceSalesContractId: 8, sourceOwnerUserId: 5,
+        lines: [{ productId: 31, quantity: 4 }] },
+    }]));
+  });
+});

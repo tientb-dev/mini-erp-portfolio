@@ -56,6 +56,9 @@ const vi = {
   gir: {
     noConfirmedProduct: 'Chưa có mã hàng nào được Sales xác nhận cho dòng này.',
     title: 'Đề nghị xuất kho', number: 'Số GIR', type: 'Loại xuất', types: { PURCHASE_REQUISITION: 'Mua HĐ nào xuất HĐ đó (theo YCMH)', AVAILABLE_STOCK: 'Xuất hàng có sẵn', SALES_CONTRACT: 'Xuất theo HĐ (cũ)' },
+    source: 'Nguồn hàng (HĐ nguồn · Sales nguồn)', sourceHint: 'Chỉ dùng tồn của đúng HĐ nguồn và Sales nguồn tại kho đã chọn; Sales nguồn xác nhận trước.',
+    noSource: 'Kho này chưa có tồn khả dụng của HĐ khác.', sourceAvailable: 'Tồn khả dụng ở nguồn: {{available}}',
+    purpose: 'Mục đích sử dụng', purposeRequired: 'Bắt buộc với vật tư lấy từ hàng có sẵn.', purposeInherited: 'Không bắt buộc; để trống sẽ lấy theo đề nghị mua.',
     prLine: 'Đề nghị mua (YCMH)', firstReceipt: 'PNK đầu tiên · kho', received: 'Đã nhập kho', notReceived: 'Chưa nhập kho',
     referenceHint: 'PNK đầu tiên và lượng đã nhập kho chỉ để tham khảo; không giữ chỗ hay phân bổ tồn.', categoryHint: 'Một đề nghị xuất chỉ gồm hàng bán hoặc chỉ gồm vật tư.',
     prLineHint: 'YCMH {{quantity}} {{uom}}, còn được đề nghị {{remaining}}, đã nhập kho {{received}} (chỉ tham khảo)',
@@ -126,7 +129,7 @@ const vi = {
   },
   pr: {
     title: 'Đề nghị mua (PR)', number: 'Số PR', category: 'Phân loại', material: 'Vật tư {{n}}', addMaterial: 'Thêm vật tư',
-    salesGoodsHint: 'Hàng bán: mỗi dòng theo đúng một dòng HĐ.', materialHint: 'Vật tư/phụ kiện triển khai: không bắt buộc dòng HĐ.', create: 'Tạo đề nghị mua', product: 'Mã hàng mua', skipLine: 'Không mua dòng này',
+    purposeHint: 'Tham khảo; đề nghị xuất vật tư theo YCMH sẽ kế thừa.', salesGoodsHint: 'Hàng bán: mỗi dòng theo đúng một dòng HĐ.', materialHint: 'Vật tư/phụ kiện triển khai: không bắt buộc dòng HĐ.', create: 'Tạo đề nghị mua', product: 'Mã hàng mua', skipLine: 'Không mua dòng này',
     createHint: 'Chọn hợp đồng đã chốt, rồi chọn mã hàng và số lượng cần mua cho từng dòng.', noActiveContract: 'Chưa có hợp đồng nào đã chốt.',
     empty: 'Chưa có đề nghị mua. Bấm "Tạo đề nghị mua" từ một hợp đồng đã chốt.', lineRef: 'Dòng HĐ', used: 'Đã lên PO',
     tabChildren: 'Đơn đặt mua', noChildren: 'Chưa có đơn đặt mua nào tham chiếu PR này.',
@@ -210,6 +213,9 @@ const en: typeof vi = {
   gir: {
     noConfirmedProduct: 'Sales has not confirmed any product for this line yet.',
     title: 'Goods issue request', number: 'GIR number', type: 'Issue type', types: { PURCHASE_REQUISITION: 'Bought for this contract (per PR)', AVAILABLE_STOCK: 'Available stock', SALES_CONTRACT: 'Per sales contract (legacy)' },
+    source: 'Stock source (source contract · source sales)', sourceHint: 'Only stock of this source contract and sales in the chosen warehouse; the source sales confirms first.',
+    noSource: 'This warehouse has no available stock of another contract.', sourceAvailable: 'Available at the source: {{available}}',
+    purpose: 'Purpose of use', purposeRequired: 'Required for materials taken from available stock.', purposeInherited: 'Optional; left empty it is taken from the requisitions.',
     prLine: 'Purchase requisition', firstReceipt: 'First GR · warehouse', received: 'Received', notReceived: 'Not received',
     referenceHint: 'First GR and received quantity are for reference only; they neither reserve nor allocate stock.', categoryHint: 'One issue request holds either sales goods or materials, never both.',
     prLineHint: 'PR {{quantity}} {{uom}}, still requestable {{remaining}}, received {{received}} (reference only)',
@@ -280,7 +286,7 @@ const en: typeof vi = {
   },
   pr: {
     title: 'Purchase requisitions', number: 'PR number', category: 'Kind', material: 'Material {{n}}', addMaterial: 'Add material',
-    salesGoodsHint: 'Sales goods: each line follows exactly one contract line.', materialHint: 'Materials/deployment accessories: no contract line required.', create: 'New requisition', product: 'Product to buy', skipLine: 'Do not buy this line',
+    purposeHint: 'Reference; material issue requests from this PR inherit it.', salesGoodsHint: 'Sales goods: each line follows exactly one contract line.', materialHint: 'Materials/deployment accessories: no contract line required.', create: 'New requisition', product: 'Product to buy', skipLine: 'Do not buy this line',
     createHint: 'Pick an active contract, then the product and quantity to buy for each line.', noActiveContract: 'No active contracts yet.',
     empty: 'No purchase requisitions yet. Select "New requisition" from an active contract.', lineRef: 'Contract line', used: 'On POs',
     tabChildren: 'Purchase orders', noChildren: 'No purchase order references this PR yet.',

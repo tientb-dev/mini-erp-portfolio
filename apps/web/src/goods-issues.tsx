@@ -24,8 +24,12 @@ interface GirLine {
   id: number; prNumber: string | null; salesContractLineId: number | null; contractItem: string; contractQuantity: string; productId: number; partNumber: string;
   productName: string; isSerialTracked: boolean; uom: string; quantity: string; productConfirmed: boolean; issuedQuantity: string; committedQuantity: string;
 }
+interface StockSource {
+  sourceSalesContractId: number; sourceSalesContractNumber: string; sourceOwnerUserId: number; sourceOwnerName: string;
+  productId: number; partNumber: string; productName: string; available: number;
+}
 interface GirDetail extends GirRow {
-  category: string; version: number; warehouseId: number; salesContractId: number; createdBy: number; assignedApproverId: number | null;
+  category: string; version: number; sourceSalesContractNumber: string | null; sourceOwnerName: string | null; purpose: string | null; warehouseId: number; salesContractId: number; createdBy: number; assignedApproverId: number | null;
   warehouseApproverName: string | null; completionReason: string | null;
   lines: GirLine[]; goodsIssues: { id: number; documentNumber: string; approvalStatus: string }[]; history: HistoryEntry[];
 }
@@ -86,6 +90,9 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
   const [issueType, setIssueType] = useState('PURCHASE_REQUISITION');
   const [category, setCategory] = useState('SALES_GOODS');
   const [prQty, setPrQty] = useState<Record<number, string>>({});
+  const [source, setSource] = useState(''); // "<source HĐ id>:<source Sales id>"
+  const [purpose, setPurpose] = useState('');
+  const [dQty, setDQty] = useState<Record<number, string>>({});
   const [scId, setScId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [lines, setLines] = useState<Record<number, { productId: string; quantity: string }>>({});
@@ -93,6 +100,17 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string; allowAvailableStockIssue: boolean }[]>('/warehouses') });
   const scLines = useQuery({ queryKey: ['sc-lines', scId], queryFn: () => api<ScLine[]>(`/sales-contracts/${scId}/lines`), enabled: Boolean(scId) });
   const isPr = issueType === 'PURCHASE_REQUISITION';
+  const isD = !isPr && category === 'MATERIAL';
+  const sources = useQuery({
+    queryKey: ['stock-sources', warehouseId, scId],
+    queryFn: () => api<StockSource[]>(`/warehouses/${warehouseId}/available-stock-sources?targetSalesContractId=${scId}`),
+    enabled: Boolean(!isPr && warehouseId && scId),
+  });
+  const sourceKeys = [...new Map((sources.data ?? []).map((s) => [`${s.sourceSalesContractId}:${s.sourceOwnerUserId}`, s])).entries()];
+  const inSource = (sources.data ?? []).filter((s) => `${s.sourceSalesContractId}:${s.sourceOwnerUserId}` === source);
+  const availableOf = (productId: number) => inSource.find((s) => s.productId === productId)?.available ?? 0;
+  const dChosen = inSource.filter((s) => num(dQty[s.productId] ?? '') > 0);
+  const [srcId, srcOwner] = source.split(':').map(Number);
   const prLines = useQuery({ queryKey: ['gir-pr-lines', scId], queryFn: () => api<PrLineOption[]>(`/sales-contracts/${scId}/gir-pr-lines`), enabled: Boolean(scId && isPr) });
   const prChosen = (prLines.data ?? []).filter((l) => l.category === category && num(prQty[l.id] ?? '') > 0);
   const quota = useQuery({ queryKey: ['quota', scId], queryFn: () => api<{ salesContractLineId: number; contractQuantity: string; usedQuantity: string }[]>(`/sales-contracts/${scId}/gir-quota`), enabled: Boolean(scId) });
@@ -102,10 +120,13 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
     mutationFn: () => api<{ id: number }>('/goods-issue-requests', {
       method: 'POST',
       body: JSON.stringify({
-        issueType, salesContractId: Number(scId), warehouseId: Number(warehouseId),
+        issueType, salesContractId: Number(scId), warehouseId: Number(warehouseId), purpose: purpose.trim() || undefined,
+        ...(isPr ? {} : { category, sourceSalesContractId: srcId, sourceOwnerUserId: srcOwner }),
         lines: isPr
           ? prChosen.map((l) => ({ purchaseRequisitionLineId: l.id, quantity: num(prQty[l.id]) }))
-          : chosen.map(([lineId, l]) => ({ salesContractLineId: Number(lineId), productId: Number(l.productId), quantity: num(l.quantity) })),
+          : isD
+            ? dChosen.map((s) => ({ productId: s.productId, quantity: num(dQty[s.productId]) }))
+            : chosen.map(([lineId, l]) => ({ salesContractLineId: Number(lineId), productId: Number(l.productId), quantity: num(l.quantity) })),
       }),
     }),
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['girs'] }); onCreated(r.id); },
@@ -113,12 +134,13 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
   const allowedWarehouses = (warehouses.data ?? []).filter((w) => me.data?.warehouseIds.includes(w.id) && (issueType !== 'AVAILABLE_STOCK' || w.allowAvailableStockIssue));
   return (
     <FormDialog title={t('gir.create')} submitLabel={t('gir.create')} error={create.error} pending={create.isPending}
-      canSubmit={Boolean(scId && warehouseId && (isPr ? prChosen.length : chosen.length))} onSubmit={() => create.mutate()} onClose={onClose}>
+      canSubmit={Boolean(scId && warehouseId && (isPr ? prChosen.length : source && (isD ? dChosen.length && purpose.trim() : chosen.length)))}
+      onSubmit={() => create.mutate()} onClose={onClose}>
       <TextField select label={t('gir.type')} value={issueType} onChange={(e) => { setIssueType(e.target.value); setWarehouseId(''); }}>
         {['PURCHASE_REQUISITION', 'AVAILABLE_STOCK'].map((v) => <MenuItem key={v} value={v}>{t(`gir.types.${v}`)}</MenuItem>)}
       </TextField>
-      {isPr && (
-        <TextField select label={t('pr.category')} value={category} onChange={(e) => { setCategory(e.target.value); setPrQty({}); }} helperText={t('gir.categoryHint')}>
+      {(
+        <TextField select label={t('pr.category')} value={category} onChange={(e) => { setCategory(e.target.value); setPrQty({}); setDQty({}); setLines({}); }} helperText={t('gir.categoryHint')}>
           {['SALES_GOODS', 'MATERIAL'].map((c) => <MenuItem key={c} value={c}>{t(`category.${c}`)}</MenuItem>)}
         </TextField>
       )}
@@ -129,6 +151,23 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
         helperText={issueType === 'AVAILABLE_STOCK' ? t('gir.availableStockWarehouseHint') : undefined}>
         {allowedWarehouses.map((w) => <MenuItem key={w.id} value={w.id}>{w.code}: {w.name}</MenuItem>)}
       </TextField>
+      {!isPr && warehouseId && scId && (
+        <TextField select label={t('gir.source')} value={source} onChange={(e) => { setSource(e.target.value); setDQty({}); }} required
+          helperText={sources.data && !sourceKeys.length ? t('gir.noSource') : t('gir.sourceHint')}>
+          {sourceKeys.map(([key, s]) => <MenuItem key={key} value={key}>{s.sourceSalesContractNumber} · {s.sourceOwnerName}</MenuItem>)}
+        </TextField>
+      )}
+      {(category === 'MATERIAL') && (
+        <TextField label={t('gir.purpose')} value={purpose} onChange={(e) => setPurpose(e.target.value)} required={isD}
+          helperText={t(isD ? 'gir.purposeRequired' : 'gir.purposeInherited')} />
+      )}
+      {isD && inSource.map((s) => (
+        <Stack key={s.productId} direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ pt: 1, borderTop: 1, borderColor: 'divider', alignItems: { sm: 'center' } }}>
+          <Typography variant="body2" sx={{ flex: 1 }}>{s.partNumber}: {s.productName} — {t('gir.sourceAvailable', { available: s.available })}</Typography>
+          <TextField label={t('gr.quantity')} type="number" value={dQty[s.productId] ?? ''} sx={{ maxWidth: { sm: 160 } }}
+            onChange={(e) => setDQty({ ...dQty, [s.productId]: e.target.value })} />
+        </Stack>
+      ))}
       {isPr && scId && prLines.data && !prLines.data.some((l) => l.category === category) && (
         <Typography variant="body2" color="text.secondary">{t('gir.noPoDonePr')}</Typography>
       )}
@@ -142,7 +181,7 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
             slotProps={{ htmlInput: { min: 0, max: l.remainingQuantity } }} onChange={(e) => setPrQty({ ...prQty, [l.id]: e.target.value })} />
         </Stack>
       ))}
-      {!isPr && (scLines.data ?? []).map((l) => {
+      {!isPr && !isD && source && (scLines.data ?? []).map((l) => {
         const q = quota.data?.find((x) => x.salesContractLineId === l.id);
         const remaining = q ? num(q.contractQuantity) - num(q.usedQuantity) : num(l.quantity);
         const v = lines[l.id] ?? { productId: '', quantity: '' };
@@ -152,7 +191,8 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
             <Typography variant="body2" color="text.secondary">{t('gir.quotaHint', { contract: num(l.quantity), remaining })}</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               <TextField select fullWidth label={t('gir.product')} value={v.productId}
-                helperText={l.products.some((p) => p.status === 'APPROVED') ? undefined : t('gir.noConfirmedProduct')} onChange={(e) => setLines({ ...lines, [l.id]: { ...v, productId: e.target.value } })}>
+                helperText={!l.products.some((p) => p.status === 'APPROVED') ? t('gir.noConfirmedProduct')
+                  : v.productId ? t('gir.sourceAvailable', { available: availableOf(Number(v.productId)) }) : undefined} onChange={(e) => setLines({ ...lines, [l.id]: { ...v, productId: e.target.value } })}>
                 {/* Only products Sales confirmed for this line (03 §9.2) */}
                 {l.products.filter((p) => p.status === 'APPROVED').map((p) => <MenuItem key={p.productId} value={p.productId}>{p.partNumber}: {p.name}</MenuItem>)}
               </TextField>
@@ -229,6 +269,8 @@ function GirDetailView({ id, onBack }: { id: number; onBack: () => void }) {
               <Field label={t('inventory.warehouse')}>{d.warehouseCode}</Field>
               <Field label={t('gr.createdBy')}>{d.createdByName}, {fmtDate(d.createdAt)}</Field>
               <Field label={t('gr.approver')}>{d.assignedApproverName ?? '—'}</Field>
+              {d.issueType === 'AVAILABLE_STOCK' && <Field label={t('gir.source')}>{d.sourceSalesContractNumber ?? '—'} · {d.sourceOwnerName ?? '—'}</Field>}
+              {d.purpose && <Field label={t('gir.purpose')}>{d.purpose}</Field>}
               {d.issueType === 'AVAILABLE_STOCK' && <Field label={t('gir.warehouseApprover')}>{d.warehouseApproverName ?? '—'}</Field>}
               {d.completionReason && <Field label={t('gir.completionReason')}>{d.completionReason}</Field>}
               {d.issueType === 'PURCHASE_REQUISITION' && <Typography variant="body2" color="text.secondary">{t('gir.referenceHint')}</Typography>}

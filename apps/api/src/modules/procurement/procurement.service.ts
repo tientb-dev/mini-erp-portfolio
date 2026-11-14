@@ -74,6 +74,17 @@ export class ProcurementFacade {
     return new Map(rows.map((r) => [r.id, Number(r.received)]));
   }
 
+  /** Distinct purposes of the PRs of these PR lines (C inherits them as a reference, CT9). */
+  static async purposesOf(m: EntityManager, prLineIds: number[]): Promise<string[]> {
+    if (!prLineIds.length) return [];
+    const rows: { purpose: string }[] = await m.query(
+      `SELECT DISTINCT pr.purpose FROM purchase_requisition_lines l JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id
+        WHERE l.id = ANY($1) AND pr.purpose IS NOT NULL AND btrim(pr.purpose) <> '' ORDER BY pr.purpose`,
+      [prLineIds],
+    );
+    return rows.map((r) => r.purpose);
+  }
+
   /** Unlocked read of PR lines (HĐ and HĐ line), so a GIR can validate and lock HĐ lines before PR lines (CT8). */
   static peekLines(m: EntityManager, prLineIds: number[]): Promise<{ id: number; salesContractId: number; salesContractLineId: number | null }[]> {
     return m.query(
@@ -134,14 +145,14 @@ export class ProcurementService {
   constructor(private readonly ds: DataSource) {}
 
   /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
-  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS') {
+  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string) {
     return this.ds.transaction(async (m) => {
       assertPrLines(category, lines);
       await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
       const number = await wf.nextDocumentNumber(m, 'PR');
       const [pr] = await m.query(
-        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [number, salesContractId, category, user.id],
+        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [number, salesContractId, category, purpose?.trim() || null, user.id],
       );
       for (const l of lines) await this.writePrLine(m, pr.id, l);
       return { id: pr.id as number, documentNumber: number };
@@ -325,7 +336,7 @@ export class ProcurementService {
 
   async getPr(id: number) {
     const [pr] = await this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
+      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", d.category, d.purpose, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
         WHERE d.id = $1`,
       [id],

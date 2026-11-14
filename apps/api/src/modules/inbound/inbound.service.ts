@@ -256,8 +256,8 @@ export class InboundService {
     return this.ds.transaction(async (m) => {
       const doc = await wf.lockDocument(m, 'GR', id);
       wf.assertWarehouse(user, doc.warehouse_id!);
-      await wf.approve(m, 'GR', doc, user); // validates WAITING_FOR_APPROVE + assigned approver first
-      await m.query(`UPDATE goods_receipts SET approved_at = now() WHERE id = $1`, [id]); // FIFO key of the approval in effect (ADR-0013)
+      // Validates WAITING_FOR_APPROVE + assigned approver first; approved_at (FIFO key, ADR-0013) is set in the same UPDATE.
+      await wf.approve(m, 'GR', doc, user, ', approved_at = now()');
       await this.checkGrSerials(m, id);
       const lines: { id: number; product_id: number; quantity: string; purchase_order_line_id: number }[] = await m.query(
         `SELECT l.id, l.product_id, l.quantity, rl.purchase_order_line_id FROM goods_receipt_lines l

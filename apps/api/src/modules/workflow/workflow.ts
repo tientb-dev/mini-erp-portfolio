@@ -159,9 +159,10 @@ export function assertAssignedApprover(doc: DocHeader, user: CurrentUser) {
 }
 
 /** Caller runs type-specific checks and side effects inside the same transaction before this commits. */
-export async function approve(m: EntityManager, type: DocType, doc: DocHeader, user: CurrentUser) {
+/** `extra` adds SET clauses to the same UPDATE as the status (e.g. GR approved_at, kept consistent by a CHECK). */
+export async function approve(m: EntityManager, type: DocType, doc: DocHeader, user: CurrentUser, extra = '') {
   assertAssignedApprover(doc, user);
-  await setStatus(m, type, doc, 'APPROVED');
+  await setStatus(m, type, doc, 'APPROVED', extra);
   await record(m, type, doc.id, 'APPROVE', user.id);
 }
 

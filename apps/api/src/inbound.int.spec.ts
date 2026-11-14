@@ -290,6 +290,29 @@ describe('Inbound chain and GR (integration)', () => {
       .rejects.toThrow(/chk_purchase_order_lines_received/);
   });
 
+  it('approved_at is set only while APPROVED, in the same UPDATE as the status; the DB enforces both directions', async () => {
+    const approvedAt = async (gr: number) => (await ds.query(`SELECT approved_at FROM goods_receipts WHERE id = $1`, [gr]))[0].approved_at;
+    const gr = await grWithSerials(['SN-AT1'], 1);
+    expect(await approvedAt(gr)).toBeNull(); // DRAFT
+    await post(creator, `/goods-receipts/${gr}/submit`, { approverId }).expect(204);
+    expect(await approvedAt(gr)).toBeNull(); // WAITING_FOR_APPROVE
+    await post(approver, `/goods-receipts/${gr}/approve`).expect(204);
+    const [row] = await ds.query(
+      `SELECT approved_at, updated_at, (SELECT MAX(created_at) FROM approval_histories WHERE document_type = 'GR' AND document_id = $1 AND action = 'APPROVE') AS logged
+         FROM goods_receipts WHERE id = $1`, [gr]);
+    expect(row.approved_at).toEqual(row.updated_at); // written by the status UPDATE itself
+    expect(row.approved_at).toEqual(row.logged); // same transaction time as the history entry
+
+    const rejected = await grWithSerials(['SN-AT2'], 1);
+    await post(creator, `/goods-receipts/${rejected}/submit`, { approverId }).expect(204);
+    await post(approver, `/goods-receipts/${rejected}/reject`, { reason: 'x' }).expect(204);
+    expect(await approvedAt(rejected)).toBeNull();
+
+    await expect(ds.query(`UPDATE goods_receipts SET approved_at = NULL WHERE id = $1`, [gr])).rejects.toThrow(/chk_goods_receipts_approved_at/);
+    await expect(ds.query(`UPDATE goods_receipts SET approved_at = now() WHERE id = $1`, [rejected])).rejects.toThrow(/chk_goods_receipts_approved_at/);
+    await expect(ds.query(`UPDATE goods_receipts SET approval_status = 'DRAFT' WHERE id = $1`, [gr])).rejects.toThrow(/chk_goods_receipts_approved_at/);
+  });
+
   it('GRR over the PO quantity is blocked (B02)', async () => {
     const grr = await approvedGrr(1, 1);
     const [{ purchase_order_id: po }] = await ds.query(`SELECT purchase_order_id FROM goods_receipt_requests WHERE id = $1`, [grr]);

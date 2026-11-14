@@ -4,7 +4,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * PO receipt progress (03 §1, CT12, ADR-0003) and GR approval time for FIFO (ADR-0013).
  * - purchase_order_lines.received_quantity: Σ GR APPROVED quantity, maintained by Inbound via ProcurementFacade.
  * - goods_receipts.approved_at: time of the approval still in effect (NULL unless APPROVED).
- * Backfill reads current data: GR APPROVED lines, and the latest APPROVE entry in approval_histories.
+ * Backfill reads current data: GR APPROVED lines; approved_at = latest APPROVE entry in approval_histories, falling back
+ * to updated_at (an APPROVED GR is immutable, so its last update is the approval) for GRs without history. Only APPROVED
+ * rows get a value, so the two-way CHECK holds for every existing GR.
  */
 export class PoReceiptProgress1731888000000 implements MigrationInterface {
   name = 'PoReceiptProgress1731888000000';
@@ -23,11 +25,12 @@ export class PoReceiptProgress1731888000000 implements MigrationInterface {
         CHECK (received_quantity >= 0 AND received_quantity <= quantity);
 
       ALTER TABLE goods_receipts ADD COLUMN approved_at timestamptz;
-      UPDATE goods_receipts gr SET approved_at = (
-        SELECT MAX(h.created_at) FROM approval_histories h WHERE h.document_type = 'GR' AND h.document_id = gr.id AND h.action = 'APPROVE')
+      UPDATE goods_receipts gr SET approved_at = COALESCE(
+        (SELECT MAX(h.created_at) FROM approval_histories h WHERE h.document_type = 'GR' AND h.document_id = gr.id AND h.action = 'APPROVE'),
+        gr.updated_at)
        WHERE gr.approval_status = 'APPROVED';
       ALTER TABLE goods_receipts ADD CONSTRAINT chk_goods_receipts_approved_at
-        CHECK (approved_at IS NULL OR approval_status = 'APPROVED'); -- one-way: status and time are set by two statements in approveGr
+        CHECK ((approval_status = 'APPROVED') = (approved_at IS NOT NULL));
     `);
   }
 

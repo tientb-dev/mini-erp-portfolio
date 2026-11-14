@@ -160,3 +160,21 @@ describe('Document editing (IM18)', () => {
     expect(screen.queryByRole('button', { name: 'Sửa' })).toBeNull();
   });
 });
+
+describe('PO receipt status (C68–C68b)', () => {
+  it('shows the receipt status in the list and detail, and received quantity per line', async () => {
+    const po = {
+      id: 41, documentNumber: 'PO-2026-000008', approvalStatus: 'APPROVED', version: 2, createdBy: 1, createdByName: 'Buyer', assignedApproverId: 9,
+      assignedApproverName: 'Approver', createdAt: '2026-11-13T00:00:00Z', supplierId: 7, supplierName: 'Supplier 1', receiptStatus: 'PARTIALLY_RECEIVED',
+      children: [], history: [],
+      lines: [{ id: 32, sourceLineId: 5, ref: 'PR-2026-000001', partNumber: 'PN-1', productName: 'Switch', uom: 'PCS', quantity: '10.000', receivedQuantity: '4.000' }],
+    };
+    mockApi({ '/auth/me': me(['PO.VIEW']), '/purchase-orders/41': po, '/purchase-orders': [po] });
+    wrap(<PurchaseOrdersPage />);
+    expect(await screen.findByText('Nhập kho một phần')).toBeTruthy();
+    fireEvent.click(screen.getByText('PO-2026-000008'));
+    expect(await screen.findByText('Tình trạng nhập kho')).toBeTruthy();
+    expect(await screen.findByRole('columnheader', { name: 'Đã nhập kho' })).toBeTruthy();
+    expect(screen.getByRole('gridcell', { name: '4' })).toBeTruthy();
+  });
+});

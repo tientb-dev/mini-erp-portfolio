@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { ProcurementFacade } from './modules/procurement/procurement.service';
 import { bootTestApp, login } from './test-utils';
 
 /** HĐ → PR → PO → GRR → GR → Inventory, against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
@@ -227,6 +228,66 @@ describe('Inbound chain and GR (integration)', () => {
     expect((await post(creator, `/goods-receipts/${g2}/cancel`)).body.code).toBe('INVALID_STATUS'); // B13
     await post(creator, `/goods-receipts/${g2}/recall`, { reason: 'Fix serial' }).expect(204);
     expect(await status(g2)).toBe('DRAFT');
+  });
+
+  it('PO receipt status follows APPROVED GRs line by line (C68, C68a, C68b) and is recomputed on reversal (C68c)', async () => {
+    const tag = Math.random().toString(36).slice(2, 8);
+    const cust = (await post(creator, '/customers', { code: `C-${tag}`, name: 'Customer' }).expect(201)).body.id;
+    const sup = (await post(creator, '/suppliers', { code: `S-${tag}`, name: 'Supplier' }).expect(201)).body.id;
+    const sc = (await post(creator, '/sales-contracts', {
+      customerId: cust, responsibleSalesUserId: salesUserId,
+      lines: [{ itemCode: 'A', itemName: 'A', uomName: 'Cái', quantity: 10 }, { itemCode: 'B', itemName: 'B', uomName: 'Cái', quantity: 5 }],
+    }).expect(201)).body.id;
+    await post(creator, `/sales-contracts/${sc}/activate`).expect(204);
+    const scLines = (await http().get(`/sales-contracts/${sc}/lines`).set(as(creator))).body;
+    const pr = (await post(creator, '/purchase-requisitions', {
+      salesContractId: sc,
+      lines: [{ salesContractLineId: scLines[0].id, productId: bulkProductId, quantity: 10 }, { salesContractLineId: scLines[1].id, productId: bulkProductId, quantity: 5 }],
+    }).expect(201)).body.id;
+    await approveDoc('purchase-requisitions', pr);
+    const prLines = (await http().get(`/purchase-requisitions/${pr}/lines`).set(as(creator))).body;
+    const po = (await post(creator, '/purchase-orders', {
+      supplierId: sup, lines: prLines.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })),
+    }).expect(201)).body.id;
+    await approveDoc('purchase-orders', po);
+    const poLines: { id: number }[] = (await http().get(`/purchase-orders/${po}/lines`).set(as(creator))).body;
+    const poView = async () => (await http().get(`/purchase-orders/${po}`).set(as(creator))).body;
+    const received = async () => (await poView()).lines.map((l: { receivedQuantity: string }) => Number(l.receivedQuantity));
+    const receive = async (poLineId: number, quantity: number) => {
+      const grr = (await post(creator, '/goods-receipt-requests', { purchaseOrderId: po, warehouseId: hcmId, lines: [{ sourceLineId: poLineId, quantity }] }).expect(201)).body.id;
+      await approveDoc('goods-receipt-requests', grr);
+      const gr = (await post(creator, '/goods-receipts', { goodsReceiptRequestId: grr }).expect(201)).body.id;
+      await post(creator, `/goods-receipts/${gr}/submit`, { approverId }).expect(204);
+      expect((await poView()).receiptStatus).not.toBe('RECEIVED'); // a pending GR counts for nothing
+      await post(approver, `/goods-receipts/${gr}/approve`).expect(204);
+      return gr as number;
+    };
+
+    expect((await poView()).receiptStatus).toBe('NOT_RECEIVED'); // C68
+    expect(await received()).toEqual([0, 0]);
+
+    const gr1 = await receive(poLines[0].id, 10);
+    expect((await poView()).receiptStatus).toBe('PARTIALLY_RECEIVED'); // C68a: line 1 full, line 2 nothing
+    expect(await received()).toEqual([10, 0]);
+    const [{ approved_at: approvedAt }] = await ds.query(`SELECT approved_at FROM goods_receipts WHERE id = $1`, [gr1]);
+    expect(approvedAt).toBeInstanceOf(Date); // FIFO key for inventory lots (ADR-0013)
+
+    await receive(poLines[1].id, 2);
+    expect((await poView()).receiptStatus).toBe('PARTIALLY_RECEIVED'); // every line has something, line 2 not full
+    await receive(poLines[1].id, 3);
+    expect((await poView()).receiptStatus).toBe('RECEIVED'); // C68b
+    expect(await received()).toEqual([10, 5]);
+    expect((await http().get('/purchase-orders?assignedToMe=false').set(as(creator))).body.find((r: { id: number }) => r.id === po).receiptStatus).toBe('RECEIVED');
+
+    // C68c: recall of an APPROVED GR (PR 8) will call the same facade with sign -1; the total is recomputed.
+    await ds.transaction((m) => ProcurementFacade.applyReceipt(m, [{ purchaseOrderLineId: poLines[0].id, quantity: '10' }], -1));
+    expect(await received()).toEqual([0, 5]);
+    expect((await poView()).receiptStatus).toBe('PARTIALLY_RECEIVED');
+    // The CHECK forbids going below zero or above the ordered quantity.
+    await expect(ds.transaction((m) => ProcurementFacade.applyReceipt(m, [{ purchaseOrderLineId: poLines[0].id, quantity: '1' }], -1)))
+      .rejects.toThrow(/chk_purchase_order_lines_received/);
+    await expect(ds.transaction((m) => ProcurementFacade.applyReceipt(m, [{ purchaseOrderLineId: poLines[1].id, quantity: '1' }], 1)))
+      .rejects.toThrow(/chk_purchase_order_lines_received/);
   });
 
   it('GRR over the PO quantity is blocked (B02)', async () => {

@@ -330,4 +330,28 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect(n).toBeGreaterThan(0); // the scenarios above did issue stock
     expect(await ds.query(RECONCILE_SQL)).toEqual([]);
   });
+
+  it('reconciliation flags each kind of drift (corruptions run in a rolled-back transaction)', async () => {
+    const flagged = async (corrupt: string, params: unknown[] = []) => {
+      let names: string[] = [];
+      await ds.transaction(async (m) => {
+        await m.query(corrupt, params);
+        names = [...new Set((await m.query(RECONCILE_SQL)).map((r: { check_name: string }) => r.check_name))].sort() as string[];
+        throw new Error('rollback');
+      }).catch((e: Error) => { if (e.message !== 'rollback') throw e; });
+      return names;
+    };
+    const [bulk] = await ds.query(`SELECT i.id FROM inventories i JOIN products p ON p.id = i.product_id WHERE NOT p.is_serial_tracked AND i.on_hand_quantity > i.reserved_quantity LIMIT 1`);
+    expect(await flagged(`UPDATE inventories SET on_hand_quantity = on_hand_quantity + 1 WHERE id = $1`, [bulk.id])).toEqual(['ON_HAND']);
+    expect(await flagged(`UPDATE inventories SET reserved_quantity = reserved_quantity + 1 WHERE id = $1`, [bulk.id])).toEqual(['RESERVED']);
+    expect(await flagged(`UPDATE inventory_serials SET status = 'ISSUED' WHERE id = (SELECT min(id) FROM inventory_serials WHERE status = 'IN_STOCK')`))
+      .toEqual(['SERIALS']);
+    expect(await flagged(`DELETE FROM inventory_lots WHERE id = (SELECT min(id) FROM inventory_lots)`)).toEqual(['GR_LINE', 'ON_HAND']);
+    expect(await flagged(`UPDATE inventory_transactions SET quantity = quantity + 1 WHERE id = (SELECT min(id) FROM inventory_transactions WHERE movement_type = 'OUT')`))
+      .toEqual(['GI_LINE', 'ON_HAND']);
+    expect(await flagged(
+      `INSERT INTO inventory_transactions (warehouse_id, product_id, movement_type, quantity, source_document_type, source_line_id)
+       SELECT warehouse_id, product_id, 'IN', 1, 'ADJUSTMENT', 1 FROM inventories WHERE id = $1`, [bulk.id])).toEqual(['MOVEMENT_SOURCE']);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]); // untouched after the rollbacks
+  });
 });

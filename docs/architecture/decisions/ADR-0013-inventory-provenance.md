@@ -64,7 +64,7 @@ Thiết kế P2:
 | Dòng GIR tạo sau | Phải copy | Tự có | Tự có |
 | Phụ thuộc module | Inbound → Outbound (cạnh mới) | Outbound đọc bảng Inbound | Inbound → Procurement — đã có |
 
-**Đề xuất: Q3.** `purchase_requisition_lines.first_goods_receipt_id`; ghi bằng `UPDATE … WHERE first_goods_receipt_id IS NULL` trong transaction Duyệt GR, dưới khóa dòng PO. Kho suy ra từ GR. Không chạm bảng GIR.
+**Quyết định triển khai (PR code #6, 2026-11-14): Q2 — tính khi đọc, thay đề xuất Q3.** `InboundFacade.firstReceipts` (Outbound → Inbound, một chiều, chỉ đọc) lấy GR `APPROVED` sớm nhất theo `(approved_at, id)` qua GR → GRR → dòng PO của dòng PR; lượng đã nhập = Σ `purchase_order_lines.received_quantity` của dòng PR (`ProcurementFacade.receivedByPrLine`, tái dùng tiến độ nhập PO). Không thêm cột, không migration. Lý do đổi: nghiệp vụ đã chốt "Thu hồi hợp lệ → chuyển sang GR còn hiệu lực sớm nhất" nên giá trị tính lại đúng bằng kết quả mong muốn; điều kiện "GR sau không ghi đè" được giữ vì GR sau luôn có `approved_at` muộn hơn. Khác biệt duy nhất so với lưu cột: GR bị Thu hồi rồi Duyệt lại nhận `approved_at` mới nên có thể không còn là GR đầu tiên — chấp nhận (GR đó đã không còn hiệu lực trong khoảng giữa). Đề xuất Q3 cũ (giữ để tham khảo): `purchase_requisition_lines.first_goods_receipt_id`; ghi bằng `UPDATE … WHERE first_goods_receipt_id IS NULL` trong transaction Duyệt GR, dưới khóa dòng PO. Kho suy ra từ GR. Không chạm bảng GIR.
 
 **Thu hồi GR (CT11)** trong một transaction:
 1. Khóa dòng PR có `first_goods_receipt_id` = GR (FOR UPDATE) — tuần tự hóa với tạo/Gửi duyệt GIR A/C trên cùng dòng PR (thứ tự khóa dòng HĐ → dòng PR → dòng GIR, CT8).
@@ -101,7 +101,7 @@ Mỗi PR: một migration (có `down`), test PostgreSQL thật tham chiếu ID 0
 | 3. Lô tồn kho | `inventory_lots` ghi khi Duyệt GR (HĐ nguồn, Sales chụp từ HĐ, `approved_at`, `received_quantity`); `GET /inventories/lots`; migration chặn khi HĐ thiếu Sales, `VALIDATE` CHECK PR 1, dừng nếu không đối soát được | Bảng + backfill lô từ GR Đã duyệt | C71 — **chỉ phần nguồn nhập**; C72; đối soát đầy đủ; đồng thời |
 | 4. Phân bổ GI FIFO | `goods_issue_line_allocations`; Gửi duyệt GI phân bổ + giữ chỗ lô; Duyệt trừ lô; Từ chối/Thu hồi giải phóng; GI hiện tại (chưa có nguồn A/C) dùng phạm vi Kho + PN tạm thời | Bảng + backfill GI cũ | C73; đồng thời 2 GI cùng lô |
 | 5. Liên kết dòng GIR → dòng PR (A/C) | CT6/CT10: `goods_issue_request_lines.purchase_requisition_line_id`, biểu diễn luồng; GI A/C lọc theo HĐ nguồn | Cột, nới `sales_contract_line_id`; xử lý GIR `SALES_CONTRACT` cũ | C62, C69, C74 | *Đã làm (PR code #5): `PURCHASE_REQUISITION`, phân loại cấp chứng từ, hạn mức dòng PR, `PO done` khi Gửi duyệt.*
-| 6. GR tham chiếu | `purchase_requisition_lines.first_goods_receipt_id` ghi khi Duyệt GR; hiển thị trên GIR | Cột + backfill | C63–C67 |
+| 6. GR tham chiếu | `purchase_requisition_lines.first_goods_receipt_id` ghi khi Duyệt GR; hiển thị trên GIR | Cột + backfill | C63–C67 | *Đã làm (PR code #6): tính khi đọc (§4), không cột/migration; dòng GIR A/C trả `firstGoodsReceipt` + `receivedQuantity`.*
 | 7. GIR B/D theo HĐ nguồn | `source_sales_contract_id`/`source_owner_user_id`, lọc lô, bước 1 giao Sales lô, lưu nháp khi thiếu tồn | Cột + CHECK; GIR B/D cũ → `DRAFT` | C70, C78, C84–C91, D13, D22 |
 | 8. Thu hồi GR Đã duyệt | Điều kiện GIR tham chiếu + lô chưa đụng + SN; hoàn tác lô, tiến độ PO; chuyển GR tham chiếu | Không | B16–B26, C75–C77, C80–C82, C86, C87 |
 

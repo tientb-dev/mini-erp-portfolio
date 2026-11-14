@@ -146,10 +146,10 @@
 | C60 | GIR luồng A/C đã Gửi duyệt hợp lệ (`WAITING_FOR_APPROVE` hoặc `APPROVED`), sau đó PR mất `PO done` | GIR không bị tự Hủy/Thu hồi/đổi trạng thái; tiếp tục duyệt, lập GI theo workflow và hạn mức hiện hữu |
 | C61 | Như C58, sau đó PR đạt lại `PO done` (PO `APPROVED` mới bù đủ) | Gửi duyệt được |
 | C62 | GIR luồng A lập và Gửi duyệt khi PR `PO done` nhưng chưa có GR | Được lập, Gửi duyệt, Duyệt; không kiểm tồn *PR code #5: GIR `PURCHASE_REQUISITION`.* |
-| C63 | Dòng GIR A/C chưa có GR `APPROVED` trong chuỗi dòng PR | GR tham chiếu và kho để trống |
-| C64 | GIR A `APPROVED`; GR đầu tiên của dòng PR (kho HCM) được duyệt | Dòng GIR tự hiển thị GR đó + kho HCM; số lượng, trạng thái, người duyệt GIR không đổi |
-| C65 | Như C64, GIR đang `WAITING_FOR_APPROVE` | Vẫn tự cập nhật GR tham chiếu; GIR tiếp tục chờ duyệt |
-| C66 | Như C64, sau đó GR thứ hai (kho HN) được duyệt | GR tham chiếu vẫn là GR đầu tiên (kho HCM) |
+| C63 | Dòng GIR A/C chưa có GR `APPROVED` trong chuỗi dòng PR | GR tham chiếu và kho để trống *PR code #6.* |
+| C64 | GIR A `APPROVED`; GR đầu tiên của dòng PR (kho HCM) được duyệt | Dòng GIR tự hiển thị GR đó + kho HCM; số lượng, trạng thái, người duyệt GIR không đổi *PR code #6.* |
+| C65 | Như C64, GIR đang `WAITING_FOR_APPROVE` | Vẫn tự cập nhật GR tham chiếu; GIR tiếp tục chờ duyệt *PR code #6.* |
+| C66 | Như C64, sau đó GR thứ hai (kho HN) được duyệt | GR tham chiếu vẫn là GR đầu tiên (kho HCM) *PR code #6.* |
 | C67 | Dòng GIR có GR tham chiếu | Không giữ chỗ, không phân bổ tồn; GI chọn tồn theo 03 §4–§5 |
 | C68 | PO 2 dòng (10, 5); chưa có GR `APPROVED` | PO: Chưa nhập kho; GIR không hiển thị tình trạng nhập kho |
 | C68a | Như C68, GR `APPROVED` nhập 10 cho dòng 1 | PO: Nhập kho một phần |

@@ -56,7 +56,8 @@ const vi = {
   gir: {
     noConfirmedProduct: 'Chưa có mã hàng nào được Sales xác nhận cho dòng này.',
     title: 'Đề nghị xuất kho', number: 'Số GIR', type: 'Loại xuất', types: { PURCHASE_REQUISITION: 'Mua HĐ nào xuất HĐ đó (theo YCMH)', AVAILABLE_STOCK: 'Xuất hàng có sẵn', SALES_CONTRACT: 'Xuất theo HĐ (cũ)' },
-    prLine: 'Đề nghị mua (YCMH)', categoryHint: 'Một đề nghị xuất chỉ gồm hàng bán hoặc chỉ gồm vật tư.',
+    prLine: 'Đề nghị mua (YCMH)', firstReceipt: 'PNK đầu tiên · kho', received: 'Đã nhập kho', notReceived: 'Chưa nhập kho',
+    referenceHint: 'PNK đầu tiên và lượng đã nhập kho chỉ để tham khảo; không giữ chỗ hay phân bổ tồn.', categoryHint: 'Một đề nghị xuất chỉ gồm hàng bán hoặc chỉ gồm vật tư.',
     prLineHint: 'YCMH {{quantity}} {{uom}}, còn được đề nghị {{remaining}}, đã nhập kho {{received}} (chỉ tham khảo)',
     noPoDonePr: 'HĐ này chưa có đề nghị mua nào đã đặt mua đủ (PO done) cho loại hàng đã chọn.',
     execution: 'Tiến độ xuất', salesContract: 'Hợp đồng bán (HĐ)', create: 'Tạo đề nghị xuất', product: 'Mã hàng giao',
@@ -209,7 +210,8 @@ const en: typeof vi = {
   gir: {
     noConfirmedProduct: 'Sales has not confirmed any product for this line yet.',
     title: 'Goods issue request', number: 'GIR number', type: 'Issue type', types: { PURCHASE_REQUISITION: 'Bought for this contract (per PR)', AVAILABLE_STOCK: 'Available stock', SALES_CONTRACT: 'Per sales contract (legacy)' },
-    prLine: 'Purchase requisition', categoryHint: 'One issue request holds either sales goods or materials, never both.',
+    prLine: 'Purchase requisition', firstReceipt: 'First GR · warehouse', received: 'Received', notReceived: 'Not received',
+    referenceHint: 'First GR and received quantity are for reference only; they neither reserve nor allocate stock.', categoryHint: 'One issue request holds either sales goods or materials, never both.',
     prLineHint: 'PR {{quantity}} {{uom}}, still requestable {{remaining}}, received {{received}} (reference only)',
     noPoDonePr: 'This contract has no fully ordered (PO done) requisition of the selected kind yet.',
     execution: 'Issue progress', salesContract: 'Sales contract', create: 'Create issue request', product: 'Product to deliver',

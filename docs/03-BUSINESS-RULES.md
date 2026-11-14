@@ -111,7 +111,7 @@
 - **Lượng đã nhập tham khảo (A, C):** cộng số lượng GR `APPROVED` theo chuỗi dòng PR → dòng PO → dòng GRR → dòng GR; chưa nhập hiển thị 0. Không ghép theo Product; **không dùng làm hạn mức GIR**.
 - Dòng hàng bán tham chiếu `sales_contract_line_id` và một Product. **Chặn Gửi duyệt** nếu Product chưa được Sales xác nhận cho dòng HĐ đó (§9.2); GIR `DRAFT` được lưu với Product chưa xác nhận. Sau khi Sales xác nhận, PM chủ động Gửi duyệt. Dòng vật tư không áp dụng điều kiện này và không chiếm hạn mức dòng HĐ.
 - Không tự suy ra, tự gán hoặc tự gộp dòng HĐ/dòng PR theo Product.
-- **Luồng theo PR (A, C):** phê duyệt một cấp (mặc định 03 §6); không áp dụng duyệt hai bước của `AVAILABLE_STOCK`. Giá trị `issue_type` cho luồng A/C: chưa chốt kỹ thuật (OPEN-QUESTIONS CT10).
+- **Luồng theo PR (A, C):** phê duyệt một cấp (mặc định 03 §6); không áp dụng duyệt hai bước của `AVAILABLE_STOCK`. `issue_type` của luồng A/C: `PURCHASE_REQUISITION` (CT10); loại `SALES_CONTRACT` cũ ngừng dùng.
 - **`AVAILABLE_STOCK` (B, D):** dùng hàng có sẵn trong kho hợp lệ để phục vụ HĐ.
   - Chỉ chọn kho có `allow_available_stock_issue`. Kho hàng thừa chờ bán: hợp lệ; kho dự án, kho bảo hành/hàng hỏng: mặc định **không** hợp lệ.
   - Chọn tồn theo **Kho → Sales nguồn → HĐ nguồn → Product** (đã chốt 2026-11-14, CT16). Một GIR chỉ **một HĐ nguồn → một HĐ đích** (HĐ của GIR), một Sales nguồn và một kho; được nhiều Product. Mượn từ HĐ nguồn khác → GIR riêng. **HĐ nguồn ≠ HĐ đích** (CT18; cùng HĐ dùng luồng A/C). HĐ nguồn không bắt buộc `ACTIVE` (được dùng hàng dư của HĐ đã giao xong) nhưng **không được `CANCELED`** (CT19). Sales nguồn = Sales ghi trên lô; người đó đồng ý bước 1 (CT17). MVP không hỗ trợ nhiều kho trong một GIR hay nhóm kho.

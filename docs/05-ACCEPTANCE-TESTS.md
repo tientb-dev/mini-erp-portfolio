@@ -145,7 +145,7 @@
 | C59 | GIR `REJECTED` luồng A/C sửa và Gửi duyệt lại khi PR không còn `PO done` | Gửi duyệt bị chặn; GIR vẫn `REJECTED` |
 | C60 | GIR luồng A/C đã Gửi duyệt hợp lệ (`WAITING_FOR_APPROVE` hoặc `APPROVED`), sau đó PR mất `PO done` | GIR không bị tự Hủy/Thu hồi/đổi trạng thái; tiếp tục duyệt, lập GI theo workflow và hạn mức hiện hữu |
 | C61 | Như C58, sau đó PR đạt lại `PO done` (PO `APPROVED` mới bù đủ) | Gửi duyệt được |
-| C62 | GIR luồng A lập và Gửi duyệt khi PR `PO done` nhưng chưa có GR | Được lập, Gửi duyệt, Duyệt; không kiểm tồn |
+| C62 | GIR luồng A lập và Gửi duyệt khi PR `PO done` nhưng chưa có GR | Được lập, Gửi duyệt, Duyệt; không kiểm tồn *PR code #5: GIR `PURCHASE_REQUISITION`.* |
 | C63 | Dòng GIR A/C chưa có GR `APPROVED` trong chuỗi dòng PR | GR tham chiếu và kho để trống |
 | C64 | GIR A `APPROVED`; GR đầu tiên của dòng PR (kho HCM) được duyệt | Dòng GIR tự hiển thị GR đó + kho HCM; số lượng, trạng thái, người duyệt GIR không đổi |
 | C65 | Như C64, GIR đang `WAITING_FOR_APPROVE` | Vẫn tự cập nhật GR tham chiếu; GIR tiếp tục chờ duyệt |
@@ -160,7 +160,7 @@
 | C71 | Báo cáo tồn kho | Truy vết được theo Kho, Product, Sales phụ trách, HĐ nguồn, GR. *Tiến độ: PR code #3 hoàn thành phần **nguồn nhập** (lô, lượng nhập, `GET /inventories/lots`); **tồn còn lại theo lô** và FIFO thuộc PR code #4.* |
 | C72 | HĐ có Sales phụ trách S1; GR từ PR của HĐ được duyệt | Tồn nhập ghi Sales phụ trách S1, HĐ nguồn là HĐ đó |
 | C73 | Hàng không SN, HĐ-A có lô GR1 (duyệt trước, 3) và GR2 (duyệt sau, 5); GI luồng A xuất 4 | Lấy 3 từ GR1, 1 từ GR2 (FIFO). *PR code #4: phân bổ khi Gửi duyệt, trừ khi Duyệt; phạm vi HĐ áp cho GI khi có luồng A (PR code #5).* |
-| C74 | Như C73, kho còn lô GR0 của HĐ-B duyệt sớm hơn | GI luồng A của HĐ-A không lấy GR0 |
+| C74 | Như C73, kho còn lô GR0 của HĐ-B duyệt sớm hơn | GI luồng A của HĐ-A không lấy GR0 *PR code #5: kiểm thử đầu-cuối GIR A → GI.* |
 | C75 | GR là GR tham chiếu của dòng GIR `DRAFT`/`WAITING_FOR_APPROVE`/`REJECTED`/`APPROVED` | Chặn Thu hồi GR |
 | C76 | Như C75, mọi GIR tham chiếu đã `CANCELED`; không GI nào dùng hàng của GR | Thu hồi được; tồn hoàn tác |
 | C77 | Như C76, nhưng SN của GR còn được GI chưa Hủy tham chiếu | Chặn Thu hồi (B17, B18, B23) |

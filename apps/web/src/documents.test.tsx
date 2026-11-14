@@ -3,6 +3,7 @@ import { ReactNode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './i18n';
+import { GoodsIssueRequestsPage } from './goods-issues';
 import { PurchaseOrdersPage } from './procurement';
 import { SalesContractsPage } from './sales-contracts';
 
@@ -176,5 +177,35 @@ describe('PO receipt status (C68–C68b)', () => {
     expect(await screen.findByText('Tình trạng nhập kho')).toBeTruthy();
     expect(await screen.findByRole('columnheader', { name: 'Đã nhập kho' })).toBeTruthy();
     expect(screen.getByRole('gridcell', { name: '4' })).toBeTruthy();
+  });
+});
+
+describe('GIR A/C form (PR code #5)', () => {
+  it('picks lines of PO-done PRs of the chosen kind and posts PR line ids only', async () => {
+    const posts = mockApi({
+      '/auth/me': me(['GIR.VIEW', 'GIR.CREATE']),
+      '/sales-contracts/3/gir-pr-lines': [
+        { id: 51, purchaseRequisitionId: 9, prNumber: 'PR-2026-000009', category: 'SALES_GOODS', partNumber: 'PN-1', productName: 'Switch', uom: 'PCS', quantity: '5', receivedQuantity: '2', remainingQuantity: 4 },
+        { id: 52, purchaseRequisitionId: 10, prNumber: 'PR-2026-000010', category: 'MATERIAL', partNumber: 'CB-1', productName: 'Cable', uom: 'PCS', quantity: '8', receivedQuantity: '0', remainingQuantity: 8 },
+      ],
+      '/sales-contracts': [{ id: 3, documentNumber: 'SC-2026-000003', status: 'ACTIVE', customerName: 'Customer' }],
+      '/warehouses': [{ id: 1, code: 'HCM', name: 'Kho HCM', allowAvailableStockIssue: false }],
+      '/goods-issue-requests': [],
+    });
+    wrap(<GoodsIssueRequestsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Tạo đề nghị xuất' }));
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: /Hợp đồng bán/ }));
+    fireEvent.click(await screen.findByRole('option', { name: 'SC-2026-000003: Customer' }));
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: /Kho/ }));
+    fireEvent.click(await screen.findByRole('option', { name: 'HCM: Kho HCM' }));
+    expect(await screen.findByText('PR-2026-000009 · PN-1: Switch')).toBeTruthy();
+    expect(screen.getByText(/còn được đề nghị 4, đã nhập kho 2/)).toBeTruthy();
+    expect(screen.queryByText('PR-2026-000010 · CB-1: Cable')).toBeNull(); // materials are a separate request
+    fireEvent.change(screen.getByLabelText('Số lượng'), { target: { value: '3' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Tạo đề nghị xuất' }).at(-1)!);
+    await waitFor(() => expect(posts).toEqual([{
+      url: '/goods-issue-requests',
+      body: { issueType: 'PURCHASE_REQUISITION', salesContractId: 3, warehouseId: 1, lines: [{ purchaseRequisitionLineId: 51, quantity: 3 }] },
+    }]));
   });
 });

@@ -7,7 +7,23 @@ import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
 /** `id` set = existing line being edited. */
-export interface PrLineInput { id?: number; salesContractLineId: number; productId: number; quantity: number }
+/** SALES_GOODS lines must reference their HĐ line; MATERIAL lines may (ADR-0012). */
+export interface PrLineInput { id?: number; salesContractLineId?: number | null; productId: number; quantity: number }
+export type LineCategory = 'SALES_GOODS' | 'MATERIAL';
+
+/** A PR line as seen by a GIR (A/C): its PR, HĐ, category and approved PO coverage. */
+export interface PrLineForIssue {
+  id: number; purchaseRequisitionId: number; prNumber: string; salesContractId: number; category: LineCategory;
+  salesContractLineId: number | null; productId: number; quantity: number; poDone: boolean;
+}
+
+function assertPrLines(category: LineCategory, lines: PrLineInput[]) {
+  if (category === 'SALES_GOODS' && lines.some((l) => !l.salesContractLineId)) {
+    throw new BusinessError('SALES_CONTRACT_LINE_REQUIRED', 'Every sales-goods PR line must reference its HĐ line');
+  }
+  wf.assertUniqueSourceLines(lines.flatMap((l) => (l.salesContractLineId ? [l.salesContractLineId] : [])));
+}
+const scLineIds = (lines: PrLineInput[]) => lines.flatMap((l) => (l.salesContractLineId ? [l.salesContractLineId] : []));
 export interface SourceLineInput { id?: number; sourceLineId: number; quantity: number }
 
 /** PO receipt status from line aggregates (03 §1, CT12); a PO with nothing received (or no lines) is NOT_RECEIVED. */
@@ -24,6 +40,56 @@ export class ProcurementFacade {
    * Adds (approve GR, sign 1) or removes (recall of an APPROVED GR, sign -1) received quantities on PO lines.
    * Locks the PO lines in id order; the CHECK 0 ≤ received ≤ ordered is the last line of defence.
    */
+  /**
+   * PR lines for a GIR (A/C), locked FOR UPDATE in id order (lock order HĐ lines → PR lines → GIR, CT8).
+   * `poDone`: the whole PR is `PO done` — every line has Σ APPROVED PO quantity = its quantity (03 §3, CT1).
+   */
+  static async lockLinesForIssue(m: EntityManager, ids: number[]): Promise<Map<number, PrLineForIssue>> {
+    const sorted = [...new Set(ids)].sort((a, b) => a - b);
+    await m.query(`SELECT id FROM purchase_requisition_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE`, [sorted]);
+    const rows: PrLineForIssue[] = await m.query(
+      `SELECT l.id, l.purchase_requisition_id AS "purchaseRequisitionId", pr.document_number AS "prNumber", pr.sales_contract_id AS "salesContractId",
+              pr.category, l.sales_contract_line_id AS "salesContractLineId", l.product_id AS "productId", l.quantity::float AS quantity,
+              pr.approval_status = 'APPROVED' AND NOT EXISTS (
+                SELECT 1 FROM purchase_requisition_lines x
+                 WHERE x.purchase_requisition_id = pr.id
+                   AND x.quantity <> COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
+                                                WHERE pol.purchase_requisition_line_id = x.id AND po.approval_status = 'APPROVED'), 0)) AS "poDone"
+         FROM purchase_requisition_lines l JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id WHERE l.id = ANY($1)`,
+      [sorted],
+    );
+    return new Map(rows.map((r) => [r.id, r]));
+  }
+
+  /** Unlocked read of PR lines (HĐ and HĐ line), so a GIR can validate and lock HĐ lines before PR lines (CT8). */
+  static peekLines(m: EntityManager, prLineIds: number[]): Promise<{ id: number; salesContractId: number; salesContractLineId: number | null }[]> {
+    return m.query(
+      `SELECT l.id, pr.sales_contract_id AS "salesContractId", l.sales_contract_line_id AS "salesContractLineId"
+         FROM purchase_requisition_lines l JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id WHERE l.id = ANY($1)`,
+      [prLineIds],
+    );
+  }
+
+  /** Lines of the HĐ's `PO done` PRs, with the received quantity for reference (PO line aggregates; not a limit, 03 §3). */
+  static poDoneLines(m: EntityManager, salesContractId: number) {
+    return m.query(
+      `SELECT l.id, pr.id AS "purchaseRequisitionId", pr.document_number AS "prNumber", pr.category, l.sales_contract_line_id AS "salesContractLineId",
+              l.product_id AS "productId", p.part_number AS "partNumber", p.name AS "productName", u.code AS uom, l.quantity,
+              COALESCE((SELECT SUM(pol.received_quantity) FROM purchase_order_lines pol WHERE pol.purchase_requisition_line_id = l.id), 0) AS "receivedQuantity"
+         FROM purchase_requisitions pr
+         JOIN purchase_requisition_lines l ON l.purchase_requisition_id = pr.id
+         JOIN products p ON p.id = l.product_id
+         JOIN units_of_measure u ON u.id = l.unit_of_measure_id
+        WHERE pr.sales_contract_id = $1 AND pr.approval_status = 'APPROVED'
+          AND NOT EXISTS (SELECT 1 FROM purchase_requisition_lines x WHERE x.purchase_requisition_id = pr.id
+                            AND x.quantity <> COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
+                                                         WHERE pol.purchase_requisition_line_id = x.id AND po.approval_status = 'APPROVED'), 0))
+        ORDER BY pr.id, l.id`,
+      [salesContractId],
+    ) as Promise<{ id: number; purchaseRequisitionId: number; prNumber: string; category: LineCategory; salesContractLineId: number | null;
+      productId: number; partNumber: string; productName: string; uom: string; quantity: string; receivedQuantity: string }[]>;
+  }
+
   /** Source HĐ of each PO line (PO line → PR line → PR), for inventory lots (ADR-0013). */
   static async sourceContracts(m: EntityManager, purchaseOrderLineIds: number[]): Promise<Map<number, number>> {
     const rows: { id: number; sales_contract_id: number }[] = await m.query(
@@ -54,14 +120,16 @@ export class ProcurementFacade {
 export class ProcurementService {
   constructor(private readonly ds: DataSource) {}
 
-  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[]) {
-    wf.assertUniqueSourceLines(lines.map((l) => l.salesContractLineId));
+  /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
+  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS') {
     return this.ds.transaction(async (m) => {
-      await SalesContractFacade.lockActiveLines(m, salesContractId, lines.map((l) => l.salesContractLineId));
+      assertPrLines(category, lines);
+      await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
       const number = await wf.nextDocumentNumber(m, 'PR');
-      const [pr] = await m.query(`INSERT INTO purchase_requisitions (document_number, sales_contract_id, created_by) VALUES ($1, $2, $3) RETURNING id`, [
-        number, salesContractId, user.id,
-      ]);
+      const [pr] = await m.query(
+        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [number, salesContractId, category, user.id],
+      );
       for (const l of lines) await this.writePrLine(m, pr.id, l);
       return { id: pr.id as number, documentNumber: number };
     });
@@ -75,7 +143,7 @@ export class ProcurementService {
     // Locks the product for share and marks it used: code/name/UoM become immutable (03 §1c, T9).
     await ProductUsage.markUsed(m, l.productId, { stock: false });
     const [p] = await m.query(`SELECT part_number, name, description, unit_of_measure_id FROM products WHERE id = $1`, [l.productId]);
-    const values = [prId, l.salesContractLineId, l.productId, p.part_number, p.name, p.description, p.unit_of_measure_id, l.quantity];
+    const values = [prId, l.salesContractLineId ?? null, l.productId, p.part_number, p.name, p.description, p.unit_of_measure_id, l.quantity];
     if (!l.id) {
       await m.query(
         `INSERT INTO purchase_requisition_lines (purchase_requisition_id, sales_contract_line_id, product_id, snapshot_code, snapshot_name,
@@ -88,7 +156,7 @@ export class ProcurementService {
       `UPDATE purchase_requisition_lines l SET sales_contract_line_id = $2, product_id = $3, snapshot_code = $4, snapshot_name = $5,
          snapshot_description = $6, unit_of_measure_id = $7, quantity = $8
         WHERE l.id = $9 AND l.purchase_requisition_id = $1
-          AND ((l.product_id = $3 AND l.sales_contract_line_id = $2)
+          AND ((l.product_id = $3 AND l.sales_contract_line_id IS NOT DISTINCT FROM $2)
                OR NOT EXISTS (SELECT 1 FROM purchase_order_lines pol WHERE pol.purchase_requisition_line_id = l.id))`,
       [...values, l.id],
     ), l.id);
@@ -96,13 +164,13 @@ export class ProcurementService {
 
   /** Edit a DRAFT/REJECTED PR by its creator: lines (HĐ line, product → UoM, quantity); the HĐ stays the same. */
   updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[]) {
-    // The request is the full line set (omitted lines are deleted), so checking it covers the saved result.
-    wf.assertUniqueSourceLines(lines.map((l) => l.salesContractLineId));
     return this.ds.transaction(async (m) => {
-      const [head] = await m.query(`SELECT sales_contract_id FROM purchase_requisitions WHERE id = $1`, [id]);
+      const [head] = await m.query(`SELECT sales_contract_id, category FROM purchase_requisitions WHERE id = $1`, [id]);
       if (!head) throw new NotFoundException();
+      // The request is the full line set (omitted lines are deleted), so checking it covers the saved result. Category is fixed.
+      assertPrLines(head.category, lines);
       // Lock order: HĐ lines → document (ARCHITECTURE §2.1a); the HĐ must still be ACTIVE.
-      await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, lines.map((l) => l.salesContractLineId));
+      await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, scLineIds(lines));
       const doc = await wf.lockDocument(m, 'PR', id);
       wf.assertEditable(doc, user, version);
       await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
@@ -234,7 +302,7 @@ export class ProcurementService {
   /** `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR/PO are not warehouse-scoped: the VIEW permission sees all. */
   listPrs(user: CurrentUser, assignedToMe: boolean) {
     return this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, s.document_number AS "salesContractNumber", c.name AS "customerName"
+      `SELECT ${wf.DOC_COLUMNS}, d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
         WHERE NOT $2 OR (d.approval_status = 'WAITING_FOR_APPROVE' AND d.assigned_approver_id = $1)
         ORDER BY d.id DESC`,
@@ -244,7 +312,7 @@ export class ProcurementService {
 
   async getPr(id: number) {
     const [pr] = await this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", s.document_number AS "salesContractNumber", c.name AS "customerName"
+      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
         WHERE d.id = $1`,
       [id],
@@ -255,7 +323,7 @@ export class ProcurementService {
               COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
                          WHERE pol.purchase_requisition_line_id = l.id AND po.approval_status IN ('WAITING_FOR_APPROVE', 'APPROVED')), 0) AS "usedQuantity"
          FROM purchase_requisition_lines l
-         JOIN sales_contract_lines sl ON sl.id = l.sales_contract_line_id
+         LEFT JOIN sales_contract_lines sl ON sl.id = l.sales_contract_line_id
          JOIN units_of_measure u ON u.id = l.unit_of_measure_id
         WHERE l.purchase_requisition_id = $1 ORDER BY l.id`,
       [id],

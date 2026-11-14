@@ -116,16 +116,48 @@ describe('Outbound: GIR → GI (integration)', () => {
     return details.map((d) => d.id);
   }
 
-  async function approvedGir(sc: { id: number; routerLine: number; cableLine: number }, routerQty: number, cableQty: number, warehouseId = hcm) {
-    const lines = [
-      ...(routerQty ? [{ salesContractLineId: sc.routerLine, productId: router, quantity: routerQty }] : []),
-      ...(cableQty ? [{ salesContractLineId: sc.cableLine, productId: cable, quantity: cableQty }] : []),
-    ];
-    const gir = (await post(pm, '/goods-issue-requests', { issueType: 'SALES_CONTRACT', salesContractId: sc.id, warehouseId, lines }).expect(201)).body.id;
+  /**
+   * An APPROVED PR of `sc` fully ordered on an APPROVED PO (`PO done`, CT1) with a router and/or cable line.
+   * Sales goods keep their HĐ line; materials have none.
+   */
+  async function poDonePr(sc: Contract, routerQty: number, cableQty: number, category: 'SALES_GOODS' | 'MATERIAL' = 'SALES_GOODS') {
+    const proc = app.get(ProcurementService);
+    const hd = (line: number) => (category === 'SALES_GOODS' ? line : null);
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [
+      ...(routerQty ? [{ salesContractLineId: hd(sc.routerLine), productId: router, quantity: routerQty }] : []),
+      ...(cableQty ? [{ salesContractLineId: hd(sc.cableLine), productId: cable, quantity: cableQty }] : []),
+    ], category);
+    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.approve('PR', pr.id, salesUser);
+    const prl: { id: number; product_id: number; quantity: string }[] = await ds.query(
+      `SELECT id, product_id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [pr.id]);
+    const [{ id: sup }] = await ds.query(`INSERT INTO suppliers (code, name) VALUES ($1, 'S') RETURNING id`, [`S${Math.random()}`]);
+    const po = await proc.createPurchaseOrder(pmUser, sup, prl.map((l) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));
+    await proc.submit('PO', po.id, pmUser, salesId);
+    await proc.approve('PO', po.id, salesUser);
+    return { id: pr.id, poId: po.id, routerLine: prl.find((l) => l.product_id === router)?.id as number, cableLine: prl.find((l) => l.product_id === cable)?.id as number };
+  }
+  type PoDonePr = Awaited<ReturnType<typeof poDonePr>>;
+
+  /** A/C GIR (PURCHASE_REQUISITION) on lines of `pr` (a fresh PO-done PR of `sc` when omitted). */
+  const prGirBody = (sc: Contract, pr: PoDonePr, routerQty: number, cableQty: number, warehouseId = hcm) => ({
+    issueType: 'PURCHASE_REQUISITION', salesContractId: sc.id, warehouseId,
+    lines: [
+      ...(routerQty ? [{ purchaseRequisitionLineId: pr.routerLine, quantity: routerQty }] : []),
+      ...(cableQty ? [{ purchaseRequisitionLineId: pr.cableLine, quantity: cableQty }] : []),
+    ],
+  });
+
+  async function approvedGir(sc: Contract, routerQty: number, cableQty: number, warehouseId = hcm, pr?: PoDonePr) {
+    const source = pr ?? await poDonePr(sc, routerQty, cableQty);
+    const gir = (await post(pm, '/goods-issue-requests', prGirBody(sc, source, routerQty, cableQty, warehouseId)).expect(201)).body.id;
     await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId }).expect(204);
     await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
     const girLines = (await get(pm, `/goods-issue-requests/${gir}`)).lines;
-    return { id: gir as number, routerLine: girLines.find((l: { productId: number }) => l.productId === router)?.id, cableLine: girLines.find((l: { productId: number }) => l.productId === cable)?.id };
+    return {
+      id: gir as number, pr: source,
+      routerLine: girLines.find((l: { productId: number }) => l.productId === router)?.id, cableLine: girLines.find((l: { productId: number }) => l.productId === cable)?.id,
+    };
   }
 
   const balance = async (warehouseId: number, productId: number) => {
@@ -156,9 +188,7 @@ describe('Outbound: GIR → GI (integration)', () => {
 
   it('GIR Draft allows an unconfirmed product but Submit is blocked until Sales confirms (C08, C09, E11)', async () => {
     const sc = await contract(5, 5, false);
-    const gir = (await post(pm, '/goods-issue-requests', {
-      issueType: 'SALES_CONTRACT', salesContractId: sc.id, warehouseId: hcm, lines: [{ salesContractLineId: sc.routerLine, productId: router, quantity: 1 }],
-    }).expect(201)).body.id;
+    const gir = (await post(pm, '/goods-issue-requests', prGirBody(sc, await poDonePr(sc, 1, 0), 1, 0)).expect(201)).body.id;
     expect((await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId })).body.code).toBe('PRODUCT_NOT_CONFIRMED');
     const proposal = (await post(pm, `/sales-contract-lines/${sc.routerLine}/product-proposals`, { productId: router, reason: 'as signed' }).expect(201)).body.id;
     await post(sales, `/product-proposals/${proposal}/approve`, { note: 'PL-02' }).expect(204);
@@ -166,22 +196,89 @@ describe('Outbound: GIR → GI (integration)', () => {
     await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId }).expect(204);
   });
 
-  it('quota per HĐ line: blocks overflow, ignores CANCELED, serializes concurrent creates (C04, C05, C06, C07)', async () => {
+  it('HĐ-line quota (CT2): DRAFT may exceed and holds nothing; submit/approve check it; WAITING/REJECTED/APPROVED hold it, CANCELED frees it (C04–C07, C50–C55)', async () => {
     const sc = await contract(10, 10);
-    const make = (qty: number) => post(pm, '/goods-issue-requests', {
-      issueType: 'SALES_CONTRACT', salesContractId: sc.id, warehouseId: hcm, lines: [{ salesContractLineId: sc.routerLine, productId: router, quantity: qty }],
-    });
-    const results = await Promise.all([make(6), make(6)]);
-    expect(results.map((r) => r.status).sort()).toEqual([201, 422]);
-    expect(results.find((r) => r.status === 422)!.body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED');
-    const created = results.find((r) => r.status === 201)!.body.id;
-    expect((await make(5)).body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED'); // 6 + 5 > 10 (DRAFT counts)
-    await post(pm, `/goods-issue-requests/${created}/cancel`).expect(204);
-    await make(10).expect(201); // canceled GIR freed the quota
+    const pr = await poDonePr(sc, 30, 10); // PR lines larger than the HĐ lines: the HĐ quota is what binds here
+    const make = async (qty: number) => (await post(pm, '/goods-issue-requests', prGirBody(sc, pr, qty, 0)).expect(201)).body.id as number;
+    const submit = (id: number) => post(pm, `/goods-issue-requests/${id}/submit`, { approverId: salesId });
+    const used = async () => Number((await get(pm, `/sales-contracts/${sc.id}/gir-quota`)).find((q: { salesContractLineId: number }) => q.salesContractLineId === sc.routerLine).usedQuantity);
+
+    const over = await make(11); // C50: a DRAFT above the whole HĐ line is saved
+    const a = await make(6);
+    const b = await make(6);
+    expect(await used()).toBe(0); // DRAFTs hold nothing
+    expect((await submit(over)).body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED');
+    await submit(a).expect(204);
+    expect(await used()).toBe(6); // WAITING holds
+    expect((await submit(b)).body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED'); // C51: 6 + 6 > 10
+    expect(await status('goods_issue_requests', b)).toBe('DRAFT');
+
+    await post(sales, `/goods-issue-requests/${a}/reject`, { reason: 'x' }).expect(204);
+    expect(await used()).toBe(6); // C54: REJECTED still holds
+    expect((await submit(b)).body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED');
+    // C52/C53: editing the REJECTED GIR does not count its own old quantity twice.
+    const aVersion = (await get(pm, `/goods-issue-requests/${a}`)).version;
+    const edit = (qty: number, version: number) => patch(pm, `/goods-issue-requests/${a}`, { version, lines: [{ purchaseRequisitionLineId: pr.routerLine, quantity: qty }] });
+    await edit(4, aVersion).expect(204);
+    await submit(a).expect(204); // 4 alone ≤ 10
+    await post(sales, `/goods-issue-requests/${a}/approve`).expect(204);
+    expect(await used()).toBe(4); // APPROVED holds
+    await submit(b).expect(204); // 4 + 6 = 10
+    await post(sales, `/goods-issue-requests/${b}/reject`, { reason: 'y' }).expect(204);
+    await post(pm, `/goods-issue-requests/${b}/cancel`).expect(204);
+    expect(await used()).toBe(4); // CANCELED frees
+
     // The cable line has its own quota (C06).
-    await post(pm, '/goods-issue-requests', {
-      issueType: 'SALES_CONTRACT', salesContractId: sc.id, warehouseId: hcm, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 10 }],
-    }).expect(201);
+    const cable10 = (await post(pm, '/goods-issue-requests', prGirBody(sc, pr, 0, 10)).expect(201)).body.id;
+    await submit(cable10).expect(204);
+  });
+
+  it('HĐ-line quota is re-checked at approve: a GIR submitted when it fit is not approved once others took the quota (C55)', async () => {
+    const sc = await contract(10, 10);
+    const pr = await poDonePr(sc, 20, 0);
+    const g1 = (await post(pm, '/goods-issue-requests', prGirBody(sc, pr, 6, 0)).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${g1}/submit`, { approverId: salesId }).expect(204);
+    // Another GIR slipped in through a direct status change (e.g. legacy data): the approve check must still hold.
+    const g2 = (await post(pm, '/goods-issue-requests', prGirBody(sc, pr, 6, 0)).expect(201)).body.id;
+    await ds.query(`UPDATE goods_issue_requests SET approval_status = 'APPROVED' WHERE id = $1`, [g2]);
+    expect((await post(sales, `/goods-issue-requests/${g1}/approve`)).body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED');
+    expect(await status('goods_issue_requests', g1)).toBe('WAITING_FOR_APPROVE');
+  });
+
+  it('concurrent submits on one HĐ line never exceed it', async () => {
+    const sc = await contract(10, 10);
+    const pr = await poDonePr(sc, 30, 0);
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await post(pm, '/goods-issue-requests', prGirBody(sc, pr, 4, 0)).expect(201)).body.id);
+    const res = await Promise.all(ids.map((id) => post(pm, `/goods-issue-requests/${id}/submit`, { approverId: salesId })));
+    expect(res.map((r) => r.status).sort()).toEqual([204, 204, 422]); // 3 × 4 > 10
+    expect(res.find((r) => r.status === 422)!.body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED');
+    expect(Number((await get(pm, `/sales-contracts/${sc.id}/gir-quota`)).find((q: { salesContractLineId: number }) => q.salesContractLineId === sc.routerLine).usedQuantity))
+      .toBe(8);
+  });
+
+  it('A and B share the HĐ-line quota; materials never use it (C55, ADR-0012)', async () => {
+    const sc = await contract(10, 10);
+    const wh = await isolatedWarehouse('QB1'); // own warehouse: other tests rely on KTH stock
+    await ds.query(`UPDATE warehouses SET allow_available_stock_issue = true WHERE id = $1`, [wh]);
+    await ds.query(`INSERT INTO user_warehouses (user_id, warehouse_id) VALUES ($1, $2)`, [managerId, wh]);
+    await receive(wh, 0, 20, sc); // stock for the available-stock (B) request
+    const a = await approvedGir(sc, 0, 7); // A holds 7 of 10
+    expect(a.id).toBeGreaterThan(0);
+    const b = (await post(pm, '/goods-issue-requests', {
+      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: wh, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 4 }],
+    }).expect(201)).body.id; // saved as DRAFT although 7 + 4 > 10
+    expect((await post(pm, `/goods-issue-requests/${b}/submit`, { approverId: salesId, warehouseApproverId: managerId })).body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED');
+    const b3 = (await post(pm, '/goods-issue-requests', {
+      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: wh, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 3 }],
+    }).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${b3}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204); // 7 + 3 = 10
+
+    const material = await poDonePr(sc, 0, 50, 'MATERIAL');
+    const m = (await post(pm, '/goods-issue-requests', prGirBody(sc, material, 0, 50)).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${m}/submit`, { approverId: salesId }).expect(204); // HĐ line is full, materials are not counted
+    expect(Number((await get(pm, `/sales-contracts/${sc.id}/gir-quota`)).find((q: { salesContractLineId: number }) => q.salesContractLineId === sc.cableLine).usedQuantity))
+      .toBe(10);
   });
 
   it('AVAILABLE_STOCK: allowed warehouse only, ≤ available stock, two sequential approvals (D12–D17)', async () => {
@@ -486,6 +583,129 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect(await allocationsOf(gi)).toEqual([]);
   });
 
+  // ---------- GIR A/C on PR lines (PR code #5) ----------
+
+  it('A/C GIR is created, submitted and approved from PO-done PR lines before any receipt; no stock check (C62)', async () => {
+    const wh = await isolatedWarehouse('AC1'); // empty warehouse
+    const sc = await contract(5, 5);
+    const pr = await poDonePr(sc, 2, 3);
+    const options = (await get(pm, `/sales-contracts/${sc.id}/gir-pr-lines`)).filter((o: { purchaseRequisitionId: number }) => o.purchaseRequisitionId === pr.id);
+    expect(options.map((o: { id: number; category: string; remainingQuantity: number; receivedQuantity: string }) => [o.id, o.category, o.remainingQuantity, Number(o.receivedQuantity)]))
+      .toEqual([[pr.routerLine, 'SALES_GOODS', 2, 0], [pr.cableLine, 'SALES_GOODS', 3, 0]]);
+    const gir = await approvedGir(sc, 2, 3, wh, pr);
+    const detail = await get(pm, `/goods-issue-requests/${gir.id}`);
+    expect([detail.issueType, detail.category, detail.approvalStatus]).toEqual(['PURCHASE_REQUISITION', 'SALES_GOODS', 'APPROVED']);
+    expect(detail.lines.map((l: { purchaseRequisitionLineId: number; salesContractLineId: number; productId: number }) => [l.purchaseRequisitionLineId, l.salesContractLineId, l.productId]))
+      .toEqual([[pr.routerLine, sc.routerLine, router], [pr.cableLine, sc.cableLine, cable]]); // inherited from the PR line, never picked by product
+    expect((await balance(wh, cable)).onHand).toBe(0);
+  });
+
+  it('PO done is required at submit, re-checked on resubmit, not retroactive after submit (C58–C61)', async () => {
+    const sc = await contract(10, 10);
+    const proc = app.get(ProcurementService);
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 5 }]);
+    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.approve('PR', pr.id, salesUser);
+    const [{ id: prLine }] = await ds.query(`SELECT id FROM purchase_requisition_lines WHERE purchase_requisition_id = $1`, [pr.id]);
+    const [{ id: sup }] = await ds.query(`INSERT INTO suppliers (code, name) VALUES ($1, 'S') RETURNING id`, [`S${Math.random()}`]);
+    const order = async (qty: number) => {
+      const po = await proc.createPurchaseOrder(pmUser, sup, [{ sourceLineId: prLine, quantity: qty }]);
+      await proc.submit('PO', po.id, pmUser, salesId);
+      await proc.approve('PO', po.id, salesUser);
+      return po.id;
+    };
+    await order(3); // only 3 of 5 ordered
+    expect((await get(pm, `/sales-contracts/${sc.id}/gir-pr-lines`)).some((o: { id: number }) => o.id === prLine)).toBe(false);
+    const body = { issueType: 'PURCHASE_REQUISITION', salesContractId: sc.id, warehouseId: hcm, lines: [{ purchaseRequisitionLineId: prLine, quantity: 2 }] };
+    const gir = (await post(pm, '/goods-issue-requests', body).expect(201)).body.id; // Draft may be saved
+    expect((await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId })).body.code).toBe('PR_NOT_PO_DONE'); // C58
+    expect(await status('goods_issue_requests', gir)).toBe('DRAFT');
+    const last = await order(2); // now PO done
+    await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId }).expect(204); // C61
+    await proc.decide('PO', 'recall', last, pmUser, 'supplier change'); // PR loses PO done after submit
+    await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204); // C60: not retroactive
+    expect(await status('goods_issue_requests', gir)).toBe('APPROVED');
+  });
+
+  it('PR-line quota: DRAFT does not hold it, WAITING/REJECTED/APPROVED do, CANCELED frees it; checked at submit and approve (C55, CT2)', async () => {
+    const sc = await contract(50, 50);
+    const pr = await poDonePr(sc, 0, 5);
+    const make = async (qty: number) => (await post(pm, '/goods-issue-requests', prGirBody(sc, pr, 0, qty)).expect(201)).body.id as number;
+    const draftBig = await make(5); // DRAFT: holds nothing
+    const g1 = await make(4);
+    await post(pm, `/goods-issue-requests/${g1}/submit`, { approverId: salesId }).expect(204);
+    const g2 = await make(2);
+    expect((await post(pm, `/goods-issue-requests/${g2}/submit`, { approverId: salesId })).body.code).toBe('PR_LINE_QUOTA_EXCEEDED'); // 4 + 2 > 5
+    await post(sales, `/goods-issue-requests/${g1}/reject`, { reason: 'x' }).expect(204);
+    expect((await post(pm, `/goods-issue-requests/${g2}/submit`, { approverId: salesId })).body.code).toBe('PR_LINE_QUOTA_EXCEEDED'); // REJECTED still holds
+    await post(pm, `/goods-issue-requests/${g1}/cancel`).expect(204);
+    await post(pm, `/goods-issue-requests/${g2}/submit`, { approverId: salesId }).expect(204);
+    expect((await get(pm, `/sales-contracts/${sc.id}/gir-pr-lines`)).find((o: { id: number }) => o.id === pr.cableLine).remainingQuantity).toBe(3);
+    expect((await post(pm, `/goods-issue-requests/${draftBig}/submit`, { approverId: salesId })).body.code).toBe('PR_LINE_QUOTA_EXCEEDED');
+  });
+
+  it('concurrent submits on one PR line never exceed it', async () => {
+    const sc = await contract(50, 50);
+    const pr = await poDonePr(sc, 0, 5);
+    const ids = [];
+    for (let i = 0; i < 2; i++) ids.push((await post(pm, '/goods-issue-requests', prGirBody(sc, pr, 0, 3)).expect(201)).body.id);
+    const res = await Promise.all(ids.map((id) => post(pm, `/goods-issue-requests/${id}/submit`, { approverId: salesId })));
+    expect(res.map((r) => r.status).sort()).toEqual([204, 422]);
+    expect(res.find((r) => r.status === 422)!.body.code).toBe('PR_LINE_QUOTA_EXCEEDED');
+  });
+
+  it('material GIR (C): no HĐ line, no Sales confirmation, no HĐ quota; never mixed with sales goods (CM3)', async () => {
+    const sc = await contract(1, 1, false); // nothing confirmed, HĐ lines of 1
+    const material = await poDonePr(sc, 0, 5, 'MATERIAL');
+    const gir = (await post(pm, '/goods-issue-requests', prGirBody(sc, material, 0, 5)).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
+    const d = await get(pm, `/goods-issue-requests/${gir}`);
+    expect([d.category, d.lines[0].salesContractLineId]).toEqual(['MATERIAL', null]);
+
+    const goods = await poDonePr(sc, 1, 0);
+    const mixed = await post(pm, '/goods-issue-requests', {
+      issueType: 'PURCHASE_REQUISITION', salesContractId: sc.id, warehouseId: hcm,
+      lines: [{ purchaseRequisitionLineId: goods.routerLine, quantity: 1 }, { purchaseRequisitionLineId: material.cableLine, quantity: 1 }],
+    });
+    expect([mixed.status, mixed.body.code]).toEqual([422, 'GIR_CATEGORY_MIXED']);
+    // A sales-goods PR needs HĐ lines; a material PR does not.
+    const proc = app.get(ProcurementService);
+    await expect(proc.createPurchaseRequisition(pmUser, sc.id, [{ productId: cable, quantity: 1 }])).rejects.toMatchObject({ code: 'SALES_CONTRACT_LINE_REQUIRED' });
+  });
+
+  it('A/C lines: PR line of another HĐ, duplicate PR line, product picked by hand and the retired SALES_CONTRACT type are refused', async () => {
+    const sc = await contract(10, 10);
+    const other = await contract(10, 10);
+    const pr = await poDonePr(sc, 0, 5);
+    const foreign = await poDonePr(other, 0, 5);
+    const create = (body: object) => post(pm, '/goods-issue-requests', body);
+    expect((await create(prGirBody(sc, foreign, 0, 1))).body.code).toBe('PR_LINE_NOT_IN_CONTRACT');
+    expect((await create({ ...prGirBody(sc, pr, 0, 1), lines: [{ purchaseRequisitionLineId: pr.cableLine, quantity: 1 }, { purchaseRequisitionLineId: pr.cableLine, quantity: 1 }] })).body.code)
+      .toBe('DUPLICATE_SOURCE_LINE');
+    expect((await create({ ...prGirBody(sc, pr, 0, 1), lines: [{ purchaseRequisitionLineId: pr.cableLine, productId: router, quantity: 1 }] })).body.code)
+      .toBe('GIR_LINE_SOURCE_INVALID');
+    expect((await create({ issueType: 'SALES_CONTRACT', salesContractId: sc.id, warehouseId: hcm, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 1 }] })).status)
+      .toBe(400);
+  });
+
+  it('GI of an A GIR allocates only lots of its own HĐ even when an older lot of another HĐ exists (C74)', async () => {
+    const wh = await isolatedWarehouse('AC2');
+    const x = await contract(50, 50);
+    const y = await contract(50, 50);
+    await receive(wh, 0, 5, x); // older, HĐ-X
+    await receive(wh, 0, 5, y); // newer, HĐ-Y
+    const gir = await approvedGir(y, 0, 3, wh);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: 3 }] }).expect(201)).body.id;
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
+    const sources = await ds.query(
+      `SELECT DISTINCT l.source_sales_contract_id AS sc FROM goods_issue_line_allocations a JOIN inventory_lots l ON l.id = a.inventory_lot_id
+         JOIN goods_issue_lines gl ON gl.id = a.goods_issue_line_id WHERE gl.goods_issue_id = $1`, [gi]);
+    expect(sources).toEqual([{ sc: y.id }]);
+    await post(sales, `/goods-issues/${gi}/approve`).expect(204);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
   // ---------- Completion ----------
 
   it('completion: blocks open GIs, needs a reason when short, frees unissued quota, blocks new GIs (C11–C13, C16, C19–C21)', async () => {
@@ -509,9 +729,7 @@ describe('Outbound: GIR → GI (integration)', () => {
     const quota = await get(pm, `/sales-contracts/${sc.id}/gir-quota`);
     expect(Number(quota.find((q: { salesContractLineId: number }) => q.salesContractLineId === sc.cableLine).usedQuantity)).toBe(4);
     // 6 units are free again for a new GIR on the same HĐ line.
-    await post(pm, '/goods-issue-requests', {
-      issueType: 'SALES_CONTRACT', salesContractId: sc.id, warehouseId: hcm, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 6 }],
-    }).expect(201);
+    await post(pm, '/goods-issue-requests', prGirBody(sc, await poDonePr(sc, 0, 6), 0, 6)).expect(201);
     expect((await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: 1 }] })).body.code).toBe('GIR_COMPLETED'); // C13
   });
 

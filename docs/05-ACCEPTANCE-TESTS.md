@@ -157,7 +157,7 @@
 | C68c | Như C68b, GR của dòng 2 được Thu hồi | PO: Nhập kho một phần (GR đã Thu hồi không tính) |
 | C69 | GI cho GIR luồng A của HĐ-B; kho chỉ có hàng nhập từ PR của HĐ-A | Không chọn được hàng/SN của HĐ-A. *PR code #4: chặn khi Gửi duyệt GI (GIR `SALES_CONTRACT`).* |
 | C70 | GIR `AVAILABLE_STOCK` của HĐ-B dùng tồn thuộc Sales HĐ-A; Sales HĐ-A đồng ý, Quản lý kho duyệt; GI xuất | Xuất được; không tự sinh hoàn bù *PR code #7.* |
-| C71 | Báo cáo tồn kho | Truy vết được theo Kho, Product, Sales phụ trách, HĐ nguồn, GR. *Tiến độ: PR code #3 hoàn thành phần **nguồn nhập** (lô, lượng nhập, `GET /inventories/lots`); **tồn còn lại theo lô** và FIFO thuộc PR code #4.* |
+| C71 | Báo cáo tồn kho | Truy vết được theo Kho, Product, Sales phụ trách, HĐ nguồn, GR. *Đã có: tồn/giữ chỗ/khả dụng theo lô (PR code #4) và màn hình "Truy vết lô tồn kho" có lọc + liên kết chứng từ (PR #14).* |
 | C72 | HĐ có Sales phụ trách S1; GR từ PR của HĐ được duyệt | Tồn nhập ghi Sales phụ trách S1, HĐ nguồn là HĐ đó |
 | C73 | Hàng không SN, HĐ-A có lô GR1 (duyệt trước, 3) và GR2 (duyệt sau, 5); GI luồng A xuất 4 | Lấy 3 từ GR1, 1 từ GR2 (FIFO). *PR code #4: phân bổ khi Gửi duyệt, trừ khi Duyệt; phạm vi HĐ áp cho GI khi có luồng A (PR code #5).* |
 | C74 | Như C73, kho còn lô GR0 của HĐ-B duyệt sớm hơn | GI luồng A của HĐ-A không lấy GR0 *PR code #5: kiểm thử đầu-cuối GIR A → GI.* |

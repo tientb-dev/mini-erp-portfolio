@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './i18n';
 import { GoodsIssueRequestsPage } from './goods-issues';
+import { NavContext } from './doc-ui';
+import { InventoryLotsPage } from './inventory-lots';
 import { PurchaseOrdersPage } from './procurement';
 import { SalesContractsPage } from './sales-contracts';
 
@@ -264,5 +266,109 @@ describe('GIR B/D form (PR code #7)', () => {
       body: { issueType: 'AVAILABLE_STOCK', salesContractId: 3, warehouseId: 2, purpose: 'Lắp đặt', category: 'MATERIAL', sourceSalesContractId: 8, sourceOwnerUserId: 5,
         lines: [{ productId: 31, quantity: 4 }] },
     }]));
+  });
+});
+
+describe('UAT Round 1 fixes (PR #14)', () => {
+  it('UAT-1: an A/C quantity above what is still requestable shows a warning with the max, and the draft can still be created', async () => {
+    const posts = mockApi({
+      '/auth/me': me(['GIR.VIEW', 'GIR.CREATE']),
+      '/sales-contracts/3/gir-pr-lines': [
+        { id: 51, purchaseRequisitionId: 9, prNumber: 'PR-2026-000009', category: 'SALES_GOODS', partNumber: 'PN-1', productName: 'Switch', uom: 'PCS', quantity: '5', receivedQuantity: '0', remainingQuantity: 4 },
+      ],
+      '/sales-contracts': [{ id: 3, documentNumber: 'SC-2026-000003', status: 'ACTIVE', customerName: 'Customer' }],
+      '/warehouses': [{ id: 1, code: 'HCM', name: 'Kho HCM', allowAvailableStockIssue: false }],
+      '/goods-issue-requests': [],
+    });
+    wrap(<GoodsIssueRequestsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Tạo đề nghị xuất' }));
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: /Hợp đồng bán/ }));
+    fireEvent.click(await screen.findByRole('option', { name: 'SC-2026-000003: Customer' }));
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: /^Kho/ }));
+    fireEvent.click(await screen.findByRole('option', { name: 'HCM: Kho HCM' }));
+    const qty = await screen.findByLabelText('Số lượng');
+    fireEvent.change(qty, { target: { value: '6' } });
+    expect(await screen.findByText(/Vượt số còn được đề nghị \(tối đa 4\)/)).toBeTruthy();
+    const submit = screen.getAllByRole('button', { name: 'Tạo đề nghị xuất' }).at(-1)! as HTMLButtonElement;
+    expect(submit.disabled).toBe(false); // CT2: a DRAFT above the quota is allowed
+    fireEvent.change(qty, { target: { value: '4' } });
+    expect(screen.queryByText(/Vượt số còn được đề nghị/)).toBeNull();
+    fireEvent.change(qty, { target: { value: '6' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts).toEqual([{
+      url: '/goods-issue-requests', body: { issueType: 'PURCHASE_REQUISITION', salesContractId: 3, warehouseId: 1, lines: [{ purchaseRequisitionLineId: 51, quantity: 6 }] },
+    }]));
+  });
+
+  const bdGir = (step: number) => ({
+    id: 7, documentNumber: 'GIR-2026-000007', issueType: 'AVAILABLE_STOCK', category: 'SALES_GOODS', approvalStatus: 'WAITING_FOR_APPROVE', approvalStep: step,
+    executionStatus: 'NOT_STARTED', salesContractNumber: 'SC-3', warehouseCode: 'KTH', createdByName: 'PM', assignedApproverName: 'Me', createdAt: '2026-11-14T00:00:00Z',
+    version: 2, warehouseId: 1, salesContractId: 3, createdBy: 2, assignedApproverId: 1, warehouseApproverName: 'Kho', completionReason: null,
+    sourceSalesContractNumber: 'SC-2', sourceOwnerName: 'Sales 2', purpose: null, lines: [], goodsIssues: [], history: [],
+  });
+  it('UAT-3: step 1 of an available-stock GIR is labelled "Xác nhận" (title, button, hint); the API call is still approve', async () => {
+    const posts = mockApi({ '/auth/me': me(['GIR.VIEW', 'GIR.SALES_CONFIRM']), '/goods-issue-requests/7': bdGir(1), '/goods-issue-requests': [bdGir(1)] });
+    wrap(<GoodsIssueRequestsPage />);
+    fireEvent.click(await screen.findByText('GIR-2026-000007'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Xác nhận' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('Xác nhận cho mượn hàng');
+    expect(dialog.textContent).toContain('Sales nguồn');
+    expect(dialog.textContent).not.toContain('Duyệt chứng từ');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Xác nhận' }).at(-1)!);
+    await waitFor(() => expect(posts).toEqual([{ url: '/goods-issue-requests/7/approve', body: {} }]));
+  });
+
+  it('UAT-3: step 2 (warehouse manager) stays "Duyệt"', async () => {
+    mockApi({ '/auth/me': me(['GIR.VIEW', 'GIR.APPROVE']), '/goods-issue-requests/7': bdGir(2), '/goods-issue-requests': [bdGir(2)] });
+    wrap(<GoodsIssueRequestsPage />);
+    fireEvent.click(await screen.findByText('GIR-2026-000007'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('Duyệt chứng từ');
+    expect(dialog.textContent).not.toContain('Xác nhận cho mượn hàng');
+  });
+});
+
+describe('Lot traceability (UAT-2, C71)', () => {
+  const lot = (id: number, over: object) => ({
+    id, warehouseId: 1, warehouseCode: 'HCM', productId: 5, partNumber: 'SW-24P', productName: 'Switch', isSerialTracked: false,
+    sourceSalesContractId: 11, sourceSalesContractNumber: 'SC-2026-000011', ownerUserId: 3, ownerName: 'Sales A',
+    goodsReceiptId: 21, goodsReceiptNumber: 'GR-2026-000021', approvedAt: '2026-11-14T00:00:00Z',
+    receivedQuantity: '6', onHandQuantity: '4', reservedQuantity: '1', availableQuantity: '3', serialsInStock: null, serialsReserved: null, serialsIssued: null, ...over,
+  });
+  const lots = [
+    lot(1, {}),
+    lot(2, { sourceSalesContractId: 12, sourceSalesContractNumber: 'SC-2026-000012', ownerUserId: 4, ownerName: 'Sales B', goodsReceiptId: 22, goodsReceiptNumber: 'GR-2026-000022',
+      productId: 6, partNumber: 'RT-AX', productName: 'Router', isSerialTracked: true, receivedQuantity: '3', onHandQuantity: '2', reservedQuantity: '1', availableQuantity: '1',
+      serialsInStock: 1, serialsReserved: 1, serialsIssued: 1 }),
+  ];
+
+  it('shows provenance, quantities and serial states, filters by source contract, and links documents only with permission', async () => {
+    mockApi({ '/auth/me': me(['INVENTORY.VIEW', 'GR.VIEW']), '/inventories/lots': lots });
+    const openDoc = vi.fn();
+    wrap(<NavContext.Provider value={openDoc}><InventoryLotsPage /></NavContext.Provider>);
+    expect(await screen.findByText('Sales B')).toBeTruthy();
+    expect(screen.getByText('1 / 1 / 1')).toBeTruthy(); // serials in stock / reserved / issued
+    const row1 = screen.getAllByRole('row').find((r) => r.textContent?.includes('GR-2026-000021'))!;
+    expect([...row1.querySelectorAll('[role=gridcell]')].map((c) => c.textContent).slice(7, 11)).toEqual(['6', '4', '1', '3']); // received, on hand, reserved, available
+    // No SALES_CONTRACT.VIEW: the source contract is plain text; GR.VIEW: the GR is a link.
+    expect(screen.queryByRole('button', { name: 'SC-2026-000011' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'GR-2026-000022' }));
+    expect(openDoc).toHaveBeenCalledWith('goodsReceipts', 22);
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'HĐ nguồn' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'SC-2026-000011' }));
+    await waitFor(() => expect(screen.queryByText('Sales B')).toBeNull());
+    expect(screen.getAllByText('Sales A').length).toBeGreaterThan(0);
+  });
+
+  it('links the source contract when the user may view contracts, and never links the GR without GR.VIEW', async () => {
+    mockApi({ '/auth/me': me(['INVENTORY.VIEW', 'SALES_CONTRACT.VIEW']), '/inventories/lots': [lots[0]] });
+    const openDoc = vi.fn();
+    wrap(<NavContext.Provider value={openDoc}><InventoryLotsPage /></NavContext.Provider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'SC-2026-000011' }));
+    expect(openDoc).toHaveBeenCalledWith('salesContracts', 11);
+    expect(screen.queryByRole('button', { name: 'GR-2026-000021' })).toBeNull();
   });
 });

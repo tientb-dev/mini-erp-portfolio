@@ -177,8 +177,11 @@ function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; onCreate
           <Typography variant="body2" color="text.secondary">
             {t('gir.prLineHint', { quantity: num(l.quantity), remaining: l.remainingQuantity, received: num(l.receivedQuantity), uom: l.uom })}
           </Typography>
-          <TextField label={t('gr.quantity')} type="number" value={prQty[l.id] ?? ''} sx={{ maxWidth: { sm: 160 } }}
-            slotProps={{ htmlInput: { min: 0, max: l.remainingQuantity } }} onChange={(e) => setPrQty({ ...prQty, [l.id]: e.target.value })} />
+          {/* Over the remaining quota: warn only; a DRAFT may still be saved (CT2), the server blocks at submit. */}
+          <TextField label={t('gr.quantity')} type="number" value={prQty[l.id] ?? ''} sx={{ maxWidth: { sm: 260 } }}
+            error={num(prQty[l.id] ?? '') > l.remainingQuantity}
+            helperText={num(prQty[l.id] ?? '') > l.remainingQuantity ? t('gir.overRemaining', { max: l.remainingQuantity }) : undefined}
+            slotProps={{ htmlInput: { min: 0 } }} onChange={(e) => setPrQty({ ...prQty, [l.id]: e.target.value })} />
         </Stack>
       ))}
       {!isPr && !isD && source && (scLines.data ?? []).map((l) => {
@@ -290,6 +293,7 @@ function GirDetailView({ id, onBack }: { id: number; onBack: () => void }) {
       {action === 'submit' && d.issueType === 'AVAILABLE_STOCK'
         ? <SubmitTwoStepDialog girId={id} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />
         : action && <DocActionDialog basePath={`/goods-issue-requests/${id}`} action={action} approversPath={`/goods-issue-requests/${id}/approvers`}
+            sourceConfirm={action === 'approve' && d.issueType === 'AVAILABLE_STOCK' && d.approvalStep === 1}
             onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {creatingGi && <CreateGiDialog gir={d} onClose={() => setCreatingGi(false)} onCreated={(giId) => { setCreatingGi(false); setOpenGi(giId); }} />}
     </>

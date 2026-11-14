@@ -23,10 +23,10 @@ interface Person { id: number; fullName: string; username: string }
 const fmtDate = (v: string) => new Date(v).toLocaleString();
 const useMe = () => useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/auth/me') });
 
-export function GoodsReceiptsPage() {
+export function GoodsReceiptsPage({ initialId }: { initialId?: number } = {}) {
   const { t } = useTranslation();
   const me = useMe();
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(initialId ?? null);
   const [creating, setCreating] = useState(false);
   const [mine, setMine] = useState(false);
   const list = useQuery({ queryKey: ['grs', mine], queryFn: () => api<GrListRow[]>(`/goods-receipts?assignedToMe=${mine}`) });

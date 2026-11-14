@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { ComponentType, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
@@ -10,7 +10,8 @@ import { Login } from './Login';
 import { GoodsIssueRequestsPage, GoodsIssuesPage } from './goods-issues';
 import { GoodsReceiptsPage } from './goods-receipts';
 import { CustomersPage, InventoryPage, ProductsPage, SuppliersPage, WarehousesPage } from './pages';
-import { useMe } from './doc-ui';
+import { NavContext, useMe } from './doc-ui';
+import { InventoryLotsPage } from './inventory-lots';
 import { GoodsReceiptRequestsPage, PurchaseOrdersPage, PurchaseRequisitionsPage } from './procurement';
 import { SalesContractsPage } from './sales-contracts';
 import { themes, tokens } from './theme';
@@ -25,6 +26,7 @@ const PAGES = {
   goodsIssueRequests: [GoodsIssueRequestsPage, 'GIR.VIEW'],
   goodsIssues: [GoodsIssuesPage, 'GI.VIEW'],
   inventory: [InventoryPage, 'INVENTORY.VIEW'],
+  inventoryLots: [InventoryLotsPage, 'INVENTORY.VIEW'],
   products: [ProductsPage, 'PRODUCT.VIEW'],
   warehouses: [WarehousesPage, 'WAREHOUSE.VIEW'],
   customers: [CustomersPage, 'CUSTOMER.VIEW'],
@@ -36,7 +38,7 @@ type PageKey = keyof typeof PAGES;
 const NAV: { group: string; items: PageKey[] }[] = [
   { group: 'nav.sales', items: ['salesContracts'] },
   { group: 'nav.purchasing', items: ['purchaseRequisitions', 'purchaseOrders'] },
-  { group: 'nav.warehouseOps', items: ['goodsReceiptRequests', 'goodsReceipts', 'goodsIssueRequests', 'goodsIssues', 'inventory'] },
+  { group: 'nav.warehouseOps', items: ['goodsReceiptRequests', 'goodsReceipts', 'goodsIssueRequests', 'goodsIssues', 'inventory', 'inventoryLots'] },
   { group: 'nav.masterData', items: ['products', 'warehouses', 'customers', 'suppliers'] },
 ];
 
@@ -60,10 +62,13 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const me = useMe();
   const allowed = (k: PageKey) => Boolean(me.data?.permissions.includes(PAGES[k][1]));
   const [chosen, setPage] = useState<PageKey | null>(null);
+  const [target, setTarget] = useState<{ page: PageKey; id: number; n: number } | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const desktop = useMediaQuery('(min-width:900px)');
   const page = chosen ?? NAV.flatMap((g) => g.items).find(allowed) ?? null;
-  const Page = page ? PAGES[page][0] : null;
+  // Pages that open a document directly read `initialId`; the others ignore it.
+  const Page = page ? (PAGES[page][0] as ComponentType<{ initialId?: number }>) : null;
+  const openDoc = (p: string, id: number) => { setPage(p as PageKey); setTarget({ page: p as PageKey, id, n: Date.now() }); };
 
   const nav = (
     <Box component="nav" aria-label={t('nav.label')} sx={{ width: tokens.sidebarWidth, pt: 1 }}>
@@ -109,7 +114,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       </Drawer>
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, px: { xs: 2, md: 3 }, py: 3 }}>
         <Toolbar variant="dense" />
-        {Page && <Page key={page} />}
+        <NavContext.Provider value={openDoc}>
+          {Page && (target?.page === page ? <Page key={`${page}-${target.n}`} initialId={target.id} /> : <Page key={page} />)}
+        </NavContext.Provider>
       </Box>
     </Box>
   );

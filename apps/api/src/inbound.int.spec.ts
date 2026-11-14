@@ -344,6 +344,25 @@ describe('Inbound chain and GR (integration)', () => {
     expect(await unreconciled()).toEqual([]);
   });
 
+  it('lot traceability (C71): on hand / reserved / available and serial states per lot; INVENTORY.VIEW required; other warehouses hidden', async () => {
+    const gr = await grWithSerials(['SN-TR1', 'SN-TR2'], 3);
+    await post(creator, `/goods-receipts/${gr}/submit`, { approverId }).expect(204);
+    await post(approver, `/goods-receipts/${gr}/approve`).expect(204);
+    const lots = (await http().get('/inventories/lots').set(as(creator)).expect(200)).body.filter((l: { goodsReceiptId: number }) => l.goodsReceiptId === gr);
+    const sn = lots.find((l: { isSerialTracked: boolean }) => l.isSerialTracked);
+    const bulk = lots.find((l: { isSerialTracked: boolean }) => !l.isSerialTracked);
+    expect([Number(sn.receivedQuantity), Number(sn.onHandQuantity), Number(sn.reservedQuantity), Number(sn.availableQuantity), sn.serialsInStock, sn.serialsReserved, sn.serialsIssued])
+      .toEqual([2, 2, 0, 2, 2, 0, 0]);
+    expect([Number(bulk.availableQuantity), bulk.serialsInStock]).toEqual([3, null]); // no serial counts for bulk goods
+    expect(sn).toMatchObject({ productName: 'Router', warehouseCode: 'HCM' });
+
+    // A user without INVENTORY.VIEW gets 403, not an empty list.
+    const { hashPassword } = await import('./modules/identity/password');
+    await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ('noinv', $1, 'No inventory')`, [await hashPassword('pw-noinv')]);
+    const noInv = await login(app, 'noinv', 'pw-noinv');
+    await http().get('/inventories/lots').set(as(noInv)).expect(403);
+  });
+
   it('lots are scoped to the caller warehouses (04 §1)', async () => {
     const [{ id: hn }] = await ds.query(`INSERT INTO warehouses (code, name) VALUES ('HN-LOT', 'Hà Nội') RETURNING id`);
     const [{ id: lotId }] = await ds.query(`SELECT id FROM inventory_lots LIMIT 1`);

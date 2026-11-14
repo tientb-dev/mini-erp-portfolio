@@ -4,6 +4,7 @@
 ## 1. Số lượng và liên kết mua hàng — đã chốt
 - Mỗi PR thuộc một HĐ `ACTIVE` (cấp chứng từ); mỗi dòng PR giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
 - **Phân loại dòng** (đã chốt 2026-11-13, ADR-0012): mỗi dòng PR có phân loại tường minh hàng bán/vật tư; MVP không trộn hai loại trong một PR.
+- **Product không mang phân loại cố định** (đã chốt 2026-11-14, sau UAT Round 1): hàng bán / vật tư là mục đích nghiệp vụ của **chứng từ** (YCMH, ĐNXK), không phải thuộc tính của Product. Cùng một Product có thể dùng trong A/B hoặc C/D; luồng D được dùng Product từng được mua dưới dạng hàng bán nếu nguồn hợp lệ (HĐ nguồn + Sales nguồn) và có mục đích sử dụng. Vẫn không trộn hàng bán và vật tư trong một chứng từ. Không thêm phân loại vào danh mục Product.
 - **PR hàng bán:** tạo từ màn hình HĐ; copy toàn bộ dòng hàng và thông tin liên quan sang form để chỉnh sửa trước khi lưu. Mỗi dòng PR giữ đúng `sales_contract_line_id`; dòng HĐ phải thuộc HĐ của PR; không gộp dòng HĐ cùng Product. Trong cùng PR không chia/tạo trùng một dòng HĐ; nhiều PR khác nhau được tham chiếu cùng dòng HĐ. Không có hạn mức Σ PR ≤ dòng HĐ (IM19).
 - **PR vật tư** (vật tư/phụ kiện triển khai/dự phòng): tạo tại màn hình PR, chọn HĐ rồi tự chọn vật tư; `sales_contract_line_id` không bắt buộc; được dùng mã tạm theo §1a (chuẩn hóa trước khi nhập kho).
 - Trùng Product không đồng nghĩa trùng dòng HĐ; hệ thống không tự suy ra hoặc tự gán `sales_contract_line_id` theo Product.

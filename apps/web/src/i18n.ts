@@ -11,7 +11,7 @@ const vi = {
     label: 'Điều hướng chính', open: 'Mở menu', masterData: 'Danh mục', warehouseOps: 'Kho vận',
     sales: 'Bán hàng', purchasing: 'Mua hàng', salesContracts: 'Hợp đồng bán', purchaseRequisitions: 'Đề nghị mua (PR)', purchaseOrders: 'Đơn đặt mua (PO)',
     goodsReceiptRequests: 'Đề nghị nhập kho', customers: 'Khách hàng', suppliers: 'Nhà cung cấp',
-    products: "Danh mục hàng hóa", warehouses: "Kho", goodsReceipts: "Phiếu nhập kho", goodsIssueRequests: "Đề nghị xuất kho", goodsIssues: "Phiếu xuất kho", inventory: "Tồn kho",
+    products: "Danh mục hàng hóa", warehouses: "Kho", goodsReceipts: "Phiếu nhập kho", goodsIssueRequests: "Đề nghị xuất kho", goodsIssues: "Phiếu xuất kho", inventory: "Tồn kho", inventoryLots: "Truy vết lô tồn kho",
   },
   common: {
     cancel: 'Hủy bỏ', yes: 'Có', no: 'Không', status: 'Trạng thái', active: 'Đang dùng', inactive: 'Ngừng dùng',
@@ -59,6 +59,8 @@ const vi = {
     source: 'Nguồn hàng (HĐ nguồn · Sales nguồn)', sourceHint: 'Chỉ dùng tồn của đúng HĐ nguồn và Sales nguồn tại kho đã chọn; Sales nguồn xác nhận trước.',
     noSource: 'Kho này chưa có tồn khả dụng của HĐ khác.', sourceAvailable: 'Tồn khả dụng ở nguồn: {{available}}',
     purpose: 'Mục đích sử dụng', purposeRequired: 'Bắt buộc với vật tư lấy từ hàng có sẵn.', purposeInherited: 'Không bắt buộc; để trống sẽ lấy theo đề nghị mua.',
+    overRemaining: 'Vượt số còn được đề nghị (tối đa {{max}}). Vẫn lưu nháp được, nhưng sẽ bị chặn khi gửi duyệt.',
+    confirmTitle: 'Xác nhận cho mượn hàng', confirmHint: 'Bạn là Sales nguồn: xác nhận đồng ý cho dùng tồn của HĐ nguồn. Sau đó Quản lý kho sẽ duyệt.',
     prLine: 'Đề nghị mua (YCMH)', firstReceipt: 'PNK đầu tiên · kho', received: 'Đã nhập kho', notReceived: 'Chưa nhập kho',
     referenceHint: 'PNK đầu tiên và lượng đã nhập kho chỉ để tham khảo; không giữ chỗ hay phân bổ tồn.', categoryHint: 'Một đề nghị xuất chỉ gồm hàng bán hoặc chỉ gồm vật tư.',
     prLineHint: 'YCMH {{quantity}} {{uom}}, còn được đề nghị {{remaining}}, đã nhập kho {{received}} (chỉ tham khảo)',
@@ -160,6 +162,12 @@ const vi = {
     warehouse: 'Kho', onHand: 'Tồn thực tế', reserved: 'Đang giữ chỗ', available: 'Khả dụng',
     empty: 'Chưa có tồn kho ở các kho bạn được phép xem. Tồn kho tăng khi phiếu nhập kho được duyệt.',
   },
+  lots: {
+    sourceContract: 'HĐ nguồn', sourceSales: 'Sales nguồn', goodsReceipt: 'PNK gốc', approvedAt: 'Duyệt PNK lúc', received: 'Đã nhập',
+    serials: 'SN (trong kho / giữ chỗ / đã xuất)', serialStates: '{{inStock}} / {{reserved}} / {{issued}}', all: 'Tất cả',
+    empty: 'Chưa có lô tồn kho ở các kho bạn được phép xem.',
+    filter: { warehouseId: 'Kho', productId: 'Mã hàng', sourceSalesContractId: 'HĐ nguồn', ownerUserId: 'Sales nguồn', goodsReceiptId: 'PNK gốc' },
+  },
 };
 
 const en: typeof vi = {
@@ -172,7 +180,7 @@ const en: typeof vi = {
     label: 'Main navigation', open: 'Open menu', masterData: 'Master data', warehouseOps: 'Warehouse',
     sales: 'Sales', purchasing: 'Purchasing', salesContracts: 'Sales contracts', purchaseRequisitions: 'Purchase requisitions', purchaseOrders: 'Purchase orders',
     goodsReceiptRequests: 'Receipt requests', customers: 'Customers', suppliers: 'Suppliers',
-    products: "Products", warehouses: "Warehouses", goodsReceipts: "Goods receipts", goodsIssueRequests: "Issue requests", goodsIssues: "Goods issues", inventory: "Inventory",
+    products: "Products", warehouses: "Warehouses", goodsReceipts: "Goods receipts", goodsIssueRequests: "Issue requests", goodsIssues: "Goods issues", inventory: "Inventory", inventoryLots: "Lot traceability",
   },
   common: {
     cancel: 'Cancel', yes: 'Yes', no: 'No', status: 'Status', active: 'Active', inactive: 'Inactive',
@@ -220,6 +228,8 @@ const en: typeof vi = {
     source: 'Stock source (source contract · source sales)', sourceHint: 'Only stock of this source contract and sales in the chosen warehouse; the source sales confirms first.',
     noSource: 'This warehouse has no available stock of another contract.', sourceAvailable: 'Available at the source: {{available}}',
     purpose: 'Purpose of use', purposeRequired: 'Required for materials taken from available stock.', purposeInherited: 'Optional; left empty it is taken from the requisitions.',
+    overRemaining: 'Above the quantity still requestable (max {{max}}). The draft can be saved but submitting will be refused.',
+    confirmTitle: 'Confirm lending the stock', confirmHint: 'You are the source sales: confirm the stock of the source contract may be used. The warehouse manager approves next.',
     prLine: 'Purchase requisition', firstReceipt: 'First GR · warehouse', received: 'Received', notReceived: 'Not received',
     referenceHint: 'First GR and received quantity are for reference only; they neither reserve nor allocate stock.', categoryHint: 'One issue request holds either sales goods or materials, never both.',
     prLineHint: 'PR {{quantity}} {{uom}}, still requestable {{remaining}}, received {{received}} (reference only)',
@@ -320,6 +330,12 @@ const en: typeof vi = {
   inventory: {
     warehouse: 'Warehouse', onHand: 'On hand', reserved: 'Reserved', available: 'Available',
     empty: 'No stock in the warehouses you can view. Stock increases when a goods receipt is approved.',
+  },
+  lots: {
+    sourceContract: 'Source contract', sourceSales: 'Source sales', goodsReceipt: 'Source GR', approvedAt: 'GR approved at', received: 'Received',
+    serials: 'Serials (in stock / reserved / issued)', serialStates: '{{inStock}} / {{reserved}} / {{issued}}', all: 'All',
+    empty: 'No inventory lots in the warehouses you can view.',
+    filter: { warehouseId: 'Warehouse', productId: 'Product', sourceSalesContractId: 'Source contract', ownerUserId: 'Source sales', goodsReceiptId: 'Source GR' },
   },
 };
 

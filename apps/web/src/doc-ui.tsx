@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { createContext, ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MenuItem, Stack, TextField, Typography } from '@mui/material';
@@ -11,6 +11,9 @@ import { StatusChip } from './ui';
 export interface Me { id: number; permissions: string[]; warehouseIds: number[] }
 export interface Person { id: number; fullName: string; username: string }
 export interface HistoryEntry { action: string; reason: string | null; createdAt: string; actorName: string }
+
+/** Opens another page on one document (`page` is an App page key); the target page checks permissions again. */
+export const NavContext = createContext<(page: string, id: number) => void>(() => undefined);
 
 export const fmtDate = (v: string) => new Date(v).toLocaleString();
 export const useMe = () => useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/auth/me') });
@@ -50,9 +53,10 @@ export type DocAction = 'submit' | 'approve' | 'reject' | 'recall' | 'cancel' | 
  * Confirmation dialog for workflow actions on `${basePath}/${action}`. Submit picks the assigned approver
  * (preselected when exactly one is eligible, P4); reject/recall need a reason; complete takes an optional reason.
  */
-export function DocActionDialog({ basePath, action, onClose, onDone, approversPath, approved }: {
+export function DocActionDialog({ basePath, action, onClose, onDone, approversPath, approved, sourceConfirm }: {
   basePath: string; action: DocAction; onClose: () => void; onDone: () => void; approversPath?: string;
   /** Cancel of an APPROVED document needs a reason (03 §6, 04 §6). */ approved?: boolean;
+  /** Step 1 of an available-stock GIR: the source Sales confirms (same API call as approve, labelled "Xác nhận"). */ sourceConfirm?: boolean;
 }) {
   const { t } = useTranslation();
   const [reason, setReason] = useState('');
@@ -76,7 +80,7 @@ export function DocActionDialog({ basePath, action, onClose, onDone, approversPa
     onSuccess: onDone,
   });
   return (
-    <FormDialog title={t(`doc.confirm.${action}`)} submitLabel={t(`doc.${action}`)} error={run.error ?? approvers.error} pending={run.isPending}
+    <FormDialog title={sourceConfirm ? t('gir.confirmTitle') : t(`doc.confirm.${action}`)} submitLabel={sourceConfirm ? t('gir.confirm') : t(`doc.${action}`)} error={run.error ?? approvers.error} pending={run.isPending}
       canSubmit={action === 'submit' ? Boolean(chosen) : needsReason ? Boolean(reason.trim()) : true} onSubmit={() => run.mutate()} onClose={onClose}>
       {action === 'submit' && (
         <TextField select label={t('gr.approver')} value={chosen} onChange={(e) => setApproverId(e.target.value)} required
@@ -88,7 +92,7 @@ export function DocActionDialog({ basePath, action, onClose, onDone, approversPa
         <TextField label={t('gr.reason')} value={reason} onChange={(e) => setReason(e.target.value)} required={needsReason} multiline minRows={2} autoFocus
           helperText={action === 'complete' ? t('doc.completeHint') : undefined} />
       )}
-      {action === 'approve' && <Typography variant="body2">{t('doc.approveHint')}</Typography>}
+      {action === 'approve' && <Typography variant="body2">{t(sourceConfirm ? 'gir.confirmHint' : 'doc.approveHint')}</Typography>}
       {action === 'cancel' && !approved && <Typography variant="body2">{t('doc.cancelHint')}</Typography>}
     </FormDialog>
   );

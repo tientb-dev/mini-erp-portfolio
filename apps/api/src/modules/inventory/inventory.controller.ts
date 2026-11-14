@@ -12,8 +12,9 @@ export class InventoryController {
   constructor(@InjectRepository(Inventory) private readonly inventories: Repository<Inventory>, private readonly ds: DataSource) {}
 
   /**
-   * Receipt provenance per lot (C71): warehouse, product, source HĐ, responsible sales, GR, approval time and received
-   * quantity, limited to the caller's warehouses. Lot on-hand comes with GI allocation (ADR-0013, PR 4).
+   * Lot traceability (C71, read only): warehouse, product, source HĐ, source sales, GR, approval time, received / on hand /
+   * reserved / available per lot and, for serial goods, how many serials are in stock / reserved / issued.
+   * Limited to the caller's warehouses (04 §1): a lot outside them is never returned.
    */
   @Get('lots')
   @RequirePermissions('INVENTORY.VIEW')
@@ -22,8 +23,17 @@ export class InventoryController {
       `SELECT l.id, l.warehouse_id AS "warehouseId", w.code AS "warehouseCode", l.product_id AS "productId", p.part_number AS "partNumber",
               l.source_sales_contract_id AS "sourceSalesContractId", sc.document_number AS "sourceSalesContractNumber",
               l.owner_user_id AS "ownerUserId", u.full_name AS "ownerName", gr.id AS "goodsReceiptId", gr.document_number AS "goodsReceiptNumber",
-              l.goods_receipt_line_id AS "goodsReceiptLineId", l.approved_at AS "approvedAt", l.received_quantity AS "receivedQuantity"
+              l.goods_receipt_line_id AS "goodsReceiptLineId", l.approved_at AS "approvedAt", l.received_quantity AS "receivedQuantity",
+              p.name AS "productName", p.is_serial_tracked AS "isSerialTracked", l.on_hand_quantity AS "onHandQuantity",
+              l.reserved_quantity AS "reservedQuantity", l.on_hand_quantity - l.reserved_quantity AS "availableQuantity",
+              CASE WHEN p.is_serial_tracked THEN s.in_stock END AS "serialsInStock", CASE WHEN p.is_serial_tracked THEN s.reserved END AS "serialsReserved",
+              CASE WHEN p.is_serial_tracked THEN s.issued END AS "serialsIssued"
          FROM inventory_lots l
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) FILTER (WHERE x.status = 'IN_STOCK')::int AS in_stock, COUNT(*) FILTER (WHERE x.status = 'RESERVED')::int AS reserved,
+                  COUNT(*) FILTER (WHERE x.status = 'ISSUED')::int AS issued
+             FROM inventory_serials x JOIN goods_receipt_details d ON d.id = x.goods_receipt_detail_id
+            WHERE d.goods_receipt_line_id = l.goods_receipt_line_id) s ON true
          JOIN warehouses w ON w.id = l.warehouse_id
          JOIN products p ON p.id = l.product_id
          JOIN sales_contracts sc ON sc.id = l.source_sales_contract_id

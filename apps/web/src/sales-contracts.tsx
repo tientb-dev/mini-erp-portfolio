@@ -25,10 +25,10 @@ function ScStatusChip({ status }: { status: string }) {
   return <StatusChip label={t(`sc.status.${status}`)} tone={scTone[status] ?? 'neutral'} />;
 }
 
-export function SalesContractsPage() {
+export function SalesContractsPage({ initialId }: { initialId?: number } = {}) {
   const { t } = useTranslation();
   const me = useMe();
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(initialId ?? null);
   const [creating, setCreating] = useState(false);
   const list = useQuery({ queryKey: ['scs'], queryFn: () => api<ScRow[]>('/sales-contracts') });
   if (openId) return <ScDetailView id={openId} onBack={() => setOpenId(null)} />;

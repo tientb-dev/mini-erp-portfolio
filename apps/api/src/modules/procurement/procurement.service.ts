@@ -24,6 +24,17 @@ export class ProcurementFacade {
    * Adds (approve GR, sign 1) or removes (recall of an APPROVED GR, sign -1) received quantities on PO lines.
    * Locks the PO lines in id order; the CHECK 0 ≤ received ≤ ordered is the last line of defence.
    */
+  /** Source HĐ of each PO line (PO line → PR line → PR), for inventory lots (ADR-0013). */
+  static async sourceContracts(m: EntityManager, purchaseOrderLineIds: number[]): Promise<Map<number, number>> {
+    const rows: { id: number; sales_contract_id: number }[] = await m.query(
+      `SELECT pol.id, pr.sales_contract_id FROM purchase_order_lines pol
+         JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
+         JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id WHERE pol.id = ANY($1)`,
+      [purchaseOrderLineIds],
+    );
+    return new Map(rows.map((r) => [r.id, r.sales_contract_id]));
+  }
+
   static async applyReceipt(m: EntityManager, lines: { purchaseOrderLineId: number; quantity: string }[], sign: 1 | -1) {
     const ids = [...new Set(lines.map((l) => l.purchaseOrderLineId))].sort((a, b) => a - b);
     await m.query(`SELECT id FROM purchase_order_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE`, [ids]);

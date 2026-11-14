@@ -41,8 +41,8 @@ export class InventoryFacade {
       );
       // approved_at = now(): same transaction timestamp as goods_receipts.approved_at. Unique GR line guards double counting.
       await m.query(
-        `INSERT INTO inventory_lots (warehouse_id, product_id, goods_receipt_line_id, source_sales_contract_id, owner_user_id, approved_at, received_quantity)
-         VALUES ($1, $2, $3, $4, $5, now(), $6)`,
+        `INSERT INTO inventory_lots (warehouse_id, product_id, goods_receipt_line_id, source_sales_contract_id, owner_user_id, approved_at, received_quantity, on_hand_quantity)
+         VALUES ($1, $2, $3, $4, $5, now(), $6, $6)`,
         [l.warehouseId, l.productId, l.sourceLineId, l.sourceSalesContractId, l.ownerUserId, l.quantity],
       );
       for (const s of l.serials) {
@@ -114,7 +114,7 @@ export class InventoryFacade {
    * GI submit (03 §4, §7): lock balances, verify available ≥ quantity, reserve quantity; lock serials, verify
    * IN_STOCK at the right warehouse + product, mark RESERVED. All-or-nothing inside the caller's transaction.
    */
-  static async reserve(m: EntityManager, warehouseId: number, items: IssueItem[]): Promise<void> {
+  static async reserve(m: EntityManager, warehouseId: number, items: IssueItem[], scope: StockScope = {}): Promise<void> {
     const need = sumByProduct(items);
     const available = await this.lockBalances(m, warehouseId, [...need.keys()]);
     for (const [productId, qty] of need) {
@@ -138,12 +138,95 @@ export class InventoryFacade {
     for (const [productId, qty] of need) {
       await m.query(`UPDATE inventories SET reserved_quantity = reserved_quantity + $3 WHERE warehouse_id = $1 AND product_id = $2`, [warehouseId, productId, qty]);
     }
+    await this.allocate(m, warehouseId, items, scope);
   }
 
-  /** GI reject/recall: undo `reserve`. */
+  /**
+   * Allocates each GI line to lots and reserves them (ADR-0013 §3). Bulk lines: FIFO by GR approval time (approved_at, id)
+   * over the lots inside `scope`; serial lines: the lots their serials were received in, which must be inside `scope`.
+   * Lots are locked FOR UPDATE in (approved_at, id) order, always after the inventories rows of the same product, so
+   * concurrent GIs on the same product are serialized by the balance lock.
+   */
+  private static async allocate(m: EntityManager, warehouseId: number, items: IssueItem[], scope: StockScope) {
+    const products = [...new Set(items.map((i) => i.productId))].sort((a, b) => a - b);
+    for (const productId of products) {
+      const lots: { id: number; source_sales_contract_id: number; owner_user_id: number; free: string }[] = await m.query(
+        `SELECT id, source_sales_contract_id, owner_user_id, on_hand_quantity - reserved_quantity AS free FROM inventory_lots
+          WHERE warehouse_id = $1 AND product_id = $2 AND on_hand_quantity > reserved_quantity ORDER BY approved_at, id FOR UPDATE`,
+        [warehouseId, productId],
+      );
+      const inScope = (l: (typeof lots)[number]) =>
+        (scope.sourceSalesContractId === undefined || l.source_sales_contract_id === scope.sourceSalesContractId) &&
+        (scope.ownerUserId === undefined || l.owner_user_id === scope.ownerUserId);
+      const free = new Map(lots.map((l) => [l.id, Number(l.free)]));
+      const plan: { lineId: number; lotId: number; qty: number }[] = [];
+      for (const i of items.filter((x) => x.productId === productId)) {
+        if (i.serialDetailIds.length) {
+          const bySerial: { lot_id: number; n: string }[] = await m.query(
+            `SELECT l.id AS lot_id, COUNT(*) AS n FROM goods_receipt_details d JOIN inventory_lots l ON l.goods_receipt_line_id = d.goods_receipt_line_id
+              WHERE d.id = ANY($1) GROUP BY l.id ORDER BY l.id`,
+            [i.serialDetailIds],
+          );
+          for (const r of bySerial) {
+            const lot = lots.find((l) => l.id === r.lot_id);
+            const n = Number(r.n);
+            if (!lot || !inScope(lot) || free.get(lot.id)! < n) {
+              throw new BusinessError('STOCK_OUT_OF_SCOPE', `Selected serials of product ${productId} are outside the allowed stock source`, HttpStatus.CONFLICT);
+            }
+            free.set(lot.id, free.get(lot.id)! - n);
+            plan.push({ lineId: i.sourceLineId, lotId: lot.id, qty: n });
+          }
+        } else {
+          let need = i.quantity;
+          for (const lot of lots.filter(inScope)) {
+            const take = Math.min(need, free.get(lot.id)!);
+            if (take <= 0) continue;
+            free.set(lot.id, free.get(lot.id)! - take);
+            plan.push({ lineId: i.sourceLineId, lotId: lot.id, qty: take });
+            need -= take;
+            if (need === 0) break;
+          }
+          if (need > 0) {
+            throw new BusinessError('INSUFFICIENT_AVAILABLE_STOCK', `Available stock of product ${productId} in the allowed source is short by ${need}`, HttpStatus.CONFLICT);
+          }
+        }
+      }
+      for (const p of plan) {
+        await m.query(`INSERT INTO goods_issue_line_allocations (goods_issue_line_id, inventory_lot_id, quantity) VALUES ($1, $2, $3)`, [p.lineId, p.lotId, p.qty]);
+        await m.query(`UPDATE inventory_lots SET reserved_quantity = reserved_quantity + $2 WHERE id = $1`, [p.lotId, p.qty]);
+      }
+    }
+  }
+
+  /** Allocations of the given GI lines, with their lots locked FOR UPDATE in (approved_at, id) order. */
+  private static async lockAllocations(m: EntityManager, items: IssueItem[]) {
+    const lineIds = items.map((i) => i.sourceLineId);
+    await m.query(
+      `SELECT l.id FROM inventory_lots l WHERE l.id IN (SELECT inventory_lot_id FROM goods_issue_line_allocations WHERE goods_issue_line_id = ANY($1))
+        ORDER BY l.approved_at, l.id FOR UPDATE`,
+      [lineIds],
+    );
+    const rows: { goods_issue_line_id: number; inventory_lot_id: number; quantity: string }[] = await m.query(
+      `SELECT goods_issue_line_id, inventory_lot_id, quantity FROM goods_issue_line_allocations WHERE goods_issue_line_id = ANY($1)`,
+      [lineIds],
+    );
+    for (const i of items) {
+      const allocated = rows.filter((r) => r.goods_issue_line_id === i.sourceLineId).reduce((s, r) => s + Number(r.quantity), 0);
+      if (allocated !== i.quantity) {
+        throw new BusinessError('ALLOCATION_MISMATCH', `GI line ${i.sourceLineId}: allocated ${allocated}, expected ${i.quantity}`, HttpStatus.CONFLICT);
+      }
+    }
+    return rows;
+  }
+
+  /** GI reject/recall: undo `reserve`, releasing exactly the allocated lots. */
   static async release(m: EntityManager, warehouseId: number, items: IssueItem[]): Promise<void> {
     const need = sumByProduct(items);
     await this.lockBalances(m, warehouseId, [...need.keys()]);
+    for (const a of await this.lockAllocations(m, items)) {
+      await m.query(`UPDATE inventory_lots SET reserved_quantity = reserved_quantity - $2 WHERE id = $1`, [a.inventory_lot_id, a.quantity]);
+    }
+    await m.query(`DELETE FROM goods_issue_line_allocations WHERE goods_issue_line_id = ANY($1)`, [items.map((i) => i.sourceLineId)]);
     const detailIds = items.flatMap((i) => i.serialDetailIds);
     if (detailIds.length) {
       await this.lockSerials(m, detailIds);
@@ -154,10 +237,18 @@ export class InventoryFacade {
     }
   }
 
-  /** GI approve: reserved → issued. Decreases on hand and reserved, writes OUT movements; serials become ISSUED (kept forever). */
+  /**
+   * GI approve: reserved → issued. Decreases on hand and reserved on the balance and on the lots allocated at submit
+   * (FIFO is not recomputed), writes OUT movements; serials become ISSUED (kept forever). Allocations stay as the issue trail.
+   */
   static async issue(m: EntityManager, warehouseId: number, items: IssueItem[]): Promise<void> {
     const need = sumByProduct(items);
     await this.lockBalances(m, warehouseId, [...need.keys()]);
+    for (const a of await this.lockAllocations(m, items)) {
+      await m.query(`UPDATE inventory_lots SET on_hand_quantity = on_hand_quantity - $2, reserved_quantity = reserved_quantity - $2 WHERE id = $1`, [
+        a.inventory_lot_id, a.quantity,
+      ]);
+    }
     const detailIds = items.flatMap((i) => i.serialDetailIds);
     const serials = detailIds.length ? await this.lockSerials(m, detailIds) : [];
     if (serials.some((s) => s.status !== 'RESERVED') || serials.length !== detailIds.length) {
@@ -189,6 +280,9 @@ export class InventoryFacade {
     }
   }
 }
+
+/** Stock a GI may take (ADR-0013): always warehouse + product; optionally one source HĐ and/or one responsible sales. */
+export interface StockScope { sourceSalesContractId?: number; ownerUserId?: number }
 
 export interface IssueItem { productId: number; quantity: number; sourceLineId: number; serialDetailIds: number[] }
 

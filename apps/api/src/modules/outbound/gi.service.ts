@@ -62,7 +62,8 @@ export class GiService {
       }
       await wf.submit(m, 'GI', doc, user, approverId); // creator, status and approver eligibility first
       await this.checkGirRemaining(m, id, false);
-      await InventoryFacade.reserve(m, doc.warehouse_id!, items);
+      // shortcut: legacy GIR types carry no source HĐ / sales, so the scope is warehouse + product; PR 5 (A/C) passes the GIR's HĐ, PR 7 (B/D) the source HĐ + sales.
+      await InventoryFacade.reserve(m, doc.warehouse_id!, items, {});
     });
   }
 

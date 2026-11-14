@@ -85,7 +85,7 @@ export class InventoryLots1731974400000 implements MigrationInterface {
  * Full inventory reconciliation (ADR-0013, PR 3): returns one row per discrepancy, empty when consistent.
  * Covers every operation that changes inventory today — GR approve (IN + lot), GI submit (reserve), GI reject/recall
  * (release), GI approve (OUT) — at balance, document-line and serial level; any other movement source is flagged.
- * Same query as apps/api/src/database/scripts/inventory-lots-reconcile.sql. Frozen with this migration on purpose.
+ * Same query as the PR 3 version of apps/api/src/database/scripts/inventory-reconcile.sql. Frozen with this migration on purpose.
  */
 export const RECONCILE_SQL = `
 WITH lot AS (SELECT warehouse_id, product_id, SUM(received_quantity) AS q FROM inventory_lots GROUP BY 1, 2),

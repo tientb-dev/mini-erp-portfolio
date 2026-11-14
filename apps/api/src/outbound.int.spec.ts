@@ -4,9 +4,10 @@ import { DataSource } from 'typeorm';
 import { CurrentUser, IdentityService } from './modules/identity/auth';
 import { hashPassword } from './modules/identity/password';
 import { InboundService } from './modules/inbound/inbound.service';
+import { InventoryFacade } from './modules/inventory/inventory.service';
 import { ProcurementService } from './modules/procurement/procurement.service';
 import { SalesContractsService } from './modules/sales-contracts/sales-contracts.service';
-import { RECONCILE_SQL } from './database/migrations/1731974400000-InventoryLots';
+import { RECONCILE_SQL } from './database/migrations/1732060800000-LotAllocations';
 import { bootTestApp, login } from './test-utils';
 
 /** Product lock, HĐ line products, GIR, GI and completion against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
@@ -296,6 +297,132 @@ describe('Outbound: GIR → GI (integration)', () => {
     await post(pm, `/goods-issues/${gi}/cancel`).expect(204);
   });
 
+  // ---------- Lots: FIFO allocation (ADR-0013, PR 4) ----------
+
+  /** A warehouse of its own so lot order is fully controlled by the test. */
+  async function isolatedWarehouse(code: string) {
+    const [{ id }] = await ds.query(`INSERT INTO warehouses (code, name) VALUES ($1, $1) RETURNING id`, [code]);
+    await ds.query(`INSERT INTO user_warehouses (user_id, warehouse_id) SELECT u.id, $1 FROM users u WHERE u.username IN ($2, $3)`, [
+      id, process.env.SEED_ADMIN_USERNAME, process.env.SEED_APPROVER_USERNAME,
+    ]);
+    const identity = app.get(IdentityService); // service-level users cache their warehouse list
+    pmUser = (await identity.loadCurrentUser(pmUser.id))!;
+    salesUser = (await identity.loadCurrentUser(salesUser.id))!;
+    return id as number;
+  }
+  const lotsOf = async (warehouseId: number) =>
+    (await ds.query(`SELECT id, on_hand_quantity, reserved_quantity FROM inventory_lots WHERE warehouse_id = $1 AND product_id = $2 ORDER BY approved_at, id`, [warehouseId, cable]))
+      .map((l: { id: number; on_hand_quantity: string; reserved_quantity: string }) => ({ id: l.id, onHand: Number(l.on_hand_quantity), reserved: Number(l.reserved_quantity) }));
+  const allocationsOf = async (giId: number) =>
+    (await ds.query(`SELECT a.inventory_lot_id AS lot, a.quantity FROM goods_issue_line_allocations a JOIN goods_issue_lines l ON l.id = a.goods_issue_line_id
+                      WHERE l.goods_issue_id = $1 ORDER BY a.inventory_lot_id`, [giId]))
+      .map((a: { lot: number; quantity: string }) => [a.lot, Number(a.quantity)]);
+  const cableGi = async (wh: number, qty: number) => {
+    const gir = await approvedGir(await contract(50, 50), 0, qty, wh);
+    return (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: qty }] }).expect(201)).body.id as number;
+  };
+
+  it('FIFO by GR approval time: submit allocates and reserves lots, approve consumes them without recomputing (C73)', async () => {
+    const wh = await isolatedWarehouse('FIFO1');
+    await receive(wh, 0, 3); // GR1 approved first
+    await receive(wh, 0, 5); // GR2 approved later
+    const [lot1, lot2] = await lotsOf(wh);
+
+    const gi = await cableGi(wh, 4);
+    expect(await allocationsOf(gi)).toEqual([]); // Draft allocates nothing
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
+    expect(await allocationsOf(gi)).toEqual([[lot1.id, 3], [lot2.id, 1]]); // 3 from GR1, then 1 from GR2
+    expect(await lotsOf(wh)).toEqual([{ ...lot1, reserved: 3 }, { ...lot2, reserved: 1 }]);
+
+    // Make GR2 look older: approve must still consume the lots reserved at submit.
+    await ds.query(`UPDATE inventory_lots SET approved_at = approved_at - interval '1 day' WHERE id = $1`, [lot2.id]);
+    await post(sales, `/goods-issues/${gi}/approve`).expect(204);
+    const after = new Map((await lotsOf(wh)).map((l: { id: number }) => [l.id, l]));
+    expect(after.get(lot1.id)).toEqual({ id: lot1.id, onHand: 0, reserved: 0 });
+    expect(after.get(lot2.id)).toEqual({ id: lot2.id, onHand: 4, reserved: 0 });
+    expect(await allocationsOf(gi)).toEqual([[lot1.id, 3], [lot2.id, 1]]); // kept as the issue trail
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('reject and recall release exactly the allocated lots; a later GI allocates again by FIFO', async () => {
+    const wh = await isolatedWarehouse('FIFO2');
+    await receive(wh, 0, 2);
+    await receive(wh, 0, 4);
+    const [lot1, lot2] = await lotsOf(wh);
+    const gi = await cableGi(wh, 3);
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issues/${gi}/reject`, { reason: 'x' }).expect(204);
+    expect(await allocationsOf(gi)).toEqual([]);
+    expect(await lotsOf(wh)).toEqual([lot1, lot2]);
+
+    const gi2 = await cableGi(wh, 5);
+    await post(pm, `/goods-issues/${gi2}/submit`, { approverId: salesId }).expect(204);
+    expect(await allocationsOf(gi2)).toEqual([[lot1.id, 2], [lot2.id, 3]]);
+    await post(pm, `/goods-issues/${gi2}/recall`, { reason: 'y' }).expect(204);
+    expect(await lotsOf(wh)).toEqual([lot1, lot2]);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('serial lines are allocated to the lots their serials came from, not FIFO', async () => {
+    const wh = await isolatedWarehouse('FIFO3');
+    await receive(wh, 1, 0); // older router lot
+    const [newer] = await receive(wh, 1, 0);
+    const gir = await approvedGir(await contract(5, 5), 1, 0, wh);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.routerLine, quantity: 1, goodsReceiptDetailIds: [newer] }] }).expect(201)).body.id;
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
+    const [{ lot }] = await ds.query(`SELECT l.id AS lot FROM goods_receipt_details d JOIN inventory_lots l ON l.goods_receipt_line_id = d.goods_receipt_line_id WHERE d.id = $1`, [newer]);
+    expect(await allocationsOf(gi)).toEqual([[lot, 1]]);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('scope: only lots of the allowed source HĐ / sales are allocated; serials outside the scope are refused (C74)', async () => {
+    const wh = await isolatedWarehouse('FIFO4');
+    await receive(wh, 0, 3); // HĐ-X, older
+    await receive(wh, 1, 4); // HĐ-Y, newer
+    const lots: { id: number; source_sales_contract_id: number; product_id: number }[] = await ds.query(
+      `SELECT id, source_sales_contract_id, product_id FROM inventory_lots WHERE warehouse_id = $1 ORDER BY approved_at, id`, [wh]);
+    const [x, y] = lots.filter((l) => l.product_id === cable);
+    const gi = await cableGi(wh, 2);
+    const [{ id: lineId }] = await ds.query(`SELECT id FROM goods_issue_lines WHERE goods_issue_id = $1`, [gi]);
+    const allocateIn = (scope: { sourceSalesContractId?: number; ownerUserId?: number }, item: { productId: number; quantity: number; serialDetailIds: number[] }) =>
+      ds.transaction(async (m) => {
+        await InventoryFacade.reserve(m, wh, [{ ...item, sourceLineId: lineId }], scope);
+        const rows = await m.query(`SELECT inventory_lot_id AS lot, quantity FROM goods_issue_line_allocations WHERE goods_issue_line_id = $1`, [lineId]);
+        throw Object.assign(new Error('rollback'), { rows });
+      }).catch((e: Error & { rows?: { lot: number; quantity: string }[] }) => {
+        if (e.message !== 'rollback') throw e;
+        return e.rows!.map((r) => [r.lot, Number(r.quantity)]);
+      });
+
+    expect(await allocateIn({}, { productId: cable, quantity: 2, serialDetailIds: [] })).toEqual([[x.id, 2]]); // FIFO over everything
+    expect(await allocateIn({ sourceSalesContractId: y.source_sales_contract_id }, { productId: cable, quantity: 2, serialDetailIds: [] }))
+      .toEqual([[y.id, 2]]); // HĐ-X lot is older but out of scope
+    await expect(allocateIn({ sourceSalesContractId: x.source_sales_contract_id }, { productId: cable, quantity: 4, serialDetailIds: [] }))
+      .rejects.toMatchObject({ code: 'INSUFFICIENT_AVAILABLE_STOCK' }); // 3 in scope, never borrows from HĐ-Y
+    await expect(allocateIn({ ownerUserId: -1 }, { productId: cable, quantity: 1, serialDetailIds: [] })).rejects.toMatchObject({ code: 'INSUFFICIENT_AVAILABLE_STOCK' });
+    const [ySn] = await ds.query(`SELECT d.id FROM goods_receipt_details d JOIN inventory_lots l ON l.goods_receipt_line_id = d.goods_receipt_line_id
+                                   WHERE l.warehouse_id = $1 AND l.product_id = $2`, [wh, router]);
+    await expect(allocateIn({ sourceSalesContractId: x.source_sales_contract_id }, { productId: router, quantity: 1, serialDetailIds: [ySn.id] }))
+      .rejects.toMatchObject({ code: 'STOCK_OUT_OF_SCOPE' });
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('concurrent submits on the same lots never over-reserve a lot and allocate disjoint quantities', async () => {
+    const wh = await isolatedWarehouse('FIFO5');
+    await receive(wh, 0, 3);
+    await receive(wh, 0, 3);
+    const gis = [await cableGi(wh, 2), await cableGi(wh, 2), await cableGi(wh, 2), await cableGi(wh, 2)];
+    const res = await Promise.all(gis.map((g) => post(pm, `/goods-issues/${g}/submit`, { approverId: salesId })));
+    expect(res.map((r) => r.status).sort()).toEqual([204, 204, 204, 409]); // 6 in stock, 4 × 2 requested
+    const ok = gis.filter((_g, i) => res[i].status === 204);
+    const total = (await Promise.all(ok.map(allocationsOf))).flat().reduce((s: number, [, q]: number[]) => s + q, 0);
+    expect(total).toBe(6);
+    expect((await lotsOf(wh)).map((l: { onHand: number; reserved: number }) => [l.onHand, l.reserved])).toEqual([[3, 3], [3, 3]]);
+    // Approve and reject concurrently: lots end consistent.
+    await Promise.all([post(sales, `/goods-issues/${ok[0]}/approve`), post(sales, `/goods-issues/${ok[1]}/reject`, { reason: 'x' }), post(sales, `/goods-issues/${ok[2]}/approve`)]);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
   // ---------- Completion ----------
 
   it('completion: blocks open GIs, needs a reason when short, frees unissued quota, blocks new GIs (C11–C13, C16, C19–C21)', async () => {
@@ -346,7 +473,12 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect(await flagged(`UPDATE inventories SET reserved_quantity = reserved_quantity + 1 WHERE id = $1`, [bulk.id])).toEqual(['RESERVED']);
     expect(await flagged(`UPDATE inventory_serials SET status = 'ISSUED' WHERE id = (SELECT min(id) FROM inventory_serials WHERE status = 'IN_STOCK')`))
       .toEqual(['SERIALS']);
-    expect(await flagged(`DELETE FROM inventory_lots WHERE id = (SELECT min(id) FROM inventory_lots)`)).toEqual(['GR_LINE', 'ON_HAND']);
+    expect(await flagged(`DELETE FROM inventory_lots WHERE id = (SELECT min(id) FROM inventory_lots WHERE id NOT IN (SELECT inventory_lot_id FROM goods_issue_line_allocations))`))
+      .toEqual(['GR_LINE', 'ON_HAND']);
+    expect(await flagged(`UPDATE inventory_lots SET on_hand_quantity = on_hand_quantity - 1 WHERE id = (SELECT min(id) FROM inventory_lots WHERE on_hand_quantity > reserved_quantity
+      AND product_id IN (SELECT id FROM products WHERE NOT is_serial_tracked))`)).toEqual(['LOT', 'ON_HAND']);
+    expect(await flagged(`UPDATE goods_issue_line_allocations SET quantity = quantity + 1 WHERE id = (SELECT min(a.id) FROM goods_issue_line_allocations a
+      JOIN goods_issue_lines l ON l.id = a.goods_issue_line_id JOIN products p ON p.id = l.product_id AND NOT p.is_serial_tracked)`)).toEqual(['ALLOCATION', 'LOT']);
     expect(await flagged(`UPDATE inventory_transactions SET quantity = quantity + 1 WHERE id = (SELECT min(id) FROM inventory_transactions WHERE movement_type = 'OUT')`))
       .toEqual(['GI_LINE', 'ON_HAND']);
     expect(await flagged(

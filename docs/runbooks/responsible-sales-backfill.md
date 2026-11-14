@@ -28,4 +28,4 @@
    Lệnh chỉ giữ khóa `SHARE UPDATE EXCLUSIVE` (không chặn đọc/ghi thông thường); thất bại nếu còn dòng vi phạm, không đổi dữ liệu.
 
 ## Điều kiện trước PR 3 (`inventory_lots`)
-Lô ghi Sales phụ trách từ HĐ nguồn khi Duyệt GR. Migration của PR 3 sẽ chạy `VALIDATE CONSTRAINT` ở `up`: nếu còn HĐ `ACTIVE` chưa có Sales, migration **thất bại có chủ đích** và yêu cầu làm runbook này trước. Môi trường demo có thể reset seed thay thế (seed demo chỉ định Sales tường minh).
+Lô ghi Sales phụ trách từ HĐ nguồn khi Duyệt GR. Migration `1731974400000-InventoryLots` kiểm tra và chạy `VALIDATE CONSTRAINT` ở `up`: nếu còn HĐ `ACTIVE` chưa có Sales (hoặc GR Đã duyệt từ HĐ chưa có Sales), migration **dừng có chủ đích**, liệt kê số HĐ, không đổi dữ liệu. Làm runbook này rồi chạy lại `pnpm migrate`. Sau migration, đối soát bằng `apps/api/src/database/scripts/inventory-lots-reconcile.sql` (kỳ vọng 0 dòng). Môi trường demo có thể reset seed thay thế (seed demo chỉ định Sales tường minh).

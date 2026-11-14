@@ -7,6 +7,7 @@ import { OutboundChain1731628800000 } from './migrations/1731628800000-OutboundC
 import { SalesContractEditing1731715200000 } from './migrations/1731715200000-SalesContractEditing';
 import { ResponsibleSales1731801600000 } from './migrations/1731801600000-ResponsibleSales';
 import { PoReceiptProgress1731888000000 } from './migrations/1731888000000-PoReceiptProgress';
+import { InventoryLots1731974400000 } from './migrations/1731974400000-InventoryLots';
 import { ENTITIES } from './entities';
 
 export function dataSourceOptions(url = env('DATABASE_URL')): DataSourceOptions {
@@ -14,7 +15,7 @@ export function dataSourceOptions(url = env('DATABASE_URL')): DataSourceOptions 
     type: 'postgres',
     url,
     entities: ENTITIES,
-    migrations: [Foundation1731456000000, InboundChain1731542400000, OutboundChain1731628800000, SalesContractEditing1731715200000, ResponsibleSales1731801600000, PoReceiptProgress1731888000000],
+    migrations: [Foundation1731456000000, InboundChain1731542400000, OutboundChain1731628800000, SalesContractEditing1731715200000, ResponsibleSales1731801600000, PoReceiptProgress1731888000000, InventoryLots1731974400000],
     synchronize: false,
   };
 }

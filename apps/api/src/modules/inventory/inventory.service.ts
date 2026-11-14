@@ -10,7 +10,10 @@ export interface ReceiptLine {
   productId: number;
   quantity: string;
   sourceDocumentType: string;
+  /** GR line id; also the lot key. */
   sourceLineId: number;
+  sourceSalesContractId: number;
+  ownerUserId: number;
   serials: { goodsReceiptDetailId: number; serialNumber: string; normalizedSerialNumber: string }[];
 }
 
@@ -19,7 +22,7 @@ export interface ReceiptLine {
  * balances, movements and serials commit or roll back together.
  */
 export class InventoryFacade {
-  /** Approved GR → increase on-hand, write movements, register serials. */
+  /** Approved GR → increase on-hand, write movements, create one lot per GR line (ADR-0013), register serials. */
   static async receive(m: EntityManager, lines: ReceiptLine[]): Promise<void> {
     // Lock balance rows in a fixed order (warehouse, product) to avoid deadlocks with GI.
     const sorted = [...lines].sort((a, b) => a.warehouseId - b.warehouseId || a.productId - b.productId);
@@ -35,6 +38,12 @@ export class InventoryFacade {
         `INSERT INTO inventory_transactions (warehouse_id, product_id, movement_type, quantity, source_document_type, source_line_id)
          VALUES ($1, $2, 'IN', $3, $4, $5)`,
         [l.warehouseId, l.productId, l.quantity, l.sourceDocumentType, l.sourceLineId],
+      );
+      // approved_at = now(): same transaction timestamp as goods_receipts.approved_at. Unique GR line guards double counting.
+      await m.query(
+        `INSERT INTO inventory_lots (warehouse_id, product_id, goods_receipt_line_id, source_sales_contract_id, owner_user_id, approved_at, received_quantity)
+         VALUES ($1, $2, $3, $4, $5, now(), $6)`,
+        [l.warehouseId, l.productId, l.sourceLineId, l.sourceSalesContractId, l.ownerUserId, l.quantity],
       );
       for (const s of l.serials) {
         let serialId: number;

@@ -26,6 +26,23 @@ export class SalesContractFacade {
     return new Map(rows.map((r) => [r.id, r]));
   }
 
+  /**
+   * Responsible sales per contract, read FOR SHARE so it cannot change while the caller's transaction uses it
+   * (it is locked once ACTIVE anyway, CT17). Throws when a contract has none (legacy data, runbook PR 1).
+   */
+  static async responsibleSales(m: EntityManager, salesContractIds: number[]): Promise<Map<number, number>> {
+    const ids = [...new Set(salesContractIds)].sort((a, b) => a - b);
+    const rows: { id: number; document_number: string; responsible_sales_user_id: number | null }[] = await m.query(
+      `SELECT id, document_number, responsible_sales_user_id FROM sales_contracts WHERE id = ANY($1) ORDER BY id FOR SHARE`,
+      [ids],
+    );
+    const missing = rows.filter((r) => r.responsible_sales_user_id === null).map((r) => r.document_number);
+    if (missing.length) {
+      throw new BusinessError('SOURCE_RESPONSIBLE_SALES_MISSING', `Source sales contracts without responsible sales: ${missing.join(', ')}`, HttpStatus.CONFLICT);
+    }
+    return new Map(rows.map((r) => [r.id, r.responsible_sales_user_id!]));
+  }
+
   /** Line + product pairs that Sales has not APPROVED for delivery (03 §9.2). */
   static async unapprovedProducts(m: EntityManager, pairs: { salesContractLineId: number; productId: number }[]): Promise<typeof pairs> {
     if (!pairs.length) return [];

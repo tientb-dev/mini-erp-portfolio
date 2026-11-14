@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { ProcurementFacade } from './modules/procurement/procurement.service';
+import { RECONCILE_SQL } from './database/migrations/1731974400000-InventoryLots';
 import { bootTestApp, login } from './test-utils';
 
 /** HĐ → PR → PO → GRR → GR → Inventory, against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
@@ -311,6 +312,73 @@ describe('Inbound chain and GR (integration)', () => {
     await expect(ds.query(`UPDATE goods_receipts SET approved_at = NULL WHERE id = $1`, [gr])).rejects.toThrow(/chk_goods_receipts_approved_at/);
     await expect(ds.query(`UPDATE goods_receipts SET approved_at = now() WHERE id = $1`, [rejected])).rejects.toThrow(/chk_goods_receipts_approved_at/);
     await expect(ds.query(`UPDATE goods_receipts SET approval_status = 'DRAFT' WHERE id = $1`, [gr])).rejects.toThrow(/chk_goods_receipts_approved_at/);
+  });
+
+  const unreconciled = async () => ds.query(RECONCILE_SQL);
+
+  it('approving a GR creates one lot per line with source HĐ, responsible sales and approval time (C72, C71)', async () => {
+    const gr = await grWithSerials(['SN-LOT1', 'SN-LOT2'], 4);
+    await post(creator, `/goods-receipts/${gr}/submit`, { approverId }).expect(204);
+    expect(await ds.query(`SELECT 1 FROM inventory_lots l JOIN goods_receipt_lines g ON g.id = l.goods_receipt_line_id WHERE g.goods_receipt_id = $1`, [gr]))
+      .toHaveLength(0); // a pending GR creates no lot
+    await post(approver, `/goods-receipts/${gr}/approve`).expect(204);
+
+    const [expected] = await ds.query(
+      `SELECT sc.id AS sc, sc.document_number AS "scNumber", sc.responsible_sales_user_id AS owner, g.approved_at, g.document_number
+         FROM goods_receipts g JOIN goods_receipt_requests r ON r.id = g.goods_receipt_request_id
+         JOIN purchase_orders po ON po.id = r.purchase_order_id
+         JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id
+         JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
+         JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id
+         JOIN sales_contracts sc ON sc.id = pr.sales_contract_id WHERE g.id = $1 LIMIT 1`, [gr]);
+    expect(expected.owner).toBe(salesUserId);
+    const lots = (await http().get('/inventories/lots').set(as(creator)).expect(200)).body
+      .filter((l: { goodsReceiptId: number }) => l.goodsReceiptId === gr);
+    expect(lots.map((l: { partNumber: string; receivedQuantity: string }) => [l.partNumber, Number(l.receivedQuantity)]).sort())
+      .toEqual([['PN-BULK', 4], ['PN-SN', 2]]);
+    for (const l of lots) {
+      expect(l).toMatchObject({ warehouseCode: 'HCM', sourceSalesContractId: expected.sc, sourceSalesContractNumber: expected.scNumber, ownerUserId: salesUserId,
+        goodsReceiptNumber: expected.document_number });
+      expect(new Date(l.approvedAt)).toEqual(expected.approved_at); // same FIFO key as the GR
+    }
+    expect(await unreconciled()).toEqual([]);
+  });
+
+  it('lots are scoped to the caller warehouses (04 §1)', async () => {
+    const [{ id: hn }] = await ds.query(`INSERT INTO warehouses (code, name) VALUES ('HN-LOT', 'Hà Nội') RETURNING id`);
+    const [{ id: lotId }] = await ds.query(`SELECT id FROM inventory_lots LIMIT 1`);
+    await ds.query(`UPDATE inventory_lots SET warehouse_id = $1 WHERE id = $2`, [hn, lotId]);
+    try {
+      const ids = (await http().get('/inventories/lots').set(as(creator)).expect(200)).body.map((l: { id: number }) => l.id);
+      expect(ids).not.toContain(lotId);
+    } finally {
+      await ds.query(`UPDATE inventory_lots SET warehouse_id = $1 WHERE id = $2`, [hcmId, lotId]);
+    }
+  });
+
+  it('concurrent approvals of different GRs for the same product each create their lot; balances reconcile', async () => {
+    const before = await balance(bulkProductId);
+    const grs: number[] = [];
+    for (const sn of ['SN-C1', 'SN-C2']) {
+      const gr = await grWithSerials([sn], 3);
+      await post(creator, `/goods-receipts/${gr}/submit`, { approverId }).expect(204);
+      grs.push(gr);
+    }
+    const res = await Promise.all(grs.map((gr) => post(approver, `/goods-receipts/${gr}/approve`)));
+    expect(res.map((r) => r.status)).toEqual([204, 204]);
+    expect(await balance(bulkProductId)).toBe(before + 6);
+    const [{ n }] = await ds.query(
+      `SELECT COUNT(*)::int AS n FROM inventory_lots l JOIN goods_receipt_lines g ON g.id = l.goods_receipt_line_id WHERE g.goods_receipt_id = ANY($1)`, [grs]);
+    expect(n).toBe(4);
+    expect(await unreconciled()).toEqual([]);
+  });
+
+  it('a GR line cannot get a second lot (unique) and a lot needs positive quantity', async () => {
+    const [lot] = await ds.query(`SELECT * FROM inventory_lots LIMIT 1`);
+    await expect(ds.query(
+      `INSERT INTO inventory_lots (warehouse_id, product_id, goods_receipt_line_id, source_sales_contract_id, owner_user_id, approved_at, received_quantity)
+       VALUES ($1, $2, $3, $4, $5, now(), 1)`, [lot.warehouse_id, lot.product_id, lot.goods_receipt_line_id, lot.source_sales_contract_id, lot.owner_user_id],
+    )).rejects.toThrow(/duplicate key/);
   });
 
   it('GRR over the PO quantity is blocked (B02)', async () => {

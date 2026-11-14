@@ -6,6 +6,7 @@ import { hashPassword } from './modules/identity/password';
 import { InboundService } from './modules/inbound/inbound.service';
 import { ProcurementService } from './modules/procurement/procurement.service';
 import { SalesContractsService } from './modules/sales-contracts/sales-contracts.service';
+import { RECONCILE_SQL } from './database/migrations/1731974400000-InventoryLots';
 import { bootTestApp, login } from './test-utils';
 
 /** Product lock, HĐ line products, GIR, GI and completion against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
@@ -322,5 +323,11 @@ describe('Outbound: GIR → GI (integration)', () => {
       issueType: 'SALES_CONTRACT', salesContractId: sc.id, warehouseId: hcm, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 6 }],
     }).expect(201);
     expect((await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: 1 }] })).body.code).toBe('GIR_COMPLETED'); // C13
+  });
+
+  it('after all receipts, reservations and issues above, lots reconcile with balances (ADR-0013, no silent drift)', async () => {
+    const [{ n }] = await ds.query(`SELECT COUNT(*)::int AS n FROM inventory_transactions WHERE movement_type = 'OUT'`);
+    expect(n).toBeGreaterThan(0); // the scenarios above did issue stock
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { InventoryFacade, normalizeSerial } from '../inventory/inventory.service';
 import { ProcurementFacade } from '../procurement/procurement.service';
+import { SalesContractFacade } from '../sales-contracts/sales-contracts.service';
 import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
@@ -265,6 +266,9 @@ export class InboundService {
         [id],
       );
       await ProcurementFacade.applyReceipt(m, lines.map((l) => ({ purchaseOrderLineId: l.purchase_order_line_id, quantity: l.quantity })), 1);
+      // Lot provenance (ADR-0013): source HĐ via the PR, responsible sales captured now and immutable afterwards.
+      const sourceContract = await ProcurementFacade.sourceContracts(m, lines.map((l) => l.purchase_order_line_id));
+      const owner = await SalesContractFacade.responsibleSales(m, [...sourceContract.values()]);
       const details: { id: number; goods_receipt_line_id: number; serial_number: string | null; normalized_serial_number: string | null }[] =
         await m.query(
           `SELECT d.id, d.goods_receipt_line_id, d.serial_number, d.normalized_serial_number FROM goods_receipt_details d
@@ -279,6 +283,8 @@ export class InboundService {
           quantity: l.quantity,
           sourceDocumentType: 'GR',
           sourceLineId: l.id,
+          sourceSalesContractId: sourceContract.get(l.purchase_order_line_id)!,
+          ownerUserId: owner.get(sourceContract.get(l.purchase_order_line_id)!)!,
           serials: details
             .filter((d) => d.goods_receipt_line_id === l.id && d.serial_number)
             .map((d) => ({ goodsReceiptDetailId: d.id, serialNumber: d.serial_number!, normalizedSerialNumber: d.normalized_serial_number! })),

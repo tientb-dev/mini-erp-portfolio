@@ -350,19 +350,37 @@ export class InboundService {
     );
     const prLines = [...new Set(lines.map((l) => l.purchase_requisition_line_id))];
     await ProcurementFacade.lockLinesForIssue(m, prLines);
-    // CT11: blocked while this GR is the first GR shown on a GIR line that is not CANCELED.
-    const first = await InboundFacade.firstReceipts(m, prLines);
-    const shownOn = prLines.filter((p) => first.get(p)?.goodsReceiptId === doc.id);
-    if (shownOn.length) {
-      // shortcut: reads Outbound's GIR tables directly (Outbound → Inbound already exists, so a facade call back would
-      // create a cycle); replace with a usage count kept by Outbound if this check grows.
-      const [gir] = await m.query(
-        `SELECT g.document_number FROM goods_issue_request_lines l JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id
-          WHERE l.purchase_requisition_line_id = ANY($1) AND g.approval_status <> 'CANCELED' ORDER BY g.id LIMIT 1`,
-        [shownOn],
+    // GIR rules (CT11, final rule 2026-11-14), on live GIRs (not CANCELED) with a line on one of this GR's PR lines —
+    // matched by PR line id only, never by product/warehouse/HĐ:
+    //  - such a GIR has a GI that is not CANCELED → every GR of those PR lines is blocked (GR_LINKED_TO_GOODS_ISSUE);
+    //  - otherwise only the GR shown as first GR on those lines is blocked (GR_REFERENCED_BY_GIR).
+    // The GIR rows are locked FOR UPDATE (after the PR lines, the GIR lock order) so a GI cannot be created or submitted
+    // for them meanwhile: GI create/submit lock the GIR row first.
+    // shortcut: reads Outbound's GIR/GI tables directly (Outbound → Inbound already exists, so a facade call back would
+    // create a cycle); replace with a usage count kept by Outbound if this check grows.
+    const girs: { id: number; document_number: string; pr_lines: number[] }[] = await m.query(
+      `SELECT g.id, g.document_number, array_agg(l.purchase_requisition_line_id) AS pr_lines
+         FROM goods_issue_request_lines l JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id
+        WHERE l.purchase_requisition_line_id = ANY($1) AND g.approval_status <> 'CANCELED'
+        GROUP BY g.id, g.document_number ORDER BY g.id`,
+      [prLines],
+    );
+    if (girs.length) {
+      await m.query(`SELECT id FROM goods_issue_requests WHERE id = ANY($1) ORDER BY id FOR UPDATE`, [girs.map((g) => g.id)]);
+      const [withGi] = await m.query(
+        `SELECT g.document_number AS gir, gi.document_number AS gi FROM goods_issue_requests g
+           JOIN goods_issues gi ON gi.goods_issue_request_id = g.id AND gi.approval_status <> 'CANCELED'
+          WHERE g.id = ANY($1) AND g.approval_status <> 'CANCELED' ORDER BY g.id, gi.id LIMIT 1`,
+        [girs.map((g) => g.id)],
       );
-      if (gir) {
-        throw new BusinessError('GR_REFERENCED_BY_GIR', `This receipt is the first receipt shown on ${gir.document_number}; cancel that request first`, HttpStatus.CONFLICT);
+      if (withGi) {
+        throw new BusinessError('GR_LINKED_TO_GOODS_ISSUE',
+          `${withGi.gir} already has goods issue ${withGi.gi} on this receipt's PR line; cancel the goods issues first`, HttpStatus.CONFLICT);
+      }
+      const first = await InboundFacade.firstReceipts(m, prLines);
+      const shownOn = girs.find((g) => g.pr_lines.some((p) => first.get(p)?.goodsReceiptId === doc.id));
+      if (shownOn) {
+        throw new BusinessError('GR_REFERENCED_BY_GIR', `This receipt is the first receipt shown on ${shownOn.document_number}; cancel that request first`, HttpStatus.CONFLICT);
       }
     }
     await ProcurementFacade.applyReceipt(m, lines.map((l) => ({ purchaseOrderLineId: l.purchase_order_line_id, quantity: l.quantity })), -1);

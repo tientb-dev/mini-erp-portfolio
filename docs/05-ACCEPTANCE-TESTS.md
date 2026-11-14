@@ -179,6 +179,11 @@
 | C89 | GIR B/D chọn HĐ nguồn = HĐ đích | Không cho phép; dùng luồng A/C *PR code #7.* |
 | C90 | GIR B/D chọn HĐ nguồn `CANCELED` | Không cho phép *PR code #7.* |
 | C91 | GIR B/D chọn HĐ nguồn `ACTIVE` đã giao xong, còn hàng dư ở kho | Cho phép; bước 1 giao Sales ghi trên lô *PR code #7.* |
+| C92 | Dòng PR có GR1 (đầu tiên), GR2, GR3 qua hai PO; GIR chưa Hủy, chưa có GI | Chặn Thu hồi GR1; GR2, GR3 Thu hồi được *(PR code #8)* |
+| C93 | Như C92, GIR có GI Nháp (chưa phân bổ lô nào) hoặc GI Bị từ chối | Chặn Thu hồi mọi GR của dòng PR (`GR_LINKED_TO_GOODS_ISSUE`), kể cả GR mà FIFO chưa phân bổ *(PR code #8)* |
+| C94 | Như C93, mọi GI của GIR đã Hủy | Chỉ còn chặn GR1 (GR đầu tiên); GR khác Thu hồi được nếu không vướng lô/SN *(PR code #8)* |
+| C95 | GIR + GI trên dòng PR khác cùng HĐ, Product, kho | Không chặn Thu hồi GR của dòng PR này *(PR code #8)* |
+| C96 | Thu hồi GR trong lúc GI đang được tạo cho GIR liên quan | Thu hồi chờ khóa GIR rồi bị chặn `GR_LINKED_TO_GOODS_ISSUE` *(PR code #8)* |
 | C88 | GIR B/D đủ tồn khi Gửi duyệt; tồn giảm trước khi Quản lý kho duyệt | Chặn Duyệt; GIR giữ Chờ duyệt |
 
 ## D. GIR hàng có sẵn / GI

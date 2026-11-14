@@ -155,7 +155,7 @@
 | C68a | Như C68, GR `APPROVED` nhập 10 cho dòng 1 | PO: Nhập kho một phần |
 | C68b | Như C68a, GR `APPROVED` nhập 5 cho dòng 2 | PO: Đã nhập kho |
 | C68c | Như C68b, GR của dòng 2 được Thu hồi | PO: Nhập kho một phần (GR đã Thu hồi không tính) |
-| C69 | GI cho GIR luồng A của HĐ-B; kho chỉ có hàng nhập từ PR của HĐ-A | Không chọn được hàng/SN của HĐ-A |
+| C69 | GI cho GIR luồng A của HĐ-B; kho chỉ có hàng nhập từ PR của HĐ-A | Không chọn được hàng/SN của HĐ-A. *PR code #4: chặn khi Gửi duyệt GI (GIR `SALES_CONTRACT`).* |
 | C70 | GIR `AVAILABLE_STOCK` của HĐ-B dùng tồn thuộc Sales HĐ-A; Sales HĐ-A đồng ý, Quản lý kho duyệt; GI xuất | Xuất được; không tự sinh hoàn bù |
 | C71 | Báo cáo tồn kho | Truy vết được theo Kho, Product, Sales phụ trách, HĐ nguồn, GR. *Tiến độ: PR code #3 hoàn thành phần **nguồn nhập** (lô, lượng nhập, `GET /inventories/lots`); **tồn còn lại theo lô** và FIFO thuộc PR code #4.* |
 | C72 | HĐ có Sales phụ trách S1; GR từ PR của HĐ được duyệt | Tồn nhập ghi Sales phụ trách S1, HĐ nguồn là HĐ đó |

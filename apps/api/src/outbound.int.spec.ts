@@ -80,11 +80,15 @@ describe('Outbound: GIR → GI (integration)', () => {
     return { id: sc.id, routerLine: r.id as number, cableLine: c.id as number };
   }
 
-  /** Receives `routerSns` serial routers + `cableQty` cables into `warehouseId` via an approved GR. */
-  async function receive(warehouseId: number, routerSns: number, cableQty: number): Promise<number[]> {
+  type Contract = { id: number; routerLine: number; cableLine: number };
+  /**
+   * Receives `routerSns` serial routers + `cableQty` cables into `warehouseId` via an approved GR, bought for `into`
+   * (the HĐ whose GIRs may issue them, ADR-0013) or for a fresh HĐ of its own.
+   */
+  async function receive(warehouseId: number, routerSns: number, cableQty: number, into?: Contract): Promise<number[]> {
     const proc = app.get(ProcurementService);
     const inbound = app.get(InboundService);
-    const sc = await contract(routerSns || 1, cableQty || 1, false);
+    const sc = into ?? await contract(routerSns || 1, cableQty || 1, false);
     const lines = [
       ...(routerSns ? [{ salesContractLineId: sc.routerLine, productId: router, quantity: routerSns }] : []),
       ...(cableQty ? [{ salesContractLineId: sc.cableLine, productId: cable, quantity: cableQty }] : []),
@@ -212,7 +216,8 @@ describe('Outbound: GIR → GI (integration)', () => {
   });
 
   it('rejects stock re-check at final approval when available stock dropped (D14)', async () => {
-    const [d1] = await receive(kth, 2, 0);
+    const otherSc = await contract(5, 5);
+    const [d1] = await receive(kth, 2, 0, otherSc);
     const sc = await contract(10, 10);
     const avail = (await balance(kth, router)).onHand - (await balance(kth, router)).reserved;
     const gir = (await post(pm, '/goods-issue-requests', {
@@ -221,7 +226,7 @@ describe('Outbound: GIR → GI (integration)', () => {
     await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
     await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
     // Another GI reserves one router meanwhile.
-    const other = await approvedGir(await contract(5, 5), 1, 0, kth);
+    const other = await approvedGir(otherSc, 1, 0, kth);
     const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: other.id, lines: [{ goodsIssueRequestLineId: other.routerLine, quantity: 1, goodsReceiptDetailIds: [d1] }] }).expect(201)).body.id;
     await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
     expect((await post(manager, `/goods-issue-requests/${gir}/approve`)).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
@@ -231,9 +236,10 @@ describe('Outbound: GIR → GI (integration)', () => {
   // ---------- GI ----------
 
   it('Submit reserves quantity + SNs, Approve issues them, repeated approve is rejected (D04, D07)', async () => {
-    const details = await receive(hcm, 2, 4);
+    const sc = await contract(5, 5);
+    const details = await receive(hcm, 2, 4, sc);
     const before = { r: await balance(hcm, router), c: await balance(hcm, cable) };
-    const gir = await approvedGir(await contract(5, 5), 2, 3);
+    const gir = await approvedGir(sc, 2, 3);
     const gi = (await post(pm, '/goods-issues', {
       goodsIssueRequestId: gir.id,
       lines: [{ goodsIssueRequestLineId: gir.routerLine, quantity: 2, goodsReceiptDetailIds: details }, { goodsIssueRequestLineId: gir.cableLine, quantity: 3 }],
@@ -256,9 +262,10 @@ describe('Outbound: GIR → GI (integration)', () => {
   });
 
   it('SN must match product + warehouse and not be reserved elsewhere (D06, D10)', async () => {
-    const [hcmSn] = await receive(hcm, 1, 0);
-    const [kthSn] = await receive(kth, 1, 0);
-    const gir = await approvedGir(await contract(5, 5), 1, 0);
+    const sc = await contract(5, 5);
+    const [hcmSn] = await receive(hcm, 1, 0, sc);
+    const [kthSn] = await receive(kth, 1, 0, sc);
+    const gir = await approvedGir(sc, 1, 0);
     const line = (ids: number[]) => ({ goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.routerLine, quantity: 1, goodsReceiptDetailIds: ids }] });
     expect((await post(pm, '/goods-issues', line([kthSn]))).body.code).toBe('SN_NOT_AVAILABLE'); // wrong warehouse
     const g1 = (await post(pm, '/goods-issues', line([hcmSn])).expect(201)).body.id;
@@ -270,10 +277,11 @@ describe('Outbound: GIR → GI (integration)', () => {
   });
 
   it('two GIs competing for the last stock: exactly one reserves (D08) and failures roll back every line', async () => {
-    await receive(kth, 0, 3);
-    const avail = (await balance(kth, cable)).onHand - (await balance(kth, cable)).reserved;
-    const g1 = await approvedGir(await contract(50, 50), 0, avail, kth);
-    const g2 = await approvedGir(await contract(50, 50), 0, avail, kth);
+    const sc = await contract(50, 50);
+    await receive(kth, 0, 3, sc);
+    const avail = 3; // everything this HĐ owns in KTH
+    const g1 = await approvedGir(sc, 0, avail, kth);
+    const g2 = await approvedGir(sc, 0, avail, kth);
     const gi1 = (await post(pm, '/goods-issues', { goodsIssueRequestId: g1.id, lines: [{ goodsIssueRequestLineId: g1.cableLine, quantity: avail }] })).body.id;
     const gi2 = (await post(pm, '/goods-issues', { goodsIssueRequestId: g2.id, lines: [{ goodsIssueRequestLineId: g2.cableLine, quantity: avail }] })).body.id;
     const before = await balance(kth, cable);
@@ -284,8 +292,9 @@ describe('Outbound: GIR → GI (integration)', () => {
   });
 
   it('reject releases the reservation; cancel is only for Draft/Rejected (D07)', async () => {
-    const [sn] = await receive(hcm, 1, 0);
-    const gir = await approvedGir(await contract(5, 5), 1, 0);
+    const sc = await contract(5, 5);
+    const [sn] = await receive(hcm, 1, 0, sc);
+    const gir = await approvedGir(sc, 1, 0);
     const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.routerLine, quantity: 1, goodsReceiptDetailIds: [sn] }] })).body.id;
     const before = await balance(hcm, router);
     await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
@@ -317,18 +326,19 @@ describe('Outbound: GIR → GI (integration)', () => {
     (await ds.query(`SELECT a.inventory_lot_id AS lot, a.quantity FROM goods_issue_line_allocations a JOIN goods_issue_lines l ON l.id = a.goods_issue_line_id
                       WHERE l.goods_issue_id = $1 ORDER BY a.inventory_lot_id`, [giId]))
       .map((a: { lot: number; quantity: string }) => [a.lot, Number(a.quantity)]);
-  const cableGi = async (wh: number, qty: number) => {
-    const gir = await approvedGir(await contract(50, 50), 0, qty, wh);
+  const cableGi = async (wh: number, qty: number, sc: Contract) => {
+    const gir = await approvedGir(sc, 0, qty, wh);
     return (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: qty }] }).expect(201)).body.id as number;
   };
 
   it('FIFO by GR approval time: submit allocates and reserves lots, approve consumes them without recomputing (C73)', async () => {
     const wh = await isolatedWarehouse('FIFO1');
-    await receive(wh, 0, 3); // GR1 approved first
-    await receive(wh, 0, 5); // GR2 approved later
+    const sc = await contract(50, 50);
+    await receive(wh, 0, 3, sc); // GR1 approved first
+    await receive(wh, 0, 5, sc); // GR2 approved later
     const [lot1, lot2] = await lotsOf(wh);
 
-    const gi = await cableGi(wh, 4);
+    const gi = await cableGi(wh, 4, sc);
     expect(await allocationsOf(gi)).toEqual([]); // Draft allocates nothing
     await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
     expect(await allocationsOf(gi)).toEqual([[lot1.id, 3], [lot2.id, 1]]); // 3 from GR1, then 1 from GR2
@@ -346,16 +356,17 @@ describe('Outbound: GIR → GI (integration)', () => {
 
   it('reject and recall release exactly the allocated lots; a later GI allocates again by FIFO', async () => {
     const wh = await isolatedWarehouse('FIFO2');
-    await receive(wh, 0, 2);
-    await receive(wh, 0, 4);
+    const sc = await contract(50, 50);
+    await receive(wh, 0, 2, sc);
+    await receive(wh, 0, 4, sc);
     const [lot1, lot2] = await lotsOf(wh);
-    const gi = await cableGi(wh, 3);
+    const gi = await cableGi(wh, 3, sc);
     await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
     await post(sales, `/goods-issues/${gi}/reject`, { reason: 'x' }).expect(204);
     expect(await allocationsOf(gi)).toEqual([]);
     expect(await lotsOf(wh)).toEqual([lot1, lot2]);
 
-    const gi2 = await cableGi(wh, 5);
+    const gi2 = await cableGi(wh, 5, sc);
     await post(pm, `/goods-issues/${gi2}/submit`, { approverId: salesId }).expect(204);
     expect(await allocationsOf(gi2)).toEqual([[lot1.id, 2], [lot2.id, 3]]);
     await post(pm, `/goods-issues/${gi2}/recall`, { reason: 'y' }).expect(204);
@@ -365,9 +376,10 @@ describe('Outbound: GIR → GI (integration)', () => {
 
   it('serial lines are allocated to the lots their serials came from, not FIFO', async () => {
     const wh = await isolatedWarehouse('FIFO3');
-    await receive(wh, 1, 0); // older router lot
-    const [newer] = await receive(wh, 1, 0);
-    const gir = await approvedGir(await contract(5, 5), 1, 0, wh);
+    const sc = await contract(5, 5);
+    await receive(wh, 1, 0, sc); // older router lot
+    const [newer] = await receive(wh, 1, 0, sc);
+    const gir = await approvedGir(sc, 1, 0, wh);
     const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.routerLine, quantity: 1, goodsReceiptDetailIds: [newer] }] }).expect(201)).body.id;
     await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
     const [{ lot }] = await ds.query(`SELECT l.id AS lot FROM goods_receipt_details d JOIN inventory_lots l ON l.goods_receipt_line_id = d.goods_receipt_line_id WHERE d.id = $1`, [newer]);
@@ -382,7 +394,7 @@ describe('Outbound: GIR → GI (integration)', () => {
     const lots: { id: number; source_sales_contract_id: number; product_id: number }[] = await ds.query(
       `SELECT id, source_sales_contract_id, product_id FROM inventory_lots WHERE warehouse_id = $1 ORDER BY approved_at, id`, [wh]);
     const [x, y] = lots.filter((l) => l.product_id === cable);
-    const gi = await cableGi(wh, 2);
+    const gi = await cableGi(wh, 2, await contract(50, 50));
     const [{ id: lineId }] = await ds.query(`SELECT id FROM goods_issue_lines WHERE goods_issue_id = $1`, [gi]);
     const allocateIn = (scope: { sourceSalesContractId?: number; ownerUserId?: number }, item: { productId: number; quantity: number; serialDetailIds: number[] }) =>
       ds.transaction(async (m) => {
@@ -409,9 +421,10 @@ describe('Outbound: GIR → GI (integration)', () => {
 
   it('concurrent submits on the same lots never over-reserve a lot and allocate disjoint quantities', async () => {
     const wh = await isolatedWarehouse('FIFO5');
-    await receive(wh, 0, 3);
-    await receive(wh, 0, 3);
-    const gis = [await cableGi(wh, 2), await cableGi(wh, 2), await cableGi(wh, 2), await cableGi(wh, 2)];
+    const sc = await contract(50, 50);
+    await receive(wh, 0, 3, sc);
+    await receive(wh, 0, 3, sc);
+    const gis = [await cableGi(wh, 2, sc), await cableGi(wh, 2, sc), await cableGi(wh, 2, sc), await cableGi(wh, 2, sc)];
     const res = await Promise.all(gis.map((g) => post(pm, `/goods-issues/${g}/submit`, { approverId: salesId })));
     expect(res.map((r) => r.status).sort()).toEqual([204, 204, 204, 409]); // 6 in stock, 4 × 2 requested
     const ok = gis.filter((_g, i) => res[i].status === 204);
@@ -423,11 +436,61 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect(await ds.query(RECONCILE_SQL)).toEqual([]);
   });
 
+  it('GI inherits the GIR source: a GIR of HĐ-B never issues stock bought for HĐ-A, even when the warehouse has it (C69)', async () => {
+    const wh = await isolatedWarehouse('SRC1');
+    const a = await contract(50, 50);
+    const b = await contract(50, 50);
+    const [snA] = await receive(wh, 1, 5, a); // all stock in the warehouse belongs to HĐ-A
+    const bulk = await cableGi(wh, 2, b);
+    const res = await post(pm, `/goods-issues/${bulk}/submit`, { approverId: salesId });
+    expect([res.status, res.body.code]).toEqual([409, 'INSUFFICIENT_AVAILABLE_STOCK']);
+    expect(await status('goods_issues', bulk)).toBe('DRAFT'); // nothing reserved, rolled back
+    expect(await allocationsOf(bulk)).toEqual([]);
+
+    const girB = await approvedGir(b, 1, 0, wh);
+    const serial = (await post(pm, '/goods-issues', { goodsIssueRequestId: girB.id, lines: [{ goodsIssueRequestLineId: girB.routerLine, quantity: 1, goodsReceiptDetailIds: [snA] }] })
+      .expect(201)).body.id;
+    const res2 = await post(pm, `/goods-issues/${serial}/submit`, { approverId: salesId });
+    expect([res2.status, res2.body.code]).toEqual([409, 'STOCK_OUT_OF_SCOPE']);
+    expect(await serialStatus(snA)).toBe('IN_STOCK');
+
+    // Partly in scope: HĐ-B owns 1 of the 3 requested; the 5 of HĐ-A are never used to top it up.
+    await receive(wh, 0, 1, b);
+    const short = await cableGi(wh, 3, b);
+    expect((await post(pm, `/goods-issues/${short}/submit`, { approverId: salesId })).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
+    const ok = await cableGi(wh, 1, b);
+    await post(pm, `/goods-issues/${ok}/submit`, { approverId: salesId }).expect(204);
+    const [{ source }] = await ds.query(
+      `SELECT DISTINCT l.source_sales_contract_id AS source FROM goods_issue_line_allocations a JOIN inventory_lots l ON l.id = a.inventory_lot_id
+         JOIN goods_issue_lines gl ON gl.id = a.goods_issue_line_id WHERE gl.goods_issue_id = $1`, [ok]);
+    expect(source).toBe(b.id);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('GIR without a recorded stock source (AVAILABLE_STOCK until PR #7): GI submit is blocked, no fallback to warehouse + product', async () => {
+    const sc = await contract(10, 10);
+    await receive(kth, 0, 2, sc);
+    const gir = (await post(pm, '/goods-issue-requests', {
+      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: kth, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 1 }],
+    }).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
+    await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
+    await post(manager, `/goods-issue-requests/${gir}/approve`).expect(204);
+    const [{ id: girLine }] = await ds.query(`SELECT id FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [gir]);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir, lines: [{ goodsIssueRequestLineId: girLine, quantity: 1 }] }).expect(201)).body.id;
+    const before = await balance(kth, cable);
+    const res = await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId });
+    expect([res.status, res.body.code]).toEqual([409, 'GIR_SOURCE_SCOPE_MISSING']);
+    expect(await status('goods_issues', gi)).toBe('DRAFT');
+    expect(await balance(kth, cable)).toEqual(before);
+    expect(await allocationsOf(gi)).toEqual([]);
+  });
+
   // ---------- Completion ----------
 
   it('completion: blocks open GIs, needs a reason when short, frees unissued quota, blocks new GIs (C11–C13, C16, C19–C21)', async () => {
-    await receive(hcm, 0, 10);
     const sc = await contract(10, 10);
+    await receive(hcm, 0, 10, sc);
     const gir = await approvedGir(sc, 0, 10);
     expect((await get(pm, `/goods-issue-requests/${gir.id}`)).executionStatus).toBe('NOT_STARTED');
     const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: 4 }] })).body.id;

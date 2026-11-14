@@ -22,7 +22,7 @@
 | Người phụ trách nguồn hàng | Sales phụ trách HĐ nguồn, ghi trên lô khi duyệt GR và bất biến (CT15, CT17); MVP không chuyển giao tồn giữa Sales. Bước 1 (đồng ý) của GIR `AVAILABLE_STOCK` lấy hàng thuộc mình; có thể khác Sales của HĐ nhận hàng |
 | PM | Tạo GIR; đề xuất Product thay thế cho dòng HĐ kèm lý do; không tự xác nhận thay Sales |
 | Quản lý kho | Phụ trách GI; duyệt GIR (bước cuối với `AVAILABLE_STOCK`); "Xác nhận hoàn thành xuất" GIR |
-Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư và bốn luồng GIR (ADR-0012) không thêm bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng. Người được giao bước 1 của GIR `AVAILABLE_STOCK` phải là người phụ trách nguồn hàng của GIR đó (kiểm tra ở mức dữ liệu như §3); mã quyền cụ thể: chưa chốt kỹ thuật (hiện `GIR.SALES_CONFIRM`, IM15).
+Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư và bốn luồng GIR (ADR-0012) không thêm bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng. Người được giao bước 1 của GIR `AVAILABLE_STOCK` phải là người phụ trách nguồn hàng của GIR đó (kiểm tra ở mức dữ liệu như §3); mã quyền `GIR.SALES_CONFIRM`; hệ thống chỉ cho giao bước 1 cho Sales nguồn ghi trên GIR (CT7, IM30).
 
 ## 3. Người duyệt mặc định
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.

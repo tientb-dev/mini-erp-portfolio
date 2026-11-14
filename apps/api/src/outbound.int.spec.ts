@@ -257,21 +257,29 @@ describe('Outbound: GIR → GI (integration)', () => {
       .toBe(8);
   });
 
-  it('A and B share the HĐ-line quota; materials never use it (C55, ADR-0012)', async () => {
-    const sc = await contract(10, 10);
-    const wh = await isolatedWarehouse('QB1'); // own warehouse: other tests rely on KTH stock
+  /** B/D request body: borrow from `src` (its responsible Sales is `salesId`, see contract()) for target `sc`. */
+  const bdBody = (sc: Contract, src: Contract, warehouseId: number, lines: object[], category: 'SALES_GOODS' | 'MATERIAL' = 'SALES_GOODS', purpose?: string) => ({
+    issueType: 'AVAILABLE_STOCK', category, salesContractId: sc.id, warehouseId, sourceSalesContractId: src.id, sourceOwnerUserId: salesId, purpose, lines,
+  });
+  const cableB = (sc: Contract, qty: number) => [{ salesContractLineId: sc.cableLine, productId: cable, quantity: qty }];
+  /** A warehouse allowed for available-stock issues, with the warehouse manager in it. */
+  async function surplusWarehouse(code: string) {
+    const wh = await isolatedWarehouse(code);
     await ds.query(`UPDATE warehouses SET allow_available_stock_issue = true WHERE id = $1`, [wh]);
     await ds.query(`INSERT INTO user_warehouses (user_id, warehouse_id) VALUES ($1, $2)`, [managerId, wh]);
-    await receive(wh, 0, 20, sc); // stock for the available-stock (B) request
+    return wh;
+  }
+
+  it('A and B share the HĐ-line quota; materials never use it (C55, ADR-0012)', async () => {
+    const sc = await contract(10, 10);
+    const src = await contract(50, 50);
+    const wh = await surplusWarehouse('QB1');
+    await receive(wh, 0, 20, src); // stock of the source HĐ for the available-stock (B) request
     const a = await approvedGir(sc, 0, 7); // A holds 7 of 10
     expect(a.id).toBeGreaterThan(0);
-    const b = (await post(pm, '/goods-issue-requests', {
-      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: wh, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 4 }],
-    }).expect(201)).body.id; // saved as DRAFT although 7 + 4 > 10
+    const b = (await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, cableB(sc, 4))).expect(201)).body.id; // DRAFT although 7 + 4 > 10
     expect((await post(pm, `/goods-issue-requests/${b}/submit`, { approverId: salesId, warehouseApproverId: managerId })).body.code).toBe('SALES_CONTRACT_QUOTA_EXCEEDED');
-    const b3 = (await post(pm, '/goods-issue-requests', {
-      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: wh, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 3 }],
-    }).expect(201)).body.id;
+    const b3 = (await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, cableB(sc, 3))).expect(201)).body.id;
     await post(pm, `/goods-issue-requests/${b3}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204); // 7 + 3 = 10
 
     const material = await poDonePr(sc, 0, 50, 'MATERIAL');
@@ -281,29 +289,30 @@ describe('Outbound: GIR → GI (integration)', () => {
       .toBe(10);
   });
 
-  it('AVAILABLE_STOCK: allowed warehouse only, ≤ available stock, two sequential approvals (D12–D17)', async () => {
-    await receive(kth, 0, 5);
+  it('AVAILABLE_STOCK: allowed warehouse only; DRAFT may lack stock, submit and both steps check the source scope; step 1 is the source Sales (D12–D20, CT13)', async () => {
+    const src = await contract(50, 50);
+    await receive(kth, 0, 5, src);
     const sc = await contract(10, 10);
-    const body = (warehouseId: number, qty: number) => ({
-      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: qty }],
-    });
-    expect((await post(pm, '/goods-issue-requests', body(hcm, 1))).body.code).toBe('WAREHOUSE_NOT_ALLOWED_FOR_AVAILABLE_STOCK');
-    expect((await post(pm, '/goods-issue-requests', body(kth, 6))).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
-    const gir = (await post(pm, '/goods-issue-requests', body(kth, 5)).expect(201)).body.id;
+    expect((await post(pm, '/goods-issue-requests', bdBody(sc, src, hcm, cableB(sc, 1)))).body.code).toBe('WAREHOUSE_NOT_ALLOWED_FOR_AVAILABLE_STOCK');
+    const short = (await post(pm, '/goods-issue-requests', bdBody(sc, src, kth, cableB(sc, 6))).expect(201)).body.id; // CT13: DRAFT saved
+    expect((await post(pm, `/goods-issue-requests/${short}/submit`, { approverId: salesId, warehouseApproverId: managerId })).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
+    const gir = (await post(pm, '/goods-issue-requests', bdBody(sc, src, kth, cableB(sc, 5))).expect(201)).body.id;
 
-    // Sales (step 1) must have GIR.SALES_CONFIRM; warehouse manager (step 2) must have the warehouse.
+    // D26: step 1 can only go to the source Sales.
+    expect((await get(pm, `/goods-issue-requests/${gir}/approvers`)).approvers.map((u: { id: number }) => u.id)).toEqual([salesId]);
+    expect((await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: managerId, warehouseApproverId: managerId })).body.code).toBe('APPROVER_NOT_SOURCE_SALES');
     await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
     expect((await post(manager, `/goods-issue-requests/${gir}/approve`)).body.code).toBe('NOT_ASSIGNED_APPROVER'); // D17
     await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
     let detail = await get(pm, `/goods-issue-requests/${gir}`);
-    expect([detail.approvalStatus, detail.approvalStep]).toEqual(['WAITING_FOR_APPROVE', 2]); // D15
+    expect([detail.approvalStatus, detail.approvalStep, detail.sourceSalesContractId, detail.sourceOwnerUserId]).toEqual(['WAITING_FOR_APPROVE', 2, src.id, salesId]); // D15
     await post(manager, `/goods-issue-requests/${gir}/approve`).expect(204);
     detail = await get(pm, `/goods-issue-requests/${gir}`);
     expect(detail.approvalStatus).toBe('APPROVED'); // D16
     expect(detail.history.map((h: { action: string }) => h.action)).toEqual(['SUBMIT', 'CONFIRM', 'APPROVE']);
     expect((await balance(kth, cable)).reserved).toBe(0); // D19: GIR reserves nothing
 
-    // D18: recall → Draft, resubmit starts again at Sales.
+    // D18: recall → Draft, resubmit starts again at the source Sales.
     await post(pm, `/goods-issue-requests/${gir}/recall`, { reason: 'reduce qty' }).expect(204);
     await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
     expect((await get(pm, `/goods-issue-requests/${gir}`)).approvalStep).toBe(1);
@@ -312,22 +321,144 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect(await status('goods_issue_requests', gir)).toBe('REJECTED');
   });
 
-  it('rejects stock re-check at final approval when available stock dropped (D14)', async () => {
-    const otherSc = await contract(5, 5);
-    const [d1] = await receive(kth, 2, 0, otherSc);
+  it('stock that drops while waiting blocks the Sales step and the final approval; other sources never count (D14, D24, C88)', async () => {
+    const wh = await surplusWarehouse('BD1');
+    const src = await contract(50, 50);
+    const otherSrc = await contract(50, 50);
+    await receive(wh, 0, 3, src);
+    await receive(wh, 0, 30, otherSrc); // plenty, but another source HĐ
+    const sc = await contract(50, 50);
+    const gir = (await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, cableB(sc, 3))).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
+    // A GI of the source HĐ's own A request reserves 1 of its 3 meanwhile.
+    const own = await approvedGir(src, 0, 1, wh);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: own.id, lines: [{ goodsIssueRequestLineId: own.cableLine, quantity: 1 }] }).expect(201)).body.id;
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
+    expect((await post(sales, `/goods-issue-requests/${gir}/approve`)).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK'); // step 1
+    await post(sales, `/goods-issues/${gi}/reject`, { reason: 'later' }).expect(204);
+    await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204); // stock back: Sales confirms
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204); // taken again before the final step
+    expect((await post(manager, `/goods-issue-requests/${gir}/approve`)).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK'); // step 2
+    expect([await status('goods_issue_requests', gir), (await get(pm, `/goods-issue-requests/${gir}`)).approvalStep]).toEqual(['WAITING_FOR_APPROVE', 2]);
+  });
+
+  it('source rules: source ≠ target, not canceled (completed is fine), source Sales = responsible Sales of the source HĐ (C84, C89–C91)', async () => {
+    const wh = await surplusWarehouse('BD2');
     const sc = await contract(10, 10);
-    const avail = (await balance(kth, router)).onHand - (await balance(kth, router)).reserved;
-    const gir = (await post(pm, '/goods-issue-requests', {
-      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: kth, lines: [{ salesContractLineId: sc.routerLine, productId: router, quantity: avail }],
-    }).expect(201)).body.id;
+    const src = await contract(10, 10);
+    await receive(wh, 0, 2, src);
+    const create = (body: object) => post(pm, '/goods-issue-requests', body);
+    expect((await create(bdBody(sc, sc, wh, cableB(sc, 1)))).body.code).toBe('SOURCE_CONTRACT_INVALID'); // C89: same HĐ → use A/C
+    expect((await create({ ...bdBody(sc, src, wh, cableB(sc, 1)), sourceOwnerUserId: managerId })).body.code).toBe('SOURCE_SALES_MISMATCH');
+    expect((await create({ ...bdBody(sc, src, wh, cableB(sc, 1)), sourceSalesContractId: undefined })).body.code).toBe('GIR_SOURCE_REQUIRED');
+    // C91: a source HĐ whose own needs are done (no open request) still lends its surplus.
+    await create(bdBody(sc, src, wh, cableB(sc, 1))).expect(201);
+    // C90: a canceled source HĐ is refused.
+    const canceled = await contract(10, 10);
+    await ds.query(`UPDATE sales_contracts SET status = 'CANCELED' WHERE id = $1`, [canceled.id]);
+    expect((await create(bdBody(sc, canceled, wh, cableB(sc, 1)))).body.code).toBe('SOURCE_CONTRACT_INVALID');
+    // The picker lists the source with its stock, never the target HĐ nor a canceled one.
+    const sources = await get(pm, `/warehouses/${wh}/available-stock-sources?targetSalesContractId=${sc.id}`);
+    expect(sources).toEqual([expect.objectContaining({ sourceSalesContractId: src.id, sourceOwnerUserId: salesId, productId: cable, available: 2 })]);
+  });
+
+  it('D (materials from available stock): purpose required, no HĐ line, no HĐ quota; never mixed with sales goods (ADR-0012, CM3)', async () => {
+    const wh = await surplusWarehouse('BD3');
+    const src = await contract(50, 50);
+    await receive(wh, 0, 8, src);
+    const sc = await contract(1, 1, false); // nothing confirmed, HĐ lines of 1
+    const lines = [{ productId: cable, quantity: 5 }];
+    expect((await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, lines, 'MATERIAL'))).body.code).toBe('PURPOSE_REQUIRED');
+    expect((await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, cableB(sc, 1), 'MATERIAL', 'x'))).body.code).toBe('GIR_LINE_SOURCE_INVALID'); // no HĐ line on D
+    expect((await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, lines, 'SALES_GOODS'))).body.code).toBe('GIR_LINE_SOURCE_INVALID'); // B needs an HĐ line
+    const d = (await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, lines, 'MATERIAL', 'Lắp đặt tủ rack')).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${d}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
+    await post(sales, `/goods-issue-requests/${d}/approve`).expect(204);
+    await post(manager, `/goods-issue-requests/${d}/approve`).expect(204);
+    const detail = await get(pm, `/goods-issue-requests/${d}`);
+    expect([detail.category, detail.purpose, detail.lines[0].salesContractLineId]).toEqual(['MATERIAL', 'Lắp đặt tủ rack', null]);
+  });
+
+  it('C: purpose is optional and inherited from the material PRs when left empty (CT9)', async () => {
+    const sc = await contract(5, 5);
+    const proc = app.get(ProcurementService);
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ productId: cable, quantity: 3 }], 'MATERIAL', 'Dự phòng bảo trì');
+    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.approve('PR', pr.id, salesUser);
+    const [{ id: prLine }] = await ds.query(`SELECT id FROM purchase_requisition_lines WHERE purchase_requisition_id = $1`, [pr.id]);
+    const body = { issueType: 'PURCHASE_REQUISITION', salesContractId: sc.id, warehouseId: hcm, lines: [{ purchaseRequisitionLineId: prLine, quantity: 1 }] };
+    const inherited = (await post(pm, '/goods-issue-requests', body).expect(201)).body.id;
+    expect((await get(pm, `/goods-issue-requests/${inherited}`)).purpose).toBe('Dự phòng bảo trì');
+    const own = (await post(pm, '/goods-issue-requests', { ...body, purpose: 'Thay cáp tầng 3' }).expect(201)).body.id;
+    expect((await get(pm, `/goods-issue-requests/${own}`)).purpose).toBe('Thay cáp tầng 3');
+  });
+
+  it('B end-to-end: GI inherits source HĐ + Sales, FIFO stays inside it, serials outside are refused, shortage blocks (C70)', async () => {
+    const wh = await surplusWarehouse('BD4');
+    const src = await contract(50, 50);
+    const other = await contract(50, 50);
+    await receive(wh, 0, 9, other); // older lot, other source HĐ
+    const [otherSn] = await receive(wh, 1, 0, other);
+    await receive(wh, 0, 2, src);
+    await receive(wh, 0, 3, src);
+    const [srcSn] = await receive(wh, 1, 0, src);
+    const sc = await contract(50, 50);
+    const gir = (await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, [
+      { salesContractLineId: sc.cableLine, productId: cable, quantity: 4 }, { salesContractLineId: sc.routerLine, productId: router, quantity: 1 },
+    ])).expect(201)).body.id;
     await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
     await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
-    // Another GI reserves one router meanwhile.
-    const other = await approvedGir(otherSc, 1, 0, kth);
-    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: other.id, lines: [{ goodsIssueRequestLineId: other.routerLine, quantity: 1, goodsReceiptDetailIds: [d1] }] }).expect(201)).body.id;
+    await post(manager, `/goods-issue-requests/${gir}/approve`).expect(204);
+    const lines = (await get(pm, `/goods-issue-requests/${gir}`)).lines;
+    const cableLine = lines.find((l: { productId: number }) => l.productId === cable).id;
+    const routerLine = lines.find((l: { productId: number }) => l.productId === router).id;
+
+    // Serial picker only offers serials of the source.
+    const offered = (await get(pm, `/goods-issue-request-lines/${routerLine}/available-serials`)).map((s: { goodsReceiptDetailId: number }) => s.goodsReceiptDetailId);
+    expect(offered).toEqual([srcSn]);
+    const foreign = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir, lines: [{ goodsIssueRequestLineId: routerLine, quantity: 1, goodsReceiptDetailIds: [otherSn] }] })
+      .expect(201)).body.id;
+    expect((await post(pm, `/goods-issues/${foreign}/submit`, { approverId: salesId })).body.code).toBe('STOCK_OUT_OF_SCOPE');
+    await post(pm, `/goods-issues/${foreign}/cancel`).expect(204);
+
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir, lines: [
+      { goodsIssueRequestLineId: cableLine, quantity: 4 }, { goodsIssueRequestLineId: routerLine, quantity: 1, goodsReceiptDetailIds: [srcSn] },
+    ] }).expect(201)).body.id;
     await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
-    expect((await post(manager, `/goods-issue-requests/${gir}/approve`)).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
-    expect(await status('goods_issue_requests', gir)).toBe('WAITING_FOR_APPROVE');
+    const sources = await ds.query(
+      `SELECT DISTINCT l.source_sales_contract_id AS sc, l.owner_user_id AS owner FROM goods_issue_line_allocations a JOIN inventory_lots l ON l.id = a.inventory_lot_id
+         JOIN goods_issue_lines gl ON gl.id = a.goods_issue_line_id WHERE gl.goods_issue_id = $1`, [gi]);
+    expect(sources).toEqual([{ sc: src.id, owner: salesId }]); // FIFO 2 + 2 inside the source, the older lot of the other HĐ untouched
+    await post(sales, `/goods-issues/${gi}/approve`).expect(204);
+
+    // The source has 1 cable left; asking for more is blocked, never filled from the other HĐ.
+    const gir2 = (await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, cableB(sc, 1))).expect(201)).body.id;
+    await post(pm, `/goods-issue-requests/${gir2}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
+    await post(sales, `/goods-issue-requests/${gir2}/approve`).expect(204);
+    await post(manager, `/goods-issue-requests/${gir2}/approve`).expect(204);
+    const [{ id: l2 }] = await ds.query(`SELECT id FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [gir2]);
+    await ds.query(`UPDATE goods_issue_request_lines SET quantity = 2 WHERE id = $1`, [l2]); // force a request above the source stock
+    const gi2 = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir2, lines: [{ goodsIssueRequestLineId: l2, quantity: 2 }] }).expect(201)).body.id;
+    expect((await post(pm, `/goods-issues/${gi2}/submit`, { approverId: salesId })).body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('two B requests compete for the same source stock: GIRs reserve nothing, the GI that submits first wins (C79, R5)', async () => {
+    const wh = await surplusWarehouse('BD5');
+    const src = await contract(50, 50);
+    await receive(wh, 0, 3, src);
+    const make = async (sc: Contract) => {
+      const id = (await post(pm, '/goods-issue-requests', bdBody(sc, src, wh, cableB(sc, 3))).expect(201)).body.id;
+      await post(pm, `/goods-issue-requests/${id}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
+      await post(sales, `/goods-issue-requests/${id}/approve`).expect(204);
+      await post(manager, `/goods-issue-requests/${id}/approve`).expect(204);
+      const [{ id: line }] = await ds.query(`SELECT id FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [id]);
+      return (await post(pm, '/goods-issues', { goodsIssueRequestId: id, lines: [{ goodsIssueRequestLineId: line, quantity: 3 }] }).expect(201)).body.id as number;
+    };
+    const gis = [await make(await contract(50, 50)), await make(await contract(50, 50))]; // both approved: no reservation at GIR level
+    const res = await Promise.all(gis.map((g) => post(pm, `/goods-issues/${g}/submit`, { approverId: salesId })));
+    expect(res.map((r) => r.status).sort()).toEqual([204, 409]);
+    expect(res.find((r) => r.status === 409)!.body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
   });
 
   // ---------- GI ----------
@@ -562,25 +693,6 @@ describe('Outbound: GIR → GI (integration)', () => {
          JOIN goods_issue_lines gl ON gl.id = a.goods_issue_line_id WHERE gl.goods_issue_id = $1`, [ok]);
     expect(source).toBe(b.id);
     expect(await ds.query(RECONCILE_SQL)).toEqual([]);
-  });
-
-  it('GIR without a recorded stock source (AVAILABLE_STOCK until PR #7): GI submit is blocked, no fallback to warehouse + product', async () => {
-    const sc = await contract(10, 10);
-    await receive(kth, 0, 2, sc);
-    const gir = (await post(pm, '/goods-issue-requests', {
-      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: kth, lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 1 }],
-    }).expect(201)).body.id;
-    await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId, warehouseApproverId: managerId }).expect(204);
-    await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
-    await post(manager, `/goods-issue-requests/${gir}/approve`).expect(204);
-    const [{ id: girLine }] = await ds.query(`SELECT id FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [gir]);
-    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir, lines: [{ goodsIssueRequestLineId: girLine, quantity: 1 }] }).expect(201)).body.id;
-    const before = await balance(kth, cable);
-    const res = await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId });
-    expect([res.status, res.body.code]).toEqual([409, 'GIR_SOURCE_SCOPE_MISSING']);
-    expect(await status('goods_issues', gi)).toBe('DRAFT');
-    expect(await balance(kth, cable)).toEqual(before);
-    expect(await allocationsOf(gi)).toEqual([]);
   });
 
   // ---------- GIR A/C on PR lines (PR code #5) ----------

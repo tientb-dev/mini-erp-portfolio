@@ -17,6 +17,7 @@ class PrLineDto {
 class CreatePrDto {
   @ApiProperty() @IsInt() salesContractId!: number;
   @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], default: 'SALES_GOODS' }) @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
+  @ApiPropertyOptional({ description: 'Purpose of use (materials; reference)' }) @IsOptional() @IsString() purpose?: string;
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
 }
 class CreatePoDto {
@@ -72,7 +73,7 @@ export class ProcurementController {
   @Post('purchase-requisitions')
   @RequirePermissions('PR.CREATE')
   createPr(@Req() req: AuthedRequest, @Body() dto: CreatePrDto) {
-    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category);
+    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose);
   }
 
   @Patch('purchase-requisitions/:id')

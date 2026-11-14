@@ -156,7 +156,7 @@
 | C68b | Như C68a, GR `APPROVED` nhập 5 cho dòng 2 | PO: Đã nhập kho |
 | C68c | Như C68b, GR của dòng 2 được Thu hồi | PO: Nhập kho một phần (GR đã Thu hồi không tính) |
 | C69 | GI cho GIR luồng A của HĐ-B; kho chỉ có hàng nhập từ PR của HĐ-A | Không chọn được hàng/SN của HĐ-A. *PR code #4: chặn khi Gửi duyệt GI (GIR `SALES_CONTRACT`).* |
-| C70 | GIR `AVAILABLE_STOCK` của HĐ-B dùng tồn thuộc Sales HĐ-A; Sales HĐ-A đồng ý, Quản lý kho duyệt; GI xuất | Xuất được; không tự sinh hoàn bù |
+| C70 | GIR `AVAILABLE_STOCK` của HĐ-B dùng tồn thuộc Sales HĐ-A; Sales HĐ-A đồng ý, Quản lý kho duyệt; GI xuất | Xuất được; không tự sinh hoàn bù *PR code #7.* |
 | C71 | Báo cáo tồn kho | Truy vết được theo Kho, Product, Sales phụ trách, HĐ nguồn, GR. *Tiến độ: PR code #3 hoàn thành phần **nguồn nhập** (lô, lượng nhập, `GET /inventories/lots`); **tồn còn lại theo lô** và FIFO thuộc PR code #4.* |
 | C72 | HĐ có Sales phụ trách S1; GR từ PR của HĐ được duyệt | Tồn nhập ghi Sales phụ trách S1, HĐ nguồn là HĐ đó |
 | C73 | Hàng không SN, HĐ-A có lô GR1 (duyệt trước, 3) và GR2 (duyệt sau, 5); GI luồng A xuất 4 | Lấy 3 từ GR1, 1 từ GR2 (FIFO). *PR code #4: phân bổ khi Gửi duyệt, trừ khi Duyệt; phạm vi HĐ áp cho GI khi có luồng A (PR code #5).* |
@@ -164,7 +164,7 @@
 | C75 | GR là GR tham chiếu của dòng GIR `DRAFT`/`WAITING_FOR_APPROVE`/`REJECTED`/`APPROVED` | Chặn Thu hồi GR |
 | C76 | Như C75, mọi GIR tham chiếu đã `CANCELED`; không GI nào dùng hàng của GR | Thu hồi được; tồn hoàn tác |
 | C77 | Như C76, nhưng SN của GR còn được GI chưa Hủy tham chiếu | Chặn Thu hồi (B17, B18, B23) |
-| C78 | GIR B/D Gửi duyệt khi tồn khả dụng của Sales nguồn không đủ | Chặn Gửi duyệt; GIR không giữ chỗ tồn khi đủ |
+| C78 | GIR B/D Gửi duyệt khi tồn khả dụng của Sales nguồn không đủ | Chặn Gửi duyệt; GIR không giữ chỗ tồn khi đủ *PR code #7.* |
 | C79 | GIR B/D `APPROVED`; tồn giảm trước khi lập GI | GI kiểm tra lại, chặn khi không đủ |
 | C80 | Thu hồi GR không SN; lô của GR đang được GI `WAITING_FOR_APPROVE` phân bổ | Chặn toàn bộ; không phân bổ lại GI |
 | C81 | Như C80, GI đã `APPROVED` (đã xuất một phần lô), tổng Kho + PN vẫn đủ | Chặn (xét lô, không xét tổng) |
@@ -172,13 +172,13 @@
 | C83 | Sửa Sales phụ trách HĐ `DRAFT` (S1 → S2), rồi chốt; GR từ PR của HĐ được duyệt | Lô ghi S2 |
 | C83a | Sửa Sales phụ trách HĐ `ACTIVE` | Chặn |
 | C83b | Người không có quyền sửa HĐ sửa Sales phụ trách HĐ `DRAFT` | Chặn |
-| C84 | GIR B/D của HĐ-đích chọn Product từ HĐ-nguồn X và HĐ-nguồn Y | Không cho phép; lập GIR riêng cho từng HĐ nguồn |
+| C84 | GIR B/D của HĐ-đích chọn Product từ HĐ-nguồn X và HĐ-nguồn Y | Không cho phép; lập GIR riêng cho từng HĐ nguồn *PR code #7.* |
 | C85 | GIR B/D chọn nhiều Product cùng HĐ nguồn, cùng Sales nguồn, cùng kho | Cho phép |
 | C86 | Dòng PR có GR1 (duyệt trước) là GR tham chiếu, GR2 duyệt sau; mọi GIR tham chiếu đã Hủy; Thu hồi GR1 | GR tham chiếu chuyển sang GR2 |
 | C87 | Như C86 nhưng không còn GR `APPROVED` nào khác | GR tham chiếu để trống |
-| C89 | GIR B/D chọn HĐ nguồn = HĐ đích | Không cho phép; dùng luồng A/C |
-| C90 | GIR B/D chọn HĐ nguồn `CANCELED` | Không cho phép |
-| C91 | GIR B/D chọn HĐ nguồn `ACTIVE` đã giao xong, còn hàng dư ở kho | Cho phép; bước 1 giao Sales ghi trên lô |
+| C89 | GIR B/D chọn HĐ nguồn = HĐ đích | Không cho phép; dùng luồng A/C *PR code #7.* |
+| C90 | GIR B/D chọn HĐ nguồn `CANCELED` | Không cho phép *PR code #7.* |
+| C91 | GIR B/D chọn HĐ nguồn `ACTIVE` đã giao xong, còn hàng dư ở kho | Cho phép; bước 1 giao Sales ghi trên lô *PR code #7.* |
 | C88 | GIR B/D đủ tồn khi Gửi duyệt; tồn giảm trước khi Quản lý kho duyệt | Chặn Duyệt; GIR giữ Chờ duyệt |
 
 ## D. GIR hàng có sẵn / GI

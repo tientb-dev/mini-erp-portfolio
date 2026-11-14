@@ -18,10 +18,16 @@ class CreateGirDto {
   @ApiProperty() @IsInt() salesContractId!: number;
   @ApiProperty() @IsInt() warehouseId!: number;
   @ApiProperty({ type: [GirLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => GirLineDto) lines!: GirLineDto[];
+  @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], description: 'AVAILABLE_STOCK: B (sales goods) or D (materials); PR-based GIRs take it from the PRs' })
+  @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
+  @ApiPropertyOptional({ description: 'AVAILABLE_STOCK: source HĐ (≠ target, not canceled)' }) @IsOptional() @IsInt() sourceSalesContractId?: number;
+  @ApiPropertyOptional({ description: 'AVAILABLE_STOCK: source Sales = responsible Sales of the source HĐ' }) @IsOptional() @IsInt() sourceOwnerUserId?: number;
+  @ApiPropertyOptional({ description: 'Purpose of use: required for D, optional reference for C' }) @IsOptional() @IsString() purpose?: string;
 }
 class UpdateGirDto {
   @ApiProperty() @IsInt() version!: number;
   @ApiProperty({ type: [GirLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => GirLineDto) lines!: GirLineDto[];
+  @ApiPropertyOptional() @IsOptional() @IsString() purpose?: string;
 }
 class SubmitGirDto {
   @ApiProperty({ description: 'PURCHASE_REQUISITION: approver; AVAILABLE_STOCK: Sales confirmer' }) @IsInt() approverId!: number;
@@ -77,6 +83,13 @@ export class OutboundController {
     return this.gir.prLineOptions(id, exclude ? Number(exclude) : undefined);
   }
 
+  /** B/D picker: stock per source HĐ + Sales + product in a warehouse (target HĐ and canceled HĐ excluded). */
+  @Get('warehouses/:id/available-stock-sources')
+  @RequirePermissions('GIR.CREATE')
+  availableSources(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Query('targetSalesContractId') target?: string) {
+    return this.gir.availableSources(req.user, id, target ? Number(target) : undefined);
+  }
+
   @Post('goods-issue-requests')
   @RequirePermissions('GIR.CREATE')
   createGir(@Req() req: AuthedRequest, @Body() dto: CreateGirDto) {
@@ -87,7 +100,7 @@ export class OutboundController {
   @HttpCode(204)
   @RequirePermissions('GIR.CREATE')
   updateGir(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateGirDto) {
-    return this.gir.update(req.user, id, dto.version, dto.lines);
+    return this.gir.update(req.user, id, dto.version, dto.lines, dto.purpose);
   }
 
   @Get('goods-issue-requests/:id/approvers')

@@ -2,6 +2,7 @@ import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { InventoryFacade } from '../inventory/inventory.service';
+import { sourceScope } from './gi.service';
 import { ProductUsage } from '../master-data/product-usage';
 import { InboundFacade } from '../inbound/inbound.service';
 import { LineCategory, PrLineForIssue, ProcurementFacade } from '../procurement/procurement.service';
@@ -14,9 +15,14 @@ export type IssueType = 'PURCHASE_REQUISITION' | 'AVAILABLE_STOCK';
 /** A/C: `purchaseRequisitionLineId` (product and HĐ line come from it). AVAILABLE_STOCK: HĐ line + product. */
 export interface GirLineInput { purchaseRequisitionLineId?: number; salesContractLineId?: number; productId?: number; quantity: number }
 interface ResolvedLine { purchaseRequisitionLineId: number | null; salesContractLineId: number | null; productId: number; quantity: number }
+/** B/D input: where the stock comes from (one source HĐ + its Sales, CT16), and D's mandatory purpose. */
+export interface GirSourceInput { category?: LineCategory; sourceSalesContractId?: number; sourceOwnerUserId?: number; purpose?: string }
 interface GirHeader extends wf.DocHeader {
   issue_type: IssueType;
   category: LineCategory;
+  source_sales_contract_id: number | null;
+  source_owner_user_id: number | null;
+  purpose: string | null;
   sales_contract_id: number;
   warehouse_id: number;
   approval_step: number | null;
@@ -32,28 +38,32 @@ interface GirHeader extends wf.DocHeader {
 export class GirService {
   constructor(private readonly ds: DataSource) {}
 
-  create(user: CurrentUser, input: { issueType: IssueType; salesContractId: number; warehouseId: number; lines: GirLineInput[] }) {
+  create(user: CurrentUser, input: { issueType: IssueType; salesContractId: number; warehouseId: number; lines: GirLineInput[] } & GirSourceInput) {
     wf.assertWarehouse(user, input.warehouseId);
     return this.ds.transaction(async (m) => {
       await this.assertWarehouseAllowed(m, input.issueType, input.warehouseId);
-      const { lines, category } = await this.resolveLines(m, input.issueType, input.salesContractId, input.lines);
+      const source = input.issueType === 'AVAILABLE_STOCK' ? await this.resolveSource(m, input.salesContractId, input) : null;
+      const { lines, category } = await this.resolveLines(m, input.issueType, input.salesContractId, input.lines, input.category);
+      const purpose = await this.resolvePurpose(m, input.issueType, category, input.purpose, lines);
       const number = await wf.nextDocumentNumber(m, 'GIR');
       const [gir] = await m.query(
-        `INSERT INTO goods_issue_requests (document_number, issue_type, category, sales_contract_id, warehouse_id, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [number, input.issueType, category, input.salesContractId, input.warehouseId, user.id],
+        `INSERT INTO goods_issue_requests (document_number, issue_type, category, sales_contract_id, warehouse_id, source_sales_contract_id,
+           source_owner_user_id, purpose, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+        [number, input.issueType, category, input.salesContractId, input.warehouseId, source?.sourceSalesContractId ?? null,
+          source?.sourceOwnerUserId ?? null, purpose, user.id],
       );
-      await this.insertLines(m, gir.id, lines); // a DRAFT holds no quota (CT2): checked at submit/approve only
-      if (input.issueType === 'AVAILABLE_STOCK') await this.checkAvailable(m, gir.id, input.warehouseId);
+      // A DRAFT holds no quota (CT2) and may lack stock (CT13): both are checked at submit and every approval step.
+      await this.insertLines(m, gir.id, lines);
       return { id: gir.id as number, documentNumber: number };
     });
   }
 
   /** Replace lines of a DRAFT/REJECTED GIR (submitted GIRs are never edited directly, 03 §3). */
-  update(user: CurrentUser, id: number, version: number, lines: GirLineInput[]) {
+  /** Source HĐ/Sales and category stay as created (pick another source → new GIR); purpose may change while DRAFT/REJECTED. */
+  update(user: CurrentUser, id: number, version: number, lines: GirLineInput[], purpose?: string) {
     return this.ds.transaction(async (m) => {
       const head = await this.peek(m, id);
-      const resolved = await this.resolveLines(m, head.issue_type, head.sales_contract_id, lines);
+      const resolved = await this.resolveLines(m, head.issue_type, head.sales_contract_id, lines, head.category);
       const doc = (await wf.lockDocument(m, 'GIR', id)) as GirHeader;
       wf.assertWarehouse(user, doc.warehouse_id);
       wf.assertCreator(doc, user);
@@ -61,12 +71,17 @@ export class GirService {
       wf.assertVersion(doc, version);
       await m.query(`DELETE FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [id]);
       await this.insertLines(m, id, resolved.lines);
-      await m.query(`UPDATE goods_issue_requests SET category = $2, version = version + 1, updated_at = now() WHERE id = $1`, [id, resolved.category]);
-      if (doc.issue_type === 'AVAILABLE_STOCK') await this.checkAvailable(m, id, doc.warehouse_id);
+      const newPurpose = await this.resolvePurpose(m, doc.issue_type, resolved.category, purpose ?? doc.purpose ?? undefined, resolved.lines);
+      await m.query(`UPDATE goods_issue_requests SET category = $2, purpose = $3, version = version + 1, updated_at = now() WHERE id = $1`, [
+        id, resolved.category, newPurpose,
+      ]);
     });
   }
 
-  /** PURCHASE_REQUISITION: one approver (GIR.APPROVE + warehouse). AVAILABLE_STOCK: Sales (GIR.SALES_CONFIRM) then warehouse manager. */
+  /**
+   * PURCHASE_REQUISITION: one approver (GIR.APPROVE + warehouse). AVAILABLE_STOCK: step 1 is always the source Sales of the GIR
+   * (CT17; `approverId` must be them), then the chosen warehouse manager.
+   */
   submit(user: CurrentUser, id: number, approverId: number, warehouseApproverId?: number) {
     return this.ds.transaction(async (m) => {
       const doc = await this.lockForDecision(m, id);
@@ -76,10 +91,13 @@ export class GirService {
 
       wf.assertCreator(doc, user);
       wf.assertStatus(doc, ['DRAFT', 'REJECTED']);
-      const sales = await wf.usersWithPermission(m, 'GIR.SALES_CONFIRM', doc.created_by);
+      const sales = await this.sourceConfirmers(m, doc);
       const managers = await wf.eligibleApprovers(m, 'GIR', doc.created_by, doc.warehouse_id);
-      if (!sales.some((u) => u.id === approverId) || !managers.some((u) => u.id === warehouseApproverId)) {
-        throw new BusinessError('APPROVER_NOT_ELIGIBLE', 'Pick a Sales confirmer and a warehouse manager with the required permission and warehouse');
+      if (!sales.some((u) => u.id === approverId)) {
+        throw new BusinessError('APPROVER_NOT_SOURCE_SALES', 'Step 1 goes to the source Sales of this request (with GIR.SALES_CONFIRM), never someone else');
+      }
+      if (!managers.some((u) => u.id === warehouseApproverId)) {
+        throw new BusinessError('APPROVER_NOT_ELIGIBLE', 'Pick a warehouse manager with the required permission and warehouse');
       }
       await wf.setStatus(m, 'GIR', doc, 'WAITING_FOR_APPROVE', ', assigned_approver_id = $3, approval_step = 1, warehouse_approver_id = $4', [
         approverId, warehouseApproverId,
@@ -174,7 +192,7 @@ export class GirService {
     wf.assertWarehouse(user, doc.warehouse_id);
     return {
       approvers: doc.issue_type === 'AVAILABLE_STOCK'
-        ? await wf.usersWithPermission(this.ds.manager, 'GIR.SALES_CONFIRM', doc.created_by)
+        ? await this.sourceConfirmers(this.ds.manager, doc)
         : await wf.eligibleApprovers(this.ds.manager, 'GIR', doc.created_by, doc.warehouse_id),
       warehouseApprovers: doc.issue_type === 'AVAILABLE_STOCK' ? await wf.eligibleApprovers(this.ds.manager, 'GIR', doc.created_by, doc.warehouse_id) : [],
     };
@@ -202,6 +220,8 @@ export class GirService {
       `SELECT g.id, g.document_number AS "documentNumber", g.issue_type AS "issueType", g.approval_status AS "approvalStatus",
               g.approval_step AS "approvalStep", g.execution_status AS "executionStatus", g.version, g.warehouse_id AS "warehouseId",
               g.category, g.sales_contract_id AS "salesContractId", s.document_number AS "salesContractNumber", w.code AS "warehouseCode",
+              g.source_sales_contract_id AS "sourceSalesContractId", ss.document_number AS "sourceSalesContractNumber",
+              g.source_owner_user_id AS "sourceOwnerUserId", so.full_name AS "sourceOwnerName", g.purpose,
               g.created_by AS "createdBy", c.full_name AS "createdByName", g.assigned_approver_id AS "assignedApproverId",
               a.full_name AS "assignedApproverName", wa.full_name AS "warehouseApproverName", g.completion_reason AS "completionReason",
               g.created_at AS "createdAt"
@@ -211,6 +231,8 @@ export class GirService {
          JOIN users c ON c.id = g.created_by
          LEFT JOIN users a ON a.id = g.assigned_approver_id
          LEFT JOIN users wa ON wa.id = g.warehouse_approver_id
+         LEFT JOIN sales_contracts ss ON ss.id = g.source_sales_contract_id
+         LEFT JOIN users so ON so.id = g.source_owner_user_id
         WHERE g.id = $1`,
       [id],
     );
@@ -282,6 +304,17 @@ export class GirService {
     return lines.map((l) => ({ ...l, usedQuantity: used.get(l.id) ?? 0, remainingQuantity: Number(l.quantity) - (used.get(l.id) ?? 0) }));
   }
 
+  /** B/D picker: per source HĐ + Sales + product, what is available in this warehouse (excluding the target HĐ). */
+  async availableSources(user: CurrentUser, warehouseId: number, targetSalesContractId?: number) {
+    wf.assertWarehouse(user, warehouseId);
+    const rows = await InventoryFacade.availableSources(this.ds.manager, warehouseId);
+    const contracts = await SalesContractFacade.summaries(this.ds.manager, [...new Set(rows.map((r) => r.sourceSalesContractId))]);
+    return rows
+      .filter((r) => r.sourceSalesContractId !== targetSalesContractId && contracts.get(r.sourceSalesContractId)?.status !== 'CANCELED')
+      .map((r) => ({ ...r, available: Number(r.available), sourceSalesContractNumber: contracts.get(r.sourceSalesContractId)?.documentNumber,
+        sourceSalesContractStatus: contracts.get(r.sourceSalesContractId)?.status }));
+  }
+
   // ---------- internals ----------
 
   /**
@@ -289,16 +322,24 @@ export class GirService {
    * A/C: every PR line belongs to a PR of this HĐ, all PRs share one category (CM3); product and HĐ line are inherited
    * (material lines keep no HĐ line: no HĐ quota, no Sales confirmation). AVAILABLE_STOCK: sales goods on HĐ lines.
    */
-  private async resolveLines(m: EntityManager, issueType: IssueType, salesContractId: number, input: GirLineInput[])
+  private async resolveLines(m: EntityManager, issueType: IssueType, salesContractId: number, input: GirLineInput[], category?: LineCategory)
     : Promise<{ lines: ResolvedLine[]; category: LineCategory }> {
     if (issueType === 'AVAILABLE_STOCK') {
-      if (input.some((l) => !l.salesContractLineId || !l.productId || l.purchaseRequisitionLineId)) {
-        throw new BusinessError('GIR_LINE_SOURCE_INVALID', 'Available-stock lines need an HĐ line and a product, no PR line');
+      // B (sales goods): HĐ line of the target + product; D (materials): product only, no HĐ line, no HĐ quota.
+      const cat = category ?? 'SALES_GOODS';
+      const bad = cat === 'SALES_GOODS'
+        ? input.some((l) => !l.salesContractLineId || !l.productId || l.purchaseRequisitionLineId)
+        : input.some((l) => l.salesContractLineId || !l.productId || l.purchaseRequisitionLineId);
+      if (bad) {
+        throw new BusinessError('GIR_LINE_SOURCE_INVALID', cat === 'SALES_GOODS'
+          ? 'Available-stock sales lines need an HĐ line and a product, no PR line'
+          : 'Available-stock material lines need a product only (no HĐ line, no PR line)');
       }
-      await SalesContractFacade.lockActiveLines(m, salesContractId, input.map((l) => l.salesContractLineId!));
+      if (cat === 'MATERIAL') wf.assertUniqueSourceLines(input.map((l) => l.productId!));
+      await SalesContractFacade.lockActiveLines(m, salesContractId, input.flatMap((l) => (l.salesContractLineId ? [l.salesContractLineId] : [])));
       return {
-        category: 'SALES_GOODS',
-        lines: input.map((l) => ({ purchaseRequisitionLineId: null, salesContractLineId: l.salesContractLineId!, productId: l.productId!, quantity: l.quantity })),
+        category: cat,
+        lines: input.map((l) => ({ purchaseRequisitionLineId: null, salesContractLineId: l.salesContractLineId ?? null, productId: l.productId!, quantity: l.quantity })),
       };
     }
     if (input.some((l) => !l.purchaseRequisitionLineId || l.salesContractLineId || l.productId)) {
@@ -313,14 +354,52 @@ export class GirService {
     const pr = await ProcurementFacade.lockLinesForIssue(m, ids); // a PR line never changes PR, so the HĐ check above still holds
     const categories = new Set([...pr.values()].map((l) => l.category));
     if (categories.size > 1) throw new BusinessError('GIR_CATEGORY_MIXED', 'Sales goods and materials cannot be mixed in one request');
-    const category = [...categories][0];
+    const prCategory = [...categories][0]; // PR-based: the category always comes from the PRs
     return {
-      category,
+      category: prCategory,
       lines: input.map((l) => {
         const p = pr.get(l.purchaseRequisitionLineId!)!;
-        return { purchaseRequisitionLineId: p.id, salesContractLineId: category === 'SALES_GOODS' ? p.salesContractLineId : null, productId: p.productId, quantity: l.quantity };
+        return { purchaseRequisitionLineId: p.id, salesContractLineId: prCategory === 'SALES_GOODS' ? p.salesContractLineId : null, productId: p.productId, quantity: l.quantity };
       }),
     };
+  }
+
+  /**
+   * B/D source (CT16–CT19): one source HĐ, different from the target, not CANCELED (a completed HĐ is fine), and its
+   * responsible Sales — the Sales stamped on its lots (CT15, CT17). Read FOR SHARE so the HĐ cannot be canceled meanwhile.
+   */
+  private async resolveSource(m: EntityManager, targetId: number, input: GirSourceInput) {
+    if (!input.sourceSalesContractId || !input.sourceOwnerUserId) {
+      throw new BusinessError('GIR_SOURCE_REQUIRED', 'Pick the source HĐ and its source Sales for an available-stock request');
+    }
+    if (input.sourceSalesContractId === targetId) {
+      throw new BusinessError('SOURCE_CONTRACT_INVALID', 'The source HĐ must differ from the target HĐ; use a PR-based request for the same HĐ');
+    }
+    const source = await SalesContractFacade.sourceContract(m, input.sourceSalesContractId);
+    if (!source || source.status === 'CANCELED') throw new BusinessError('SOURCE_CONTRACT_INVALID', 'The source HĐ does not exist or is canceled');
+    if (source.responsibleSalesUserId !== input.sourceOwnerUserId) {
+      throw new BusinessError('SOURCE_SALES_MISMATCH', 'The source Sales must be the responsible Sales of the source HĐ');
+    }
+    return { sourceSalesContractId: input.sourceSalesContractId, sourceOwnerUserId: input.sourceOwnerUserId };
+  }
+
+  /** D: purpose is mandatory. C: optional reference, inherited from the PRs when left empty. A/B: none. */
+  private async resolvePurpose(m: EntityManager, issueType: string, category: LineCategory, purpose: string | undefined, lines: ResolvedLine[]) {
+    const text = purpose?.trim() || null;
+    if (category !== 'MATERIAL') return null;
+    if (issueType === 'AVAILABLE_STOCK') {
+      if (!text) throw new BusinessError('PURPOSE_REQUIRED', 'Materials from available stock need a purpose of use');
+      return text;
+    }
+    if (text) return text;
+    const inherited = await ProcurementFacade.purposesOf(m, lines.flatMap((l) => (l.purchaseRequisitionLineId ? [l.purchaseRequisitionLineId] : [])));
+    return inherited.length ? inherited.join('; ') : null;
+  }
+
+  /** Who may confirm step 1 of an AVAILABLE_STOCK GIR: only its source Sales, and only with GIR.SALES_CONFIRM. */
+  private async sourceConfirmers(m: EntityManager, doc: GirHeader) {
+    const all = await wf.usersWithPermission(m, 'GIR.SALES_CONFIRM', doc.created_by);
+    return all.filter((u: { id: number }) => u.id === doc.source_owner_user_id);
   }
 
   /** PR-line quota used by GIRs that hold it (03 §10.1, CT2): WAITING/REJECTED/APPROVED (COMPLETED → issued), plus `includeGirId`. */
@@ -385,7 +464,7 @@ export class GirService {
     await this.checkQuota(m, doc.id);
     if (doc.issue_type === 'AVAILABLE_STOCK') {
       await this.assertWarehouseAllowed(m, doc.issue_type, doc.warehouse_id);
-      await this.checkAvailable(m, doc.id, doc.warehouse_id);
+      await this.checkAvailable(m, doc);
     }
   }
 
@@ -428,13 +507,16 @@ export class GirService {
     if (over) throw new BusinessError('SALES_CONTRACT_QUOTA_EXCEEDED', `HĐ line ${over.id}: requested ${Number(over.used)} > contract ${Number(over.quantity)}`);
   }
 
-  /** AVAILABLE_STOCK: per product, requested ≤ available at the source warehouse (no reservation by GIR). */
-  private async checkAvailable(m: EntityManager, girId: number, warehouseId: number) {
+  /**
+   * AVAILABLE_STOCK: per product, requested ≤ available in the GIR's source scope (warehouse + source HĐ + source Sales),
+   * at submit and at both approval steps (CT13). The GIR reserves nothing; a drop meanwhile blocks the step.
+   */
+  private async checkAvailable(m: EntityManager, doc: GirHeader) {
     const rows: { product_id: number; qty: string }[] = await m.query(
       `SELECT product_id, SUM(quantity) AS qty FROM goods_issue_request_lines WHERE goods_issue_request_id = $1 GROUP BY product_id`,
-      [girId],
+      [doc.id],
     );
-    const available = await InventoryFacade.available(m, warehouseId, rows.map((r) => r.product_id));
+    const available = await InventoryFacade.availableInScope(m, doc.warehouse_id, rows.map((r) => r.product_id), sourceScope(doc));
     const short = rows.find((r) => Number(r.qty) > available.get(r.product_id)!);
     if (short) {
       throw new BusinessError('INSUFFICIENT_AVAILABLE_STOCK', `Product ${short.product_id}: requested ${Number(short.qty)} > available ${available.get(short.product_id)}`, HttpStatus.CONFLICT);

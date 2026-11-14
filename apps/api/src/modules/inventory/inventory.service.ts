@@ -88,6 +88,34 @@ export class InventoryFacade {
     return new Map(productIds.map((p) => [p, Number(rows.find((r) => r.product_id === p)?.available ?? 0)]));
   }
 
+  /**
+   * Available (on hand − reserved by GIs) per product over the lots of one warehouse inside `scope` (ADR-0013).
+   * Read-only: GIRs never reserve (CT13); GI submit re-checks under locks.
+   */
+  static async availableInScope(m: EntityManager, warehouseId: number, productIds: number[], scope: StockScope): Promise<Map<number, number>> {
+    const rows: { product_id: number; available: string }[] = await m.query(
+      `SELECT product_id, SUM(on_hand_quantity - reserved_quantity) AS available FROM inventory_lots
+        WHERE warehouse_id = $1 AND product_id = ANY($2)
+          AND ($3::int IS NULL OR source_sales_contract_id = $3) AND ($4::int IS NULL OR owner_user_id = $4)
+        GROUP BY product_id`,
+      [warehouseId, productIds, scope.sourceSalesContractId ?? null, scope.ownerUserId ?? null],
+    );
+    return new Map(productIds.map((p) => [p, Number(rows.find((r) => r.product_id === p)?.available ?? 0)]));
+  }
+
+  /** Stock sources of a warehouse for B/D pickers: per source HĐ + Sales + product, available > 0. */
+  static availableSources(m: EntityManager, warehouseId: number) {
+    return m.query(
+      `SELECT l.source_sales_contract_id AS "sourceSalesContractId", l.owner_user_id AS "sourceOwnerUserId", u.full_name AS "sourceOwnerName",
+              l.product_id AS "productId", p.part_number AS "partNumber", p.name AS "productName", SUM(l.on_hand_quantity - l.reserved_quantity) AS available
+         FROM inventory_lots l JOIN users u ON u.id = l.owner_user_id JOIN products p ON p.id = l.product_id
+        WHERE l.warehouse_id = $1 AND l.on_hand_quantity > l.reserved_quantity
+        GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 2, 4`,
+      [warehouseId],
+    ) as Promise<{ sourceSalesContractId: number; sourceOwnerUserId: number; sourceOwnerName: string; productId: number; partNumber: string;
+      productName: string; available: string }[]>;
+  }
+
   /** Locks balance rows in (product) order; returns available per product. */
   private static async lockBalances(m: EntityManager, warehouseId: number, productIds: number[]) {
     const ids = [...new Set(productIds)].sort((a, b) => a - b);

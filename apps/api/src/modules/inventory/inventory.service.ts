@@ -68,6 +68,63 @@ export class InventoryFacade {
     }
   }
 
+  /**
+   * Recall of an APPROVED GR (03 §2.2, CT11, CT14, ADR-0004 §3): undo every inventory effect of that approval, or refuse
+   * the whole GR. Locks inventories (product order) → the GR's lots (approved_at, id) → its serials (id), the same order
+   * as GI submit/approve, so a concurrent GI either waits and then sees the stock gone, or wins and blocks the recall.
+   * Refused (GR_STOCK_IN_USE) when any lot of the GR was reserved, allocated or issued, or any serial is on a GI that is
+   * not CANCELED (even DRAFT/REJECTED, B23). Nothing is re-allocated. Goods receipt details are never touched.
+   */
+  static async reverseReceipt(m: EntityManager, warehouseId: number, goodsReceiptLineIds: number[]): Promise<void> {
+    const lots: { id: number; product_id: number; received_quantity: string; on_hand_quantity: string; reserved_quantity: string; goods_receipt_line_id: number }[] =
+      await m.query(`SELECT id, product_id, received_quantity, on_hand_quantity, reserved_quantity, goods_receipt_line_id FROM inventory_lots
+                      WHERE goods_receipt_line_id = ANY($1)`, [goodsReceiptLineIds]);
+    const products = [...new Set(lots.map((l) => l.product_id))].sort((a, b) => a - b);
+    await m.query(`SELECT id FROM inventories WHERE warehouse_id = $1 AND product_id = ANY($2) ORDER BY product_id FOR UPDATE`, [warehouseId, products]);
+    const locked: typeof lots = await m.query(
+      `SELECT id, product_id, received_quantity, on_hand_quantity, reserved_quantity, goods_receipt_line_id FROM inventory_lots
+        WHERE goods_receipt_line_id = ANY($1) ORDER BY approved_at, id FOR UPDATE`,
+      [goodsReceiptLineIds],
+    );
+    if (locked.length !== goodsReceiptLineIds.length) {
+      throw new BusinessError('GR_STOCK_INCONSISTENT', 'Inventory lots of this receipt are missing; run the inventory reconciliation', HttpStatus.CONFLICT);
+    }
+    const [used] = await m.query(`SELECT 1 FROM goods_issue_line_allocations WHERE inventory_lot_id = ANY($1) LIMIT 1`, [locked.map((l) => l.id)]);
+    const touched = locked.find((l) => Number(l.on_hand_quantity) !== Number(l.received_quantity) || Number(l.reserved_quantity) !== 0);
+    if (used || touched) {
+      throw new BusinessError('GR_STOCK_IN_USE', 'Stock of this receipt is already reserved, allocated or issued by a goods issue; it cannot be recalled', HttpStatus.CONFLICT);
+    }
+    const serials: { id: number }[] = await m.query(
+      `SELECT s.id FROM inventory_serials s JOIN goods_receipt_details d ON d.id = s.goods_receipt_detail_id
+        WHERE d.goods_receipt_line_id = ANY($1) ORDER BY s.id FOR UPDATE OF s`,
+      [goodsReceiptLineIds],
+    );
+    const [onGi] = await m.query(
+      `SELECT gi.document_number FROM goods_issue_serials gs
+         JOIN goods_receipt_details d ON d.id = gs.goods_receipt_detail_id AND d.goods_receipt_line_id = ANY($1)
+         JOIN goods_issue_lines gl ON gl.id = gs.goods_issue_line_id
+         JOIN goods_issues gi ON gi.id = gl.goods_issue_id AND gi.approval_status <> 'CANCELED' LIMIT 1`,
+      [goodsReceiptLineIds],
+    );
+    if (onGi) {
+      throw new BusinessError('GR_STOCK_IN_USE', `A serial of this receipt is on ${onGi.document_number}; cancel it or remove the serial first`, HttpStatus.CONFLICT);
+    }
+    const ids = serials.map((s) => s.id);
+    await m.query(`DELETE FROM inventory_serial_transactions WHERE inventory_serial_id = ANY($1)`, [ids]);
+    await m.query(`DELETE FROM inventory_serials WHERE id = ANY($1)`, [ids]);
+    for (const l of locked) {
+      // CHECK on inventories keeps reserved ≤ on hand: other lots' reservations always fit their own stock.
+      await m.query(`UPDATE inventories SET on_hand_quantity = on_hand_quantity - $3 WHERE warehouse_id = $1 AND product_id = $2`, [
+        warehouseId, l.product_id, l.received_quantity,
+      ]);
+    }
+    await m.query(
+      `DELETE FROM inventory_transactions WHERE source_document_type = 'GR' AND movement_type = 'IN' AND source_line_id = ANY($1)`,
+      [goodsReceiptLineIds],
+    );
+    await m.query(`DELETE FROM inventory_lots WHERE id = ANY($1)`, [locked.map((l) => l.id)]);
+  }
+
   /** Serials (by product + normalized SN) already recorded in inventory, for early checks at submit. */
   static async existingSerials(m: EntityManager, pairs: { productId: number; normalized: string }[]): Promise<string[]> {
     if (!pairs.length) return [];

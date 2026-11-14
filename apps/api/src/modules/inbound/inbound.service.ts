@@ -327,9 +327,48 @@ export class InboundService {
       wf.assertWarehouse(user, doc.warehouse_id!);
       if (action !== 'cancel' && !reason?.trim()) throw new BusinessError('REASON_REQUIRED', 'A reason is required');
       if (action === 'reject') await wf.reject(m, 'GR', doc, user, reason!);
+      if (action === 'recall' && doc.approval_status === 'APPROVED') return this.recallApprovedGr(m, doc, user, reason!);
       if (action === 'recall') await wf.recallPending(m, 'GR', doc, user, reason!);
       if (action === 'cancel') await wf.cancel(m, 'GR', doc, user);
     });
+  }
+
+  /**
+   * APPROVED → DRAFT (03 §2.2) by the creator, inside the caller's transaction that already holds the GR row.
+   * Order: PR lines (FOR UPDATE, serializes with GIR create/submit on them) → GIR reference check (CT11) → PO lines
+   * (receipt progress) → inventory (lots/serials, CT14). The approval history stays; approved_at is cleared in the same
+   * UPDATE as the status. GIR lines are never changed: their first-GR / received references are computed on read.
+   */
+  private async recallApprovedGr(m: EntityManager, doc: wf.DocHeader, user: CurrentUser, reason: string) {
+    wf.assertCreator(doc, user);
+    const lines: { id: number; quantity: string; purchase_order_line_id: number; purchase_requisition_line_id: number }[] = await m.query(
+      `SELECT l.id, l.quantity, rl.purchase_order_line_id, pol.purchase_requisition_line_id FROM goods_receipt_lines l
+         JOIN goods_receipt_request_lines rl ON rl.id = l.goods_receipt_request_line_id
+         JOIN purchase_order_lines pol ON pol.id = rl.purchase_order_line_id
+        WHERE l.goods_receipt_id = $1 ORDER BY l.id`,
+      [doc.id],
+    );
+    const prLines = [...new Set(lines.map((l) => l.purchase_requisition_line_id))];
+    await ProcurementFacade.lockLinesForIssue(m, prLines);
+    // CT11: blocked while this GR is the first GR shown on a GIR line that is not CANCELED.
+    const first = await InboundFacade.firstReceipts(m, prLines);
+    const shownOn = prLines.filter((p) => first.get(p)?.goodsReceiptId === doc.id);
+    if (shownOn.length) {
+      // shortcut: reads Outbound's GIR tables directly (Outbound → Inbound already exists, so a facade call back would
+      // create a cycle); replace with a usage count kept by Outbound if this check grows.
+      const [gir] = await m.query(
+        `SELECT g.document_number FROM goods_issue_request_lines l JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id
+          WHERE l.purchase_requisition_line_id = ANY($1) AND g.approval_status <> 'CANCELED' ORDER BY g.id LIMIT 1`,
+        [shownOn],
+      );
+      if (gir) {
+        throw new BusinessError('GR_REFERENCED_BY_GIR', `This receipt is the first receipt shown on ${gir.document_number}; cancel that request first`, HttpStatus.CONFLICT);
+      }
+    }
+    await ProcurementFacade.applyReceipt(m, lines.map((l) => ({ purchaseOrderLineId: l.purchase_order_line_id, quantity: l.quantity })), -1);
+    await InventoryFacade.reverseReceipt(m, doc.warehouse_id!, lines.map((l) => l.id));
+    await wf.setStatus(m, 'GR', doc, 'DRAFT', ', approved_at = NULL, assigned_approver_id = NULL');
+    await wf.record(m, 'GR', doc.id, 'RECALL', user.id, reason);
   }
 
   grApprovers(id: number, user: CurrentUser) {

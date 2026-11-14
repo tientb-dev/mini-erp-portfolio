@@ -120,7 +120,8 @@ function GoodsReceiptDetail({ id, onBack }: { id: number; onBack: () => void }) 
           <Button variant="contained" disabled={dirty} onClick={() => setAction('submit')}>{t('gr.submit')}</Button>
         </>
       )}
-      {isCreator && d.approvalStatus === 'WAITING_FOR_APPROVE' && <Button onClick={() => setAction('recall')}>{t('gr.recall')}</Button>}
+      {/* APPROVED: recall undoes the stock effect; the server refuses while the stock or the receipt is in use (03 §2.2). */}
+      {isCreator && ['WAITING_FOR_APPROVE', 'APPROVED'].includes(d.approvalStatus) && <Button onClick={() => setAction('recall')}>{t('gr.recall')}</Button>}
       {isApprover && (
         <>
           <Button color="error" onClick={() => setAction('reject')}>{t('gr.reject')}</Button>

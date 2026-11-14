@@ -3,6 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { InventoryFacade } from '../inventory/inventory.service';
 import { ProductUsage } from '../master-data/product-usage';
+import { InboundFacade } from '../inbound/inbound.service';
 import { LineCategory, PrLineForIssue, ProcurementFacade } from '../procurement/procurement.service';
 import { SalesContractFacade } from '../sales-contracts/sales-contracts.service';
 import * as wf from '../workflow/workflow';
@@ -237,6 +238,14 @@ export class GirService {
         WHERE l.goods_issue_request_id = $1 ORDER BY l.id`,
       [id],
     );
+    // A/C lines: first approved GR and received quantity of the PR line, for reference only (03 §3a; never a condition).
+    const prLineIds: number[] = lines.flatMap((l: { purchaseRequisitionLineId: number | null }) => (l.purchaseRequisitionLineId ? [l.purchaseRequisitionLineId] : []));
+    const first = await InboundFacade.firstReceipts(this.ds.manager, prLineIds);
+    const received = prLineIds.length ? await ProcurementFacade.receivedByPrLine(this.ds.manager, prLineIds) : new Map<number, number>();
+    for (const l of lines as { purchaseRequisitionLineId: number | null; firstGoodsReceipt?: unknown; receivedQuantity?: number | null }[]) {
+      l.firstGoodsReceipt = l.purchaseRequisitionLineId ? first.get(l.purchaseRequisitionLineId) ?? null : null;
+      l.receivedQuantity = l.purchaseRequisitionLineId ? received.get(l.purchaseRequisitionLineId) ?? 0 : null;
+    }
     const issues = await this.ds.query(
       `SELECT id, document_number AS "documentNumber", approval_status AS "approvalStatus" FROM goods_issues WHERE goods_issue_request_id = $1 ORDER BY id`,
       [id],

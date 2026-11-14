@@ -19,6 +19,8 @@ interface PrLineOption {
   quantity: string; receivedQuantity: string; remainingQuantity: number;
 }
 interface GirLine {
+  /** A/C only, reference (03 §3a): first approved GR of the PR line and the quantity received for it. */
+  firstGoodsReceipt?: { goodsReceiptId: number; documentNumber: string; warehouseCode: string } | null; receivedQuantity?: number | null;
   id: number; prNumber: string | null; salesContractLineId: number | null; contractItem: string; contractQuantity: string; productId: number; partNumber: string;
   productName: string; isSerialTracked: boolean; uom: string; quantity: string; productConfirmed: boolean; issuedQuantity: string; committedQuantity: string;
 }
@@ -202,6 +204,11 @@ function GirDetailView({ id, onBack }: { id: number; onBack: () => void }) {
     { field: 'quantity', headerName: t('gir.requested'), type: 'number', width: 110, valueGetter: (v: string) => num(v) },
     { field: 'committedQuantity', headerName: t('gir.committed'), type: 'number', width: 130, valueGetter: (v: string) => num(v) },
     { field: 'issuedQuantity', headerName: t('gir.issued'), type: 'number', width: 110, valueGetter: (v: string) => num(v) },
+    ...(d.issueType === 'PURCHASE_REQUISITION' ? [
+      { field: 'firstGoodsReceipt', headerName: t('gir.firstReceipt'), width: 190, sortable: false,
+        valueGetter: (v: GirLine['firstGoodsReceipt']) => (v ? `${v.documentNumber} · ${v.warehouseCode}` : t('gir.notReceived')) },
+      { field: 'receivedQuantity', headerName: t('gir.received'), type: 'number' as const, width: 120 },
+    ] : []),
     { field: 'uom', headerName: t('product.uom'), width: 70 },
   ];
   return (
@@ -224,6 +231,7 @@ function GirDetailView({ id, onBack }: { id: number; onBack: () => void }) {
               <Field label={t('gr.approver')}>{d.assignedApproverName ?? '—'}</Field>
               {d.issueType === 'AVAILABLE_STOCK' && <Field label={t('gir.warehouseApprover')}>{d.warehouseApproverName ?? '—'}</Field>}
               {d.completionReason && <Field label={t('gir.completionReason')}>{d.completionReason}</Field>}
+              {d.issueType === 'PURCHASE_REQUISITION' && <Typography variant="body2" color="text.secondary">{t('gir.referenceHint')}</Typography>}
               <DataTable rows={d.lines} columns={lineColumns} hideFooter />
             </>
           )}

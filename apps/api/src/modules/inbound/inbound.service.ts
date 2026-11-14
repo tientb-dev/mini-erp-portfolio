@@ -9,6 +9,34 @@ import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
 export interface SourceLineInput { id?: number; sourceLineId: number; quantity: number }
+
+/** First approved GR of a PR line (reference shown on GIR A/C lines, 03 §3a). */
+export interface FirstReceipt { goodsReceiptId: number; documentNumber: string; warehouseId: number; warehouseCode: string; approvedAt: Date }
+
+/**
+ * Facade for Outbound (read only; Inbound never depends on Outbound). Computed from the documents, nothing stored:
+ * only GRs APPROVED now count, so a recalled GR disappears and the next one takes its place.
+ */
+export class InboundFacade {
+  /** Per PR line: the APPROVED GR with the earliest approval in effect (approved_at, then GR id) through GR → GRR → PO line. */
+  static async firstReceipts(m: EntityManager, purchaseRequisitionLineIds: number[]): Promise<Map<number, FirstReceipt>> {
+    if (!purchaseRequisitionLineIds.length) return new Map();
+    const rows: (FirstReceipt & { prLineId: number })[] = await m.query(
+      `SELECT DISTINCT ON (pol.purchase_requisition_line_id)
+              pol.purchase_requisition_line_id AS "prLineId", gr.id AS "goodsReceiptId", gr.document_number AS "documentNumber",
+              gr.warehouse_id AS "warehouseId", w.code AS "warehouseCode", gr.approved_at AS "approvedAt"
+         FROM purchase_order_lines pol
+         JOIN goods_receipt_request_lines grrl ON grrl.purchase_order_line_id = pol.id
+         JOIN goods_receipt_lines grl ON grl.goods_receipt_request_line_id = grrl.id
+         JOIN goods_receipts gr ON gr.id = grl.goods_receipt_id AND gr.approval_status = 'APPROVED'
+         JOIN warehouses w ON w.id = gr.warehouse_id
+        WHERE pol.purchase_requisition_line_id = ANY($1)
+        ORDER BY pol.purchase_requisition_line_id, gr.approved_at, gr.id`,
+      [purchaseRequisitionLineIds],
+    );
+    return new Map(rows.map(({ prLineId, ...r }) => [prLineId, r]));
+  }
+}
 export interface DetailInput { id: number; serialNumber?: string | null; location?: string | null; warrantyInfo?: string | null }
 
 /** GRR and GR (03 §1, §2). */

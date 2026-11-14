@@ -209,3 +209,23 @@ describe('GIR A/C form (PR code #5)', () => {
     }]));
   });
 });
+
+describe('GIR A/C detail: first GR and received (PR code #6)', () => {
+  it('shows the first GR with its warehouse and the received quantity, or "not received"', async () => {
+    const base = { documentNumber: 'GIR-2026-000004', issueType: 'PURCHASE_REQUISITION', category: 'SALES_GOODS', approvalStatus: 'APPROVED', approvalStep: null,
+      executionStatus: 'NOT_STARTED', salesContractNumber: 'SC-1', warehouseCode: 'HCM', createdByName: 'PM', assignedApproverName: 'A', createdAt: '2026-11-14T00:00:00Z',
+      version: 3, warehouseId: 1, salesContractId: 1, createdBy: 2, assignedApproverId: 3, warehouseApproverName: null, completionReason: null, goodsIssues: [], history: [] };
+    const line = { prNumber: 'PR-2026-000001', salesContractLineId: 1, contractItem: 'Switch', contractQuantity: '10', productId: 5, partNumber: 'PN-1',
+      productName: 'Switch', isSerialTracked: false, uom: 'PCS', quantity: '10', productConfirmed: true, issuedQuantity: '0', committedQuantity: '0' };
+    const gir = { ...base, id: 4, lines: [
+      { ...line, id: 41, firstGoodsReceipt: { goodsReceiptId: 9, documentNumber: 'GR-2026-000009', warehouseCode: 'HCM' }, receivedQuantity: 7 },
+      { ...line, id: 42, partNumber: 'PN-2', firstGoodsReceipt: null, receivedQuantity: 0 },
+    ] };
+    mockApi({ '/auth/me': me(['GIR.VIEW']), '/goods-issue-requests/4': gir, '/goods-issue-requests': [gir] });
+    wrap(<GoodsIssueRequestsPage />);
+    fireEvent.click(await screen.findByText('GIR-2026-000004'));
+    expect(await screen.findByText('GR-2026-000009 · HCM')).toBeTruthy();
+    expect(screen.getByText('Chưa nhập kho')).toBeTruthy();
+    expect(screen.getByRole('gridcell', { name: '7' })).toBeTruthy();
+  });
+});

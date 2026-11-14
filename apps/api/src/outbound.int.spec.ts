@@ -3,9 +3,9 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { CurrentUser, IdentityService } from './modules/identity/auth';
 import { hashPassword } from './modules/identity/password';
-import { InboundService } from './modules/inbound/inbound.service';
+import { InboundFacade, InboundService } from './modules/inbound/inbound.service';
 import { InventoryFacade } from './modules/inventory/inventory.service';
-import { ProcurementService } from './modules/procurement/procurement.service';
+import { ProcurementFacade, ProcurementService } from './modules/procurement/procurement.service';
 import { SalesContractsService } from './modules/sales-contracts/sales-contracts.service';
 import { RECONCILE_SQL } from './database/migrations/1732060800000-LotAllocations';
 import { bootTestApp, login } from './test-utils';
@@ -704,6 +704,95 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect(sources).toEqual([{ sc: y.id }]);
     await post(sales, `/goods-issues/${gi}/approve`).expect(204);
     expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  // ---------- First GR and received quantity on GIR A/C lines (PR code #6) ----------
+
+  /** GRR + GR for `qty` of one PO line into `warehouseId`; approved unless `approve` is false. Returns the GR id. */
+  async function grFrom(poId: number, poLineId: number, qty: number, warehouseId: number, approve = true) {
+    const inbound = app.get(InboundService);
+    const grr = await inbound.createGrr(pmUser, poId, warehouseId, [{ sourceLineId: poLineId, quantity: qty }]);
+    await inbound.submitGrr(grr.id, pmUser, salesId);
+    await inbound.approveGrr(grr.id, salesUser);
+    const gr = await inbound.createGr(pmUser, grr.id);
+    await inbound.submitGr(gr.id, pmUser, salesId);
+    if (approve) await inbound.approveGr(gr.id, salesUser);
+    return gr.id as number;
+  }
+  /** A PR with one cable line of `qty`, ordered on several APPROVED POs (one per entry of `split`). */
+  async function prOnPos(sc: Contract, qty: number, split: number[]) {
+    const proc = app.get(ProcurementService);
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ salesContractLineId: sc.cableLine, productId: cable, quantity: qty }]);
+    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.approve('PR', pr.id, salesUser);
+    const [{ id: prLine }] = await ds.query(`SELECT id FROM purchase_requisition_lines WHERE purchase_requisition_id = $1`, [pr.id]);
+    const pos: { poId: number; poLine: number }[] = [];
+    for (const q of split) {
+      const [{ id: sup }] = await ds.query(`INSERT INTO suppliers (code, name) VALUES ($1, 'S') RETURNING id`, [`S${Math.random()}`]);
+      const po = await proc.createPurchaseOrder(pmUser, sup, [{ sourceLineId: prLine, quantity: q }]);
+      await proc.submit('PO', po.id, pmUser, salesId);
+      await proc.approve('PO', po.id, salesUser);
+      const [{ id: poLine }] = await ds.query(`SELECT id FROM purchase_order_lines WHERE purchase_order_id = $1`, [po.id]);
+      pos.push({ poId: po.id, poLine });
+    }
+    return { prLine: prLine as number, pos };
+  }
+  const girLine = async (girId: number) => (await get(pm, `/goods-issue-requests/${girId}`)).lines[0];
+  const prGir = async (sc: Contract, prLine: number, qty: number, wh = hcm) =>
+    (await post(pm, '/goods-issue-requests', { issueType: 'PURCHASE_REQUISITION', salesContractId: sc.id, warehouseId: wh, lines: [{ purchaseRequisitionLineId: prLine, quantity: qty }] })
+      .expect(201)).body.id as number;
+
+  it('no GR yet: first GR is empty, received 0, and the GIR is still submitted and approved (C62, C63)', async () => {
+    const sc = await contract(10, 10);
+    const { prLine } = await prOnPos(sc, 5, [5]);
+    const gir = await prGir(sc, prLine, 5);
+    expect(await girLine(gir)).toMatchObject({ firstGoodsReceipt: null, receivedQuantity: 0 });
+    await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
+  });
+
+  it('several POs and GRs: first approved GR wins, received sums approved GRs only, other PR lines of the same product stay apart (C64–C66)', async () => {
+    const wh2 = await isolatedWarehouse('FR2');
+    const sc = await contract(50, 50);
+    const { prLine, pos: [po1, po2] } = await prOnPos(sc, 10, [6, 4]);
+    const other = await prOnPos(sc, 7, [7]); // same HĐ line and product, another PR
+    await grFrom(other.pos[0].poId, other.pos[0].poLine, 7, hcm); // must not leak into prLine
+    const gir = await prGir(sc, prLine, 10);
+    await post(pm, `/goods-issue-requests/${gir}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issue-requests/${gir}/approve`).expect(204);
+    expect(await girLine(gir)).toMatchObject({ firstGoodsReceipt: null, receivedQuantity: 0 });
+    const { version, history } = await get(pm, `/goods-issue-requests/${gir}`);
+
+    const gr1 = await grFrom(po1.poId, po1.poLine, 3, hcm); // C64: GIR already APPROVED
+    await grFrom(po1.poId, po1.poLine, 3, hcm, false); // pending GR: ignored
+    const gr2 = await grFrom(po2.poId, po2.poLine, 4, wh2); // C66: later GR does not replace the first
+    const line = await girLine(gir);
+    expect(line.firstGoodsReceipt).toMatchObject({ goodsReceiptId: gr1, warehouseCode: 'HCM' });
+    expect(line.receivedQuantity).toBe(7);
+    const after = await get(pm, `/goods-issue-requests/${gir}`);
+    expect([after.approvalStatus, after.version, after.history.length, Number(line.quantity)]).toEqual(['APPROVED', version, history.length, 10]); // GIR untouched
+
+    // Tie on approved_at: the lower GR id is first (stable).
+    await ds.query(`UPDATE goods_receipts SET approved_at = (SELECT approved_at FROM goods_receipts WHERE id = $1) WHERE id = $2`, [gr1, gr2]);
+    expect((await girLine(gir)).firstGoodsReceipt.goodsReceiptId).toBe(Math.min(gr1, gr2));
+  });
+
+  it('a recalled GR no longer counts: the next approved GR becomes first and received drops (PR 8 recall applies the same state)', async () => {
+    const sc = await contract(50, 50);
+    const { prLine, pos: [po1, po2] } = await prOnPos(sc, 10, [5, 5]);
+    const gr1 = await grFrom(po1.poId, po1.poLine, 5, hcm);
+    const gr2 = await grFrom(po2.poId, po2.poLine, 2, hcm);
+    const result = await ds.transaction(async (m) => {
+      // What a valid recall of gr1 leaves behind (03 §2.2, IM25): status back to DRAFT with approved_at cleared, PO progress reversed.
+      await m.query(`UPDATE goods_receipts SET approval_status = 'DRAFT', approved_at = NULL WHERE id = $1`, [gr1]);
+      await ProcurementFacade.applyReceipt(m, [{ purchaseOrderLineId: po1.poLine, quantity: '5' }], -1);
+      const out = { first: (await InboundFacade.firstReceipts(m, [prLine])).get(prLine), received: (await ProcurementFacade.receivedByPrLine(m, [prLine])).get(prLine) };
+      throw Object.assign(new Error('rollback'), { out });
+    }).catch((e: Error & { out?: unknown }) => { if (e.message !== 'rollback') throw e; return e.out as { first?: { goodsReceiptId: number }; received?: number }; });
+    expect(result.first?.goodsReceiptId).toBe(gr2);
+    expect(result.received).toBe(2);
+    const gir = await prGir(sc, prLine, 1);
+    expect(await girLine(gir)).toMatchObject({ firstGoodsReceipt: { goodsReceiptId: gr1 }, receivedQuantity: 7 }); // rolled back: unchanged
   });
 
   // ---------- Completion ----------

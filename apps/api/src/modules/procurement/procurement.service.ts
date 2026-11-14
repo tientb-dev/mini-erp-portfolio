@@ -61,6 +61,19 @@ export class ProcurementFacade {
     return new Map(rows.map((r) => [r.id, r]));
   }
 
+  /**
+   * Received quantity per PR line: Σ received_quantity of its PO lines — the PO receipt progress maintained by Inbound
+   * (APPROVED GRs only, reversed on recall), so several POs and GRs add up once each.
+   */
+  static async receivedByPrLine(m: EntityManager, purchaseRequisitionLineIds: number[]): Promise<Map<number, number>> {
+    const rows: { id: number; received: string }[] = await m.query(
+      `SELECT purchase_requisition_line_id AS id, SUM(received_quantity) AS received FROM purchase_order_lines
+        WHERE purchase_requisition_line_id = ANY($1) GROUP BY purchase_requisition_line_id`,
+      [purchaseRequisitionLineIds],
+    );
+    return new Map(rows.map((r) => [r.id, Number(r.received)]));
+  }
+
   /** Unlocked read of PR lines (HĐ and HĐ line), so a GIR can validate and lock HĐ lines before PR lines (CT8). */
   static peekLines(m: EntityManager, prLineIds: number[]): Promise<{ id: number; salesContractId: number; salesContractLineId: number | null }[]> {
     return m.query(

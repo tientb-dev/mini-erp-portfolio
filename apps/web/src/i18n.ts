@@ -126,7 +126,8 @@ const vi = {
     tabChildren: 'Đơn đặt mua', noChildren: 'Chưa có đơn đặt mua nào tham chiếu PR này.',
   },
   po: {
-    title: 'Đơn đặt mua (PO)', number: 'Số PO', create: 'Tạo đơn đặt mua', supplier: 'Nhà cung cấp',
+    title: 'Đơn đặt mua (PO)', number: 'Số PO', receiptStatus: 'Tình trạng nhập kho', received: 'Đã nhập kho',
+    receipt: { NOT_RECEIVED: 'Chưa nhập kho', PARTIALLY_RECEIVED: 'Nhập kho một phần', RECEIVED: 'Đã nhập kho' }, create: 'Tạo đơn đặt mua', supplier: 'Nhà cung cấp',
     createHint: 'Chọn nhà cung cấp và số lượng đặt cho các dòng PR đã duyệt còn số lượng.', noSupplier: 'Chưa có nhà cung cấp. Thêm ở mục Danh mục > Nhà cung cấp.',
     noLines: 'Không còn dòng PR đã duyệt nào cần đặt mua.', empty: 'Chưa có đơn đặt mua. Bấm "Tạo đơn đặt mua" từ các PR đã duyệt.',
     lineRef: 'PR', used: 'Đã đề nghị nhập', tabChildren: 'Đề nghị nhập', noChildren: 'Xem các đề nghị nhập ở mục Đề nghị nhập kho.',
@@ -273,7 +274,8 @@ const en: typeof vi = {
     tabChildren: 'Purchase orders', noChildren: 'No purchase order references this PR yet.',
   },
   po: {
-    title: 'Purchase orders', number: 'PO number', create: 'New purchase order', supplier: 'Supplier',
+    title: 'Purchase orders', number: 'PO number', receiptStatus: 'Receipt status', received: 'Received',
+    receipt: { NOT_RECEIVED: 'Not received', PARTIALLY_RECEIVED: 'Partially received', RECEIVED: 'Received' }, create: 'New purchase order', supplier: 'Supplier',
     createHint: 'Pick the supplier and the quantity to order for approved PR lines with quantity left.', noSupplier: 'No suppliers yet. Add one under Master data > Suppliers.',
     noLines: 'No approved PR lines left to order.', empty: 'No purchase orders yet. Select "New purchase order" from approved PRs.',
     lineRef: 'PR', used: 'Requested for receipt', tabChildren: 'Receipt requests', noChildren: 'See receipt requests under Receipt requests.',

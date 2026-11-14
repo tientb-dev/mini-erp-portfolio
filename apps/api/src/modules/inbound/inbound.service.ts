@@ -2,6 +2,7 @@ import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { InventoryFacade, normalizeSerial } from '../inventory/inventory.service';
+import { ProcurementFacade } from '../procurement/procurement.service';
 import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
@@ -255,12 +256,15 @@ export class InboundService {
     return this.ds.transaction(async (m) => {
       const doc = await wf.lockDocument(m, 'GR', id);
       wf.assertWarehouse(user, doc.warehouse_id!);
-      await wf.approve(m, 'GR', doc, user); // validates WAITING_FOR_APPROVE + assigned approver first
+      // Validates WAITING_FOR_APPROVE + assigned approver first; approved_at (FIFO key, ADR-0013) is set in the same UPDATE.
+      await wf.approve(m, 'GR', doc, user, ', approved_at = now()');
       await this.checkGrSerials(m, id);
-      const lines: { id: number; product_id: number; quantity: string }[] = await m.query(
-        `SELECT id, product_id, quantity FROM goods_receipt_lines WHERE goods_receipt_id = $1 ORDER BY id`,
+      const lines: { id: number; product_id: number; quantity: string; purchase_order_line_id: number }[] = await m.query(
+        `SELECT l.id, l.product_id, l.quantity, rl.purchase_order_line_id FROM goods_receipt_lines l
+           JOIN goods_receipt_request_lines rl ON rl.id = l.goods_receipt_request_line_id WHERE l.goods_receipt_id = $1 ORDER BY l.id`,
         [id],
       );
+      await ProcurementFacade.applyReceipt(m, lines.map((l) => ({ purchaseOrderLineId: l.purchase_order_line_id, quantity: l.quantity })), 1);
       const details: { id: number; goods_receipt_line_id: number; serial_number: string | null; normalized_serial_number: string | null }[] =
         await m.query(
           `SELECT d.id, d.goods_receipt_line_id, d.serial_number, d.normalized_serial_number FROM goods_receipt_details d

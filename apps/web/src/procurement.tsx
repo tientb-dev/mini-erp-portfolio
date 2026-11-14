@@ -7,7 +7,8 @@ import { TFunction } from 'i18next';
 import { api, Product } from './api';
 import { DocAction, DocActionDialog, Field, fmtDate, HistoryEntry, HistoryList, useMe } from './doc-ui';
 import { FormDialog } from './pages';
-import { ApprovalStatusChip, DataTable, ErrorAlert, PageHeader } from './ui';
+import { ApprovalStatusChip, DataTable, ErrorAlert, PageHeader, StatusChip } from './ui';
+import { StatusTone } from './theme';
 
 /** PR, PO and GRR share one list/detail layout; only the create form and a few header fields differ. */
 
@@ -15,7 +16,7 @@ interface DocRow {
   id: number; documentNumber: string; approvalStatus: string; version: number; createdBy: number; createdByName: string;
   assignedApproverId: number | null; assignedApproverName: string | null; createdAt: string; [extra: string]: unknown;
 }
-interface DocLine { id: number; sourceLineId: number; productId?: number; ref: string; partNumber: string; productName: string; uom: string; quantity: string; usedQuantity?: string }
+interface DocLine { id: number; sourceLineId: number; productId?: number; ref: string; partNumber: string; productName: string; uom: string; quantity: string; usedQuantity?: string; receivedQuantity?: string }
 interface DocDetail extends DocRow { lines: DocLine[]; children: { id: number; documentNumber: string; approvalStatus: string }[]; history: HistoryEntry[] }
 /** `edit` set = the same form edits that DRAFT/REJECTED document (PATCH); source document fields stay fixed. */
 interface CreateProps { onClose: () => void; onCreated: (id: number) => void; edit?: DocDetail }
@@ -36,6 +37,12 @@ interface DocConfig {
 }
 
 const num = (v: string | number) => Number(v);
+
+const receiptTone: Record<string, StatusTone> = { NOT_RECEIVED: 'neutral', PARTIALLY_RECEIVED: 'pending', RECEIVED: 'success' };
+function ReceiptStatusChip({ status }: { status: string }) {
+  const { t } = useTranslation();
+  return <StatusChip label={t(`po.receipt.${status}`)} tone={receiptTone[status] ?? 'neutral'} />;
+}
 
 function DocListPage({ cfg }: { cfg: DocConfig }) {
   const { t } = useTranslation();
@@ -83,12 +90,14 @@ function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number; onBack
   const isApprover = status === 'WAITING_FOR_APPROVE' && d.assignedApproverId === me.data.id;
   const editable = ['DRAFT', 'REJECTED'].includes(status);
   const hasUsed = d.lines.some((l) => l.usedQuantity !== undefined);
+  const hasReceived = d.lines.some((l) => l.receivedQuantity !== undefined);
   const lineColumns: GridColDef<DocLine>[] = [
     { field: 'ref', headerName: t(`${cfg.key}.lineRef`), flex: 1, minWidth: 150 },
     { field: 'partNumber', headerName: t('product.partNumber'), width: 150 },
     { field: 'productName', headerName: t('product.name'), flex: 1, minWidth: 160 },
     { field: 'quantity', headerName: t('gr.quantity'), type: 'number', width: 110, valueGetter: (v: string) => num(v) },
     ...(hasUsed ? [{ field: 'usedQuantity', headerName: t(`${cfg.key}.used`), type: 'number' as const, width: 130, valueGetter: (v: string) => num(v) }] : []),
+    ...(hasReceived ? [{ field: 'receivedQuantity', headerName: t('po.received'), type: 'number' as const, width: 120, valueGetter: (v: string) => num(v) }] : []),
     { field: 'uom', headerName: t('product.uom'), width: 70 },
   ];
   const actions = (
@@ -317,8 +326,11 @@ const PR: DocConfig = {
 };
 const PO: DocConfig = {
   key: 'po', perm: 'PO', path: 'purchase-orders', Create: CreatePoDialog,
-  columns: (t) => [{ field: 'supplierName', headerName: t('po.supplier'), flex: 1, minWidth: 180 }],
-  fields: (d, t) => [[t('po.supplier'), String(d.supplierName)]],
+  columns: (t) => [
+    { field: 'supplierName', headerName: t('po.supplier'), flex: 1, minWidth: 180 },
+    { field: 'receiptStatus', headerName: t('po.receiptStatus'), width: 170, renderCell: (p) => <ReceiptStatusChip status={String(p.value)} /> },
+  ],
+  fields: (d, t) => [[t('po.supplier'), String(d.supplierName)], [t('po.receiptStatus'), <ReceiptStatusChip key="receipt" status={String(d.receiptStatus)} />]],
 };
 const GRR: DocConfig = {
   key: 'grr', perm: 'GRR', path: 'goods-receipt-requests', Create: CreateGrrDialog,

@@ -10,6 +10,31 @@ import { BusinessError } from '../workflow/workflow';
 export interface PrLineInput { id?: number; salesContractLineId: number; productId: number; quantity: number }
 export interface SourceLineInput { id?: number; sourceLineId: number; quantity: number }
 
+/** PO receipt status from line aggregates (03 §1, CT12); a PO with nothing received (or no lines) is NOT_RECEIVED. */
+const RECEIPT_STATUS_SQL = `CASE
+    WHEN NOT EXISTS (SELECT 1 FROM purchase_order_lines x WHERE x.purchase_order_id = d.id AND x.received_quantity > 0) THEN 'NOT_RECEIVED'
+    WHEN NOT EXISTS (SELECT 1 FROM purchase_order_lines x WHERE x.purchase_order_id = d.id AND x.received_quantity < x.quantity) THEN 'RECEIVED'
+    ELSE 'PARTIALLY_RECEIVED' END`;
+
+/**
+ * Facade for Inbound (ADR-0003): Inbound calls Procurement, never the reverse. Runs inside the caller's transaction.
+ */
+export class ProcurementFacade {
+  /**
+   * Adds (approve GR, sign 1) or removes (recall of an APPROVED GR, sign -1) received quantities on PO lines.
+   * Locks the PO lines in id order; the CHECK 0 ≤ received ≤ ordered is the last line of defence.
+   */
+  static async applyReceipt(m: EntityManager, lines: { purchaseOrderLineId: number; quantity: string }[], sign: 1 | -1) {
+    const ids = [...new Set(lines.map((l) => l.purchaseOrderLineId))].sort((a, b) => a - b);
+    await m.query(`SELECT id FROM purchase_order_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE`, [ids]);
+    for (const l of lines) {
+      await m.query(`UPDATE purchase_order_lines SET received_quantity = received_quantity + $2::numeric * $3 WHERE id = $1`, [
+        l.purchaseOrderLineId, l.quantity, sign,
+      ]);
+    }
+  }
+}
+
 /**
  * Upstream of GR (PR → PO). Minimal by design for the GR slice: main products only (no temporary
  * products/mapping yet), one-level approval, quantity limits re-checked at submit and approve.
@@ -253,7 +278,7 @@ export class ProcurementService {
 
   listPos(user: CurrentUser, assignedToMe: boolean) {
     return this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, sp.name AS "supplierName"
+      `SELECT ${wf.DOC_COLUMNS}, sp.name AS "supplierName", ${RECEIPT_STATUS_SQL} AS "receiptStatus"
          FROM purchase_orders d JOIN suppliers sp ON sp.id = d.supplier_id
         WHERE NOT $2 OR (d.approval_status = 'WAITING_FOR_APPROVE' AND d.assigned_approver_id = $1)
         ORDER BY d.id DESC`,
@@ -263,13 +288,13 @@ export class ProcurementService {
 
   async getPo(id: number) {
     const [po] = await this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.supplier_id AS "supplierId", sp.name AS "supplierName" FROM purchase_orders d JOIN suppliers sp ON sp.id = d.supplier_id WHERE d.id = $1`,
+      `SELECT ${wf.DOC_COLUMNS}, d.supplier_id AS "supplierId", sp.name AS "supplierName", ${RECEIPT_STATUS_SQL} AS "receiptStatus" FROM purchase_orders d JOIN suppliers sp ON sp.id = d.supplier_id WHERE d.id = $1`,
       [id],
     );
     if (!po) throw new NotFoundException();
     const lines = await this.ds.query(
       `SELECT l.id, l.purchase_requisition_line_id AS "sourceLineId", pr.document_number AS "ref", p.part_number AS "partNumber",
-              p.name AS "productName", u.code AS uom, l.quantity
+              p.name AS "productName", u.code AS uom, l.quantity, l.received_quantity AS "receivedQuantity"
          FROM purchase_order_lines l
          JOIN purchase_requisition_lines prl ON prl.id = l.purchase_requisition_line_id
          JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id

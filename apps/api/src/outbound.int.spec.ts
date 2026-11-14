@@ -907,6 +907,216 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect(await girLine(gir)).toMatchObject({ firstGoodsReceipt: { goodsReceiptId: gr1 }, receivedQuantity: 7 }); // rolled back: unchanged
   });
 
+  // ---------- Recall of an APPROVED GR (PR code #8) ----------
+
+  /** receive() plus the id of the GR it approved. */
+  async function receiveGr(warehouseId: number, routerSns: number, cableQty: number, into?: Contract) {
+    const details = await receive(warehouseId, routerSns, cableQty, into);
+    const [{ id }] = await ds.query(`SELECT max(id) AS id FROM goods_receipts WHERE approval_status = 'APPROVED'`);
+    return { gr: id as number, details };
+  }
+  const recallGr = (gr: number, as = pm, reason: string | undefined = 'wrong delivery') => post(as, `/goods-receipts/${gr}/recall`, { reason });
+  const grState = async (gr: number) => {
+    const [g] = await ds.query(`SELECT approval_status, approved_at FROM goods_receipts WHERE id = $1`, [gr]);
+    const [{ lots, txs, sns, details }] = await ds.query(
+      `SELECT (SELECT count(*)::int FROM inventory_lots WHERE goods_receipt_line_id IN (SELECT id FROM goods_receipt_lines WHERE goods_receipt_id = $1)) AS lots,
+              (SELECT count(*)::int FROM inventory_transactions WHERE source_document_type = 'GR' AND source_line_id IN (SELECT id FROM goods_receipt_lines WHERE goods_receipt_id = $1)) AS txs,
+              (SELECT count(*)::int FROM inventory_serials s JOIN goods_receipt_details d ON d.id = s.goods_receipt_detail_id
+                 JOIN goods_receipt_lines l ON l.id = d.goods_receipt_line_id WHERE l.goods_receipt_id = $1) AS sns,
+              (SELECT count(*)::int FROM goods_receipt_details d JOIN goods_receipt_lines l ON l.id = d.goods_receipt_line_id WHERE l.goods_receipt_id = $1) AS details`, [gr]);
+    return { status: g.approval_status, approvedAt: g.approved_at, lots, txs, sns, details };
+  };
+
+  it('recall undoes the receipt (stock, lots, serials, movements, PO progress) and keeps details + history; re-approval records it once (B16, B21)', async () => {
+    const wh = await isolatedWarehouse('RC1');
+    const sc = await contract(50, 50);
+    const { gr } = await receiveGr(wh, 2, 5, sc);
+    const [{ po }] = await ds.query(`SELECT r.purchase_order_id AS po FROM goods_receipts g JOIN goods_receipt_requests r ON r.id = g.goods_receipt_request_id WHERE g.id = $1`, [gr]);
+    const poStatus = async () => (await get(pm, `/purchase-orders/${po}`)).receiptStatus;
+    expect(await poStatus()).toBe('RECEIVED');
+    expect(await grState(gr)).toMatchObject({ status: 'APPROVED', lots: 2, txs: 2, sns: 2, details: 3 });
+
+    expect((await recallGr(gr, pm, '')).status).toBe(400); // reason is mandatory (DTO validation)
+    expect((await recallGr(gr, sales)).body.code).toBe('NOT_DOCUMENT_CREATOR');
+    await recallGr(gr).expect(204);
+    expect(await grState(gr)).toEqual({ status: 'DRAFT', approvedAt: null, lots: 0, txs: 0, sns: 0, details: 3 }); // details kept
+    expect(await balance(wh, cable)).toEqual({ onHand: 0, reserved: 0 });
+    expect(await balance(wh, router)).toEqual({ onHand: 0, reserved: 0 });
+    expect(await poStatus()).toBe('NOT_RECEIVED');
+    expect((await get(pm, `/goods-receipts/${gr}`)).history.map((h: { action: string }) => h.action)).toEqual(['SUBMIT', 'APPROVE', 'RECALL']);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+
+    // B21: the same serials are received again once the GR is re-approved.
+    await post(pm, `/goods-receipts/${gr}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-receipts/${gr}/approve`).expect(204);
+    expect(await grState(gr)).toMatchObject({ status: 'APPROVED', lots: 2, txs: 2, sns: 2 });
+    expect(await balance(wh, cable)).toEqual({ onHand: 5, reserved: 0 });
+    expect(await poStatus()).toBe('RECEIVED');
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('blocked while the lot is reserved or issued by a GI, allowed again once the reservation is released; never re-allocated (C80–C82, CT14)', async () => {
+    const wh = await isolatedWarehouse('RC2');
+    const sc = await contract(100, 100);
+    const { gr } = await receiveGr(wh, 0, 5, sc);
+    await receive(wh, 0, 50, sc); // plenty of other stock of the same HĐ and product: still blocked, lots are what count
+    const gir = await approvedGir(sc, 0, 2, wh);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: 1 }] }).expect(201)).body.id;
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204); // FIFO reserves on the GR's lot
+    const blocked = await recallGr(gr);
+    expect([blocked.status, blocked.body.code]).toEqual([409, 'GR_STOCK_IN_USE']); // C80
+    expect((await grState(gr)).status).toBe('APPROVED');
+    await post(sales, `/goods-issues/${gi}/reject`, { reason: 'x' }).expect(204); // C82: reservation released
+    await recallGr(gr).expect(204);
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+
+    // C81: once issued from a lot, its GR can never be recalled, even with stock left elsewhere.
+    const { gr: gr2 } = await receiveGr(wh, 0, 5, sc); // newest lot; drain the older one first
+    const gir2 = await approvedGir(sc, 0, 45, wh);
+    const big = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir2.id, lines: [{ goodsIssueRequestLineId: gir2.cableLine, quantity: 45 }] }).expect(201)).body.id;
+    await post(pm, `/goods-issues/${big}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issues/${big}/approve`).expect(204); // 50 older + 5 newest: FIFO takes 45 from the older lot only
+    await recallGr(gr2).expect(204); // untouched lot: fine
+    const { gr: gr3 } = await receiveGr(wh, 0, 5, sc);
+    const gir3 = await approvedGir(sc, 0, 7, wh); // 5 left on the older lot + 2 from gr3
+    const take = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir3.id, lines: [{ goodsIssueRequestLineId: gir3.cableLine, quantity: 7 }] }).expect(201)).body.id;
+    await post(pm, `/goods-issues/${take}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issues/${take}/approve`).expect(204);
+    expect((await recallGr(gr3)).body.code).toBe('GR_STOCK_IN_USE');
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('serials on a GI that is not canceled block the recall, even DRAFT/REJECTED; canceled GIs do not (B17, B18, B23, B24)', async () => {
+    const wh = await isolatedWarehouse('RC3');
+    const sc = await contract(50, 50);
+    const { gr, details: [sn] } = await receiveGr(wh, 1, 0, sc);
+    const gir = await approvedGir(sc, 1, 0, wh);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.routerLine, quantity: 1, goodsReceiptDetailIds: [sn] }] })
+      .expect(201)).body.id;
+    expect((await recallGr(gr)).body.code).toBe('GR_STOCK_IN_USE'); // B23: a DRAFT GI holds the serial
+    expect(await serialStatus(sn)).toBe('IN_STOCK'); // never removed from the GI automatically
+    await post(pm, `/goods-issues/${gi}/cancel`).expect(204);
+    await recallGr(gr).expect(204); // B24
+    expect(await ds.query(`SELECT count(*)::int AS n FROM goods_issue_serials WHERE goods_issue_line_id IN (SELECT id FROM goods_issue_lines WHERE goods_issue_id = $1)`, [gi]))
+      .toEqual([{ n: 1 }]); // the canceled GI keeps its serial row for the trail
+  });
+
+  it('the first GR shown on a live GIR cannot be recalled; once those GIRs are canceled the next GR becomes first, else none (C75, C76, C86, C87)', async () => {
+    const wh = await isolatedWarehouse('RC4');
+    const sc = await contract(50, 50);
+    const { prLine, pos: [po1, po2] } = await prOnPos(sc, 10, [5, 5]);
+    const gr1 = await grFrom(po1.poId, po1.poLine, 5, wh);
+    const gr2 = await grFrom(po2.poId, po2.poLine, 2, wh);
+    const gir = await prGir(sc, prLine, 3, wh);
+    const { version, history } = await get(pm, `/goods-issue-requests/${gir}`);
+    expect((await recallGr(gr1)).body.code).toBe('GR_REFERENCED_BY_GIR'); // C75 (DRAFT GIR counts)
+    await recallGr(gr2).expect(204); // not the first GR: allowed even with the GIR
+    expect(await girLine(gir)).toMatchObject({ firstGoodsReceipt: { goodsReceiptId: gr1 }, receivedQuantity: 5 });
+    await post(pm, `/goods-issue-requests/${gir}/cancel`).expect(204);
+    await post(pm, `/goods-receipts/${gr2}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-receipts/${gr2}/approve`).expect(204);
+    await recallGr(gr1).expect(204); // C76
+    const after = await get(pm, `/goods-issue-requests/${gir}`);
+    expect([after.version, after.history.length]).toEqual([version + 1, history.length + 1]); // only the cancel above, no change from the recall
+    expect(after.lines[0]).toMatchObject({ firstGoodsReceipt: { goodsReceiptId: gr2 }, receivedQuantity: 2 }); // C86
+    await recallGr(gr2).expect(204);
+    expect((await get(pm, `/goods-issue-requests/${gir}`)).lines[0]).toMatchObject({ firstGoodsReceipt: null, receivedQuantity: 0 }); // C87
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('recall racing a GI submit on the same lot: exactly one wins, stock never goes negative (B20)', async () => {
+    const wh = await isolatedWarehouse('RC5');
+    const sc = await contract(50, 50);
+    const { gr } = await receiveGr(wh, 0, 3, sc);
+    const gir = await approvedGir(sc, 0, 3, wh);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: gir.id, lines: [{ goodsIssueRequestLineId: gir.cableLine, quantity: 3 }] }).expect(201)).body.id;
+    const [r, s] = await Promise.all([recallGr(gr), post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId })]);
+    expect([r.status, s.status].sort()).toEqual([204, 409]);
+    if (r.status === 409) expect(r.body.code).toBe('GR_STOCK_IN_USE');
+    else expect(s.body.code).toBe('INSUFFICIENT_AVAILABLE_STOCK');
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('final GIR rule: first GR blocked while a live GIR shows it; once the GIR has a live GI every GR of its PR line is blocked; canceled GIs lift it (CT11)', async () => {
+    const wh = await isolatedWarehouse('RC6');
+    const sc = await contract(50, 50);
+    const { prLine, pos: [po1, po2] } = await prOnPos(sc, 10, [6, 4]); // one PR line on two POs
+    const gr1 = await grFrom(po1.poId, po1.poLine, 3, wh);
+    const gr2 = await grFrom(po2.poId, po2.poLine, 4, wh);
+    const gr3 = await grFrom(po1.poId, po1.poLine, 3, wh);
+    const girId = await prGir(sc, prLine, 2, wh);
+    await post(pm, `/goods-issue-requests/${girId}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issue-requests/${girId}/approve`).expect(204);
+
+    // 1. No GI yet: only the first GR is blocked.
+    expect((await recallGr(gr1)).body.code).toBe('GR_REFERENCED_BY_GIR');
+    await recallGr(gr3).expect(204);
+    await post(pm, `/goods-receipts/${gr3}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-receipts/${gr3}/approve`).expect(204);
+
+    // 2. A GI that is not canceled (even a DRAFT that allocates nothing) blocks every GR of the PR line.
+    const [{ id: girLineId }] = await ds.query(`SELECT id FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [girId]);
+    const gi = (await post(pm, '/goods-issues', { goodsIssueRequestId: girId, lines: [{ goodsIssueRequestLineId: girLineId, quantity: 1 }] }).expect(201)).body.id;
+    for (const gr of [gr2, gr3]) {
+      const res = await recallGr(gr);
+      expect([res.status, res.body.code]).toEqual([409, 'GR_LINKED_TO_GOODS_ISSUE']);
+    }
+    await post(pm, `/goods-issues/${gi}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issues/${gi}/reject`, { reason: 'x' }).expect(204);
+    expect((await recallGr(gr2)).body.code).toBe('GR_LINKED_TO_GOODS_ISSUE'); // REJECTED is not canceled
+
+    // 3. All GIs canceled: back to rule 1.
+    await post(pm, `/goods-issues/${gi}/cancel`).expect(204);
+    await recallGr(gr2).expect(204);
+    expect((await recallGr(gr1)).body.code).toBe('GR_REFERENCED_BY_GIR');
+    expect(await girLine(girId)).toMatchObject({ firstGoodsReceipt: { goodsReceiptId: gr1 }, receivedQuantity: 6 });
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('GIRs and GIs on another PR line never block, even with the same product, warehouse and HĐ', async () => {
+    const wh = await isolatedWarehouse('RC7');
+    const sc = await contract(50, 50);
+    const mine = await prOnPos(sc, 5, [5]);
+    const other = await prOnPos(sc, 5, [5]); // same HĐ line, product, warehouse; another PR line
+    const grMine = await grFrom(mine.pos[0].poId, mine.pos[0].poLine, 5, wh);
+    await grFrom(other.pos[0].poId, other.pos[0].poLine, 5, wh);
+    const girOther = await prGir(sc, other.prLine, 1, wh);
+    await post(pm, `/goods-issue-requests/${girOther}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issue-requests/${girOther}/approve`).expect(204);
+    const [{ id: l }] = await ds.query(`SELECT id FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [girOther]);
+    await post(pm, '/goods-issues', { goodsIssueRequestId: girOther, lines: [{ goodsIssueRequestLineId: l, quantity: 1 }] }).expect(201);
+    await recallGr(grMine).expect(204); // my PR line has no GIR: nothing to block
+    expect(await ds.query(RECONCILE_SQL)).toEqual([]);
+  });
+
+  it('a GI being created on the GIR meanwhile is serialized with the recall: the recall waits, then sees it (race)', async () => {
+    const wh = await isolatedWarehouse('RC8');
+    const sc = await contract(50, 50);
+    const { prLine, pos: [po1] } = await prOnPos(sc, 10, [10]);
+    await grFrom(po1.poId, po1.poLine, 4, wh);
+    const gr2 = await grFrom(po1.poId, po1.poLine, 4, wh); // not the first GR
+    const girId = await prGir(sc, prLine, 1, wh);
+    await post(pm, `/goods-issue-requests/${girId}/submit`, { approverId: salesId }).expect(204);
+    await post(sales, `/goods-issue-requests/${girId}/approve`).expect(204);
+
+    // Hold the GIR row the way GI create does, then add a GI and commit while the recall is waiting on that lock.
+    const qr = ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    await qr.query(`SELECT id FROM goods_issue_requests WHERE id = $1 FOR UPDATE`, [girId]);
+    let settled = false;
+    const pending = recallGr(gr2).then((r) => { settled = true; return r; });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(settled).toBe(false); // blocked on the GIR lock
+    await qr.query(`INSERT INTO goods_issues (document_number, goods_issue_request_id, warehouse_id, created_by) VALUES ('GI-RACE-1', $1, $2, $3)`,
+      [girId, wh, pmUser.id]);
+    await qr.commitTransaction();
+    await qr.release();
+    const res = await pending;
+    expect([res.status, res.body.code]).toEqual([409, 'GR_LINKED_TO_GOODS_ISSUE']);
+    await ds.query(`UPDATE goods_issues SET approval_status = 'CANCELED' WHERE document_number = 'GI-RACE-1'`);
+  });
+
   // ---------- Completion ----------
 
   it('completion: blocks open GIs, needs a reason when short, frees unissued quota, blocks new GIs (C11–C13, C16, C19–C21)', async () => {

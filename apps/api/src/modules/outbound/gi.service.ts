@@ -1,10 +1,21 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
-import { InventoryFacade, IssueItem } from '../inventory/inventory.service';
+import { InventoryFacade, IssueItem, StockScope } from '../inventory/inventory.service';
 import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
+
+/**
+ * Stock source a GI inherits from its GIR (ADR-0013; the GI user never picks it). The warehouse is always the GIR's.
+ * - SALES_CONTRACT (purchase-for-this-contract, A/C): only lots whose source HĐ is the GIR's HĐ.
+ * - AVAILABLE_STOCK (B/D): needs the source HĐ + source sales recorded on the GIR, which arrive with PR code #7.
+ *   Until then submitting such a GI is blocked — never widened to warehouse + product.
+ */
+export function sourceScope(gir: { issue_type: string; sales_contract_id: number }): StockScope {
+  if (gir.issue_type === 'SALES_CONTRACT') return { sourceSalesContractId: gir.sales_contract_id };
+  throw new BusinessError('GIR_SOURCE_SCOPE_MISSING', 'The request does not define its stock source (source contract and sales); goods cannot be issued', HttpStatus.CONFLICT);
+}
 
 export interface GiLineInput { goodsIssueRequestLineId: number; quantity: number; goodsReceiptDetailIds?: number[] }
 
@@ -51,8 +62,9 @@ export class GiService {
   submit(user: CurrentUser, id: number, approverId: number) {
     return this.ds.transaction(async (m) => {
       const head = await this.peek(m, id);
-      await this.lockOpenGir(m, head.goods_issue_request_id, user);
+      const gir = await this.lockOpenGir(m, head.goods_issue_request_id, user);
       const doc = await wf.lockDocument(m, 'GI', id);
+      const scope = sourceScope(gir); // before any write: no fallback to warehouse + product
       const items = await this.items(m, id);
       if (!items.length) throw new BusinessError('GI_EMPTY', 'The goods issue has no lines');
       for (const i of items) {
@@ -62,7 +74,7 @@ export class GiService {
       }
       await wf.submit(m, 'GI', doc, user, approverId); // creator, status and approver eligibility first
       await this.checkGirRemaining(m, id, false);
-      await InventoryFacade.reserve(m, doc.warehouse_id!, items);
+      await InventoryFacade.reserve(m, doc.warehouse_id!, items, scope);
     });
   }
 
@@ -171,9 +183,12 @@ export class GiService {
   }
 
   private async lockGir(m: EntityManager, girId: number) {
-    const [gir] = await m.query(`SELECT approval_status, execution_status, warehouse_id FROM goods_issue_requests WHERE id = $1 FOR UPDATE`, [girId]);
+    const [gir] = await m.query(
+      `SELECT approval_status, execution_status, warehouse_id, issue_type, sales_contract_id FROM goods_issue_requests WHERE id = $1 FOR UPDATE`,
+      [girId],
+    );
     if (!gir) throw new NotFoundException('GIR not found');
-    return gir as { approval_status: string; execution_status: string; warehouse_id: number };
+    return gir as { approval_status: string; execution_status: string; warehouse_id: number; issue_type: string; sales_contract_id: number };
   }
 
   /** GIR must be APPROVED and not COMPLETED to create/edit/submit GIs (03 §10.3). */

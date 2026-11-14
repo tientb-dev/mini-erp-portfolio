@@ -44,7 +44,7 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 ### B.1 Luồng A/C — theo PR
 1. Chỉ PR đã `PO done` của HĐ xuất hiện để chọn: mọi dòng PR đã được đặt mua đủ đúng số lượng trên các PO `APPROVED` (có thể qua nhiều PO, cộng theo dòng PR). `PO done` không có nghĩa là đã nhập kho; có thể lập và duyệt GIR khi hàng chưa về.
 1b. `PO done` được kiểm tra lại khi Gửi duyệt GIR (kể cả GIR `REJECTED` Gửi duyệt lại); mất `PO done` → chặn Gửi duyệt. GIR đã Gửi duyệt hợp lệ tiếp tục theo workflow, không bị hồi tố (03 §3).
-1a. Luồng C: mục đích sử dụng chỉ là thông tin tham khảo, có thể kế thừa từ PR nếu PR có; không bắt buộc nhập lại tại GIR; không ảnh hưởng hạn mức hay phê duyệt. Phương thức lưu và mã nguồn GIR (`issue_type`) cho luồng A/C: chưa chốt kỹ thuật (OPEN-QUESTIONS CT10).
+1a. Luồng C: mục đích sử dụng chỉ là thông tin tham khảo, có thể kế thừa từ PR nếu PR có; không bắt buộc nhập lại tại GIR; không ảnh hưởng hạn mức hay phê duyệt. Luồng A/C lưu `issue_type = PURCHASE_REQUISITION` (CT10).
 2. Mỗi dòng GIR tham chiếu đúng một dòng PR (giữ riêng từng dòng PR, không gộp theo Product); dòng hàng bán đồng thời giữ `sales_contract_line_id` của dòng PR.
 3. Số lượng đề nghị không vượt hạn mức còn lại của dòng PR; luồng A còn không vượt hạn mức giao còn lại của dòng HĐ. Hạn mức được kiểm tra khi Gửi duyệt và Duyệt; GIR `DRAFT` không chiếm hạn mức (03 §10.1).
 4. UI hiển thị lượng đã nhập thực tế của dòng PR (dòng PR → PO → GRR → GR `APPROVED`, cộng nhiều đợt nhập; chưa nhập = 0). Chỉ để tham khảo, không phải hạn mức.

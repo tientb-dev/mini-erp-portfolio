@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Pa
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
@@ -10,12 +10,13 @@ import { ProcurementService } from './procurement.service';
 
 class PrLineDto {
   @ApiPropertyOptional({ description: "Existing line id when editing; omit for a new line" }) @IsOptional() @IsInt() id?: number;
-  @ApiProperty() @IsInt() salesContractLineId!: number;
+  @ApiPropertyOptional({ nullable: true, description: 'Required for sales-goods PRs; optional for material PRs' }) @IsOptional() @IsInt() salesContractLineId?: number | null;
   @ApiProperty() @IsInt() productId!: number;
   @ApiProperty() @IsPositive() quantity!: number;
 }
 class CreatePrDto {
   @ApiProperty() @IsInt() salesContractId!: number;
+  @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], default: 'SALES_GOODS' }) @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
 }
 class CreatePoDto {
@@ -71,7 +72,7 @@ export class ProcurementController {
   @Post('purchase-requisitions')
   @RequirePermissions('PR.CREATE')
   createPr(@Req() req: AuthedRequest, @Body() dto: CreatePrDto) {
-    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines);
+    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category);
   }
 
   @Patch('purchase-requisitions/:id')

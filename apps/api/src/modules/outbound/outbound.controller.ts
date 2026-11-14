@@ -8,12 +8,13 @@ import { GiService } from './gi.service';
 import { GirService, IssueType } from './gir.service';
 
 class GirLineDto {
-  @ApiProperty() @IsInt() salesContractLineId!: number;
-  @ApiProperty() @IsInt() productId!: number;
+  @ApiPropertyOptional({ description: 'PURCHASE_REQUISITION (A/C): the PR line; product and HĐ line come from it' }) @IsOptional() @IsInt() purchaseRequisitionLineId?: number;
+  @ApiPropertyOptional({ description: 'AVAILABLE_STOCK: HĐ line' }) @IsOptional() @IsInt() salesContractLineId?: number;
+  @ApiPropertyOptional({ description: 'AVAILABLE_STOCK: product' }) @IsOptional() @IsInt() productId?: number;
   @ApiProperty() @IsPositive() quantity!: number;
 }
 class CreateGirDto {
-  @ApiProperty({ enum: ['SALES_CONTRACT', 'AVAILABLE_STOCK'] }) @IsIn(['SALES_CONTRACT', 'AVAILABLE_STOCK']) issueType!: IssueType;
+  @ApiProperty({ enum: ['PURCHASE_REQUISITION', 'AVAILABLE_STOCK'] }) @IsIn(['PURCHASE_REQUISITION', 'AVAILABLE_STOCK']) issueType!: IssueType;
   @ApiProperty() @IsInt() salesContractId!: number;
   @ApiProperty() @IsInt() warehouseId!: number;
   @ApiProperty({ type: [GirLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => GirLineDto) lines!: GirLineDto[];
@@ -23,7 +24,7 @@ class UpdateGirDto {
   @ApiProperty({ type: [GirLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => GirLineDto) lines!: GirLineDto[];
 }
 class SubmitGirDto {
-  @ApiProperty({ description: 'SALES_CONTRACT: approver; AVAILABLE_STOCK: Sales confirmer' }) @IsInt() approverId!: number;
+  @ApiProperty({ description: 'PURCHASE_REQUISITION: approver; AVAILABLE_STOCK: Sales confirmer' }) @IsInt() approverId!: number;
   @ApiPropertyOptional({ description: 'AVAILABLE_STOCK only: warehouse manager' }) @IsOptional() @IsInt() warehouseApproverId?: number;
 }
 class CompleteDto {
@@ -67,6 +68,13 @@ export class OutboundController {
   @RequirePermissions('GIR.VIEW')
   quota(@Param('id', ParseIntPipe) id: number, @Query('excludeGirId') exclude?: string) {
     return this.gir.quota(id, exclude ? Number(exclude) : undefined);
+  }
+
+  /** A/C picker: lines of the HĐ's PO-done PRs with PR-line quota left and received quantity (reference). */
+  @Get('sales-contracts/:id/gir-pr-lines')
+  @RequirePermissions('GIR.CREATE')
+  prLineOptions(@Param('id', ParseIntPipe) id: number, @Query('excludeGirId') exclude?: string) {
+    return this.gir.prLineOptions(id, exclude ? Number(exclude) : undefined);
   }
 
   @Post('goods-issue-requests')

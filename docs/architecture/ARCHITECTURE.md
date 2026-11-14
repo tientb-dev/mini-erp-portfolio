@@ -47,7 +47,7 @@ Các đề xuất bổ trợ chưa bị thay đổi và vẫn áp dụng: class-
 | 3 | **Sales Contracts** | HĐ (`DRAFT`/`ACTIVE`/`CANCELED`, không duyệt), dòng HĐ, Product được phép giao theo dòng HĐ (đề xuất PM, xác nhận Sales), hạn mức GIR hàng bán theo dòng HĐ; dòng vật tư chỉ gắn HĐ (ADR-0009, ADR-0010, ADR-0012) |
 | 4 | **Procurement** | PR, PO; mapping mã tạm → mã chính trên dòng PR (ADR-0008); hạn mức dòng PR → dòng PO; hạn mức và tiến độ nhập trên dòng PO |
 | 5 | **Inbound** | GRR, GR, chi tiết GR; một GR chưa Hủy cho mỗi GRR |
-| 6 | **Outbound** | GIR (`SALES_CONTRACT` / `AVAILABLE_STOCK`; bốn luồng hàng bán/vật tư theo PR/trực tiếp, ADR-0012), GI; hạn mức dòng GIR → dòng GI; hoàn thành xuất (`COMPLETED`) (ADR-0010) |
+| 6 | **Outbound** | GIR (`PURCHASE_REQUISITION` / `AVAILABLE_STOCK`, phân loại hàng bán/vật tư; bốn luồng hàng bán/vật tư theo PR/trực tiếp, ADR-0012), GI; hạn mức dòng GIR → dòng GI; hoàn thành xuất (`COMPLETED`) (ADR-0010) |
 | 7 | **Inventory** | Số dư Kho + PN, giữ chỗ, SN, lịch sử biến động, lịch sử SN |
 | 8 | **Workflow & Notifications** | Vòng đời `approval_status` (một cấp; hai bước cho GIR `AVAILABLE_STOCK`), người duyệt mặc định/được chỉ định, lý do, ghi chú, đính kèm, cấp `document_number` (ADR-0011), thông báo trong ứng dụng |
 
@@ -75,7 +75,7 @@ Inbound ──► Procurement ──► Sales Contracts ◄── Outbound
 | Tạo GI, hoàn thành xuất, Thu hồi GIR | dòng GIR (`pessimistic_write`) |
 | Cấp `document_number` | bộ đếm (loại, năm) (ADR-0011) |
 | Sửa nội dung/Hủy HĐ vs tạo PR/GIR tham chiếu | dòng HĐ / HĐ |
-Thứ tự khóa khi một thao tác cần nhiều điểm: dòng HĐ → dòng GIR → `inventories` → `inventory_serials`. Đề xuất cho luồng A (chưa chốt): dòng HĐ → dòng PR → dòng GIR. Outbound → Procurement là phụ thuộc mới, cần kiểm tra không tạo vòng trong §3.2.
+Thứ tự khóa khi một thao tác cần nhiều điểm: dòng HĐ → dòng PR (GIR A/C, qua `ProcurementFacade.lockLinesForIssue`) → dòng GIR → `inventories` → `inventory_lots` → `inventory_serials`. Outbound → Procurement là phụ thuộc một chiều qua facade (CT8); Procurement không phụ thuộc Outbound.
 
 ### 2.2 Procurement lấy tiến độ nhập từ Inbound — [ADR-0003](decisions/ADR-0003-procurement-inbound-progress.md)
 

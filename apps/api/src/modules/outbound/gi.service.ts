@@ -8,12 +8,13 @@ import { BusinessError } from '../workflow/workflow';
 
 /**
  * Stock source a GI inherits from its GIR (ADR-0013; the GI user never picks it). The warehouse is always the GIR's.
- * - SALES_CONTRACT (purchase-for-this-contract, A/C): only lots whose source HĐ is the GIR's HĐ.
+ * - PURCHASE_REQUISITION (A/C, "mua HĐ nào xuất HĐ đó"; also the retired SALES_CONTRACT type): only lots whose source HĐ
+ *   is the GIR's HĐ.
  * - AVAILABLE_STOCK (B/D): needs the source HĐ + source sales recorded on the GIR, which arrive with PR code #7.
  *   Until then submitting such a GI is blocked — never widened to warehouse + product.
  */
 export function sourceScope(gir: { issue_type: string; sales_contract_id: number }): StockScope {
-  if (gir.issue_type === 'SALES_CONTRACT') return { sourceSalesContractId: gir.sales_contract_id };
+  if (gir.issue_type === 'PURCHASE_REQUISITION' || gir.issue_type === 'SALES_CONTRACT') return { sourceSalesContractId: gir.sales_contract_id };
   throw new BusinessError('GIR_SOURCE_SCOPE_MISSING', 'The request does not define its stock source (source contract and sales); goods cannot be issued', HttpStatus.CONFLICT);
 }
 

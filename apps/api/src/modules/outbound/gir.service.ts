@@ -42,8 +42,7 @@ export class GirService {
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
         [number, input.issueType, category, input.salesContractId, input.warehouseId, user.id],
       );
-      await this.insertLines(m, gir.id, lines);
-      await this.checkQuota(m, gir.id);
+      await this.insertLines(m, gir.id, lines); // a DRAFT holds no quota (CT2): checked at submit/approve only
       if (input.issueType === 'AVAILABLE_STOCK') await this.checkAvailable(m, gir.id, input.warehouseId);
       return { id: gir.id as number, documentNumber: number };
     });
@@ -62,7 +61,6 @@ export class GirService {
       await m.query(`DELETE FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [id]);
       await this.insertLines(m, id, resolved.lines);
       await m.query(`UPDATE goods_issue_requests SET category = $2, version = version + 1, updated_at = now() WHERE id = $1`, [id, resolved.category]);
-      await this.checkQuota(m, id);
       if (doc.issue_type === 'AVAILABLE_STOCK') await this.checkAvailable(m, id, doc.warehouse_id);
     });
   }
@@ -246,14 +244,18 @@ export class GirService {
     return { ...gir, lines, goodsIssues: issues, history: await wf.history(this.ds.manager, 'GIR', id) };
   }
 
-  /** Remaining quota per HĐ line of a contract (UI: contract qty, requested elsewhere, remaining). */
+  /**
+   * Remaining quota per HĐ line of a contract (UI: contract qty, held by other GIRs, remaining). Only GIRs that hold the
+   * quota count (CT2: WAITING/REJECTED/APPROVED, COMPLETED → issued); DRAFTs and material lines never do.
+   */
   quota(salesContractId: number, excludeGirId?: number) {
     return this.ds.query(
       `SELECT scl.id AS "salesContractLineId", scl.quantity AS "contractQuantity",
               COALESCE(SUM(${USED_EXPR}) FILTER (WHERE g.id <> COALESCE($2, -1)), 0) AS "usedQuantity"
          FROM sales_contract_lines scl
          LEFT JOIN goods_issue_request_lines l ON l.sales_contract_line_id = scl.id
-         LEFT JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id AND g.approval_status <> 'CANCELED'
+         LEFT JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id AND g.category = 'SALES_GOODS'
+                                          AND g.approval_status IN (${HOLDING})
         WHERE scl.sales_contract_id = $1
         GROUP BY scl.id, scl.quantity ORDER BY scl.id`,
       [salesContractId, excludeGirId ?? null],
@@ -318,7 +320,7 @@ export class GirService {
       `SELECT l.purchase_requisition_line_id AS id, COALESCE(SUM(${USED_EXPR}), 0) AS used
          FROM goods_issue_request_lines l JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id
         WHERE l.purchase_requisition_line_id = ANY($1) AND g.id <> COALESCE($2, -1)
-          AND (g.approval_status IN ('WAITING_FOR_APPROVE', 'REJECTED', 'APPROVED') OR g.id = COALESCE($3, -1))
+          AND (g.approval_status IN (${HOLDING}) OR g.id = COALESCE($3, -1))
         GROUP BY l.purchase_requisition_line_id`,
       [prLineIds, excludeGirId, includeGirId],
     );
@@ -397,13 +399,18 @@ export class GirService {
     }
   }
 
-  /** Quota per HĐ line id (03 §10.1); caller holds FOR UPDATE on those HĐ lines. */
+  /**
+   * HĐ-line quota of sales goods (A/B, 03 §10.1, CT2), at Submit and every approval step. Counts the GIRs holding the quota
+   * (WAITING/REJECTED/APPROVED; COMPLETED → issued) plus this GIR itself (a DRAFT/REJECTED being submitted counts once).
+   * The caller holds FOR UPDATE on those HĐ lines, so concurrent submits on one line are serialized.
+   */
   private async checkQuota(m: EntityManager, girId: number) {
     const rows: { id: number; quantity: string; used: string }[] = await m.query(
       `SELECT scl.id, scl.quantity, COALESCE(SUM(${USED_EXPR}), 0) AS used
          FROM sales_contract_lines scl
          JOIN goods_issue_request_lines l ON l.sales_contract_line_id = scl.id
-         JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id AND g.approval_status <> 'CANCELED'
+         JOIN goods_issue_requests g ON g.id = l.goods_issue_request_id AND g.category = 'SALES_GOODS'
+                                     AND (g.approval_status IN (${HOLDING}) OR g.id = $1)
         WHERE scl.id IN (SELECT sales_contract_line_id FROM goods_issue_request_lines WHERE goods_issue_request_id = $1)
         GROUP BY scl.id, scl.quantity`,
       [girId],
@@ -425,6 +432,9 @@ export class GirService {
     }
   }
 }
+
+/** Statuses that hold HĐ-line and PR-line quota (CT2); DRAFT and CANCELED never do. */
+const HOLDING = `'WAITING_FOR_APPROVE', 'REJECTED', 'APPROVED'`;
 
 /** Quota usage of one GIR line: requested quantity, or only the issued quantity once the GIR is COMPLETED (03 §10.1). */
 const USED_EXPR = `CASE WHEN g.execution_status = 'COMPLETED' THEN

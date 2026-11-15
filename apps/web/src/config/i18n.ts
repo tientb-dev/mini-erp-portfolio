@@ -146,7 +146,7 @@ const vi = {
     subtitle: 'Hợp đồng bán của {{customer}}', lineSummary: '{{count}} dòng hàng hóa', pendingShort: 'Chờ xác nhận', createdShort: 'Ngày tạo',
     lineDialogHint: 'Nhập đúng như hợp đồng đã ký; không bắt buộc là mã trong danh mục.',
     activateBar: 'Sau khi chốt, hợp đồng không sửa được và mới tạo được PR, đề nghị xuất.', activateNeedLines: 'Cần ít nhất một dòng hàng hóa để chốt.',
-    activateNeedSales: 'Cần chỉ định Sales phụ trách để chốt.', allStatuses: 'Tất cả trạng thái', view: 'Xem chi tiết', noProductsShort: 'Chưa đề xuất', onlyDraftEdit: 'Chỉ sửa được hợp đồng Nháp.', onlyDraftActivate: 'Chỉ chốt được hợp đồng Nháp.', alreadyCanceled: 'Hợp đồng đã hủy.', allSales: 'Tất cả Sales', allCustomers: 'Tất cả khách hàng',
+    activateNeedSales: 'Cần chỉ định Sales phụ trách để chốt.', allStatuses: 'Tất cả trạng thái', view: 'Xem chi tiết', noProductsShort: 'Chưa đề xuất', allSales: 'Tất cả Sales', allCustomers: 'Tất cả khách hàng',
   },
   pr: {
     title: 'Đề nghị mua (PR)', number: 'Số PR', category: 'Phân loại', material: 'Vật tư {{n}}', addMaterial: 'Thêm vật tư',
@@ -330,7 +330,7 @@ const en: typeof vi = {
     subtitle: 'Sales contract for {{customer}}', lineSummary: '{{count}} item lines', pendingShort: 'To confirm', createdShort: 'Created',
     lineDialogHint: 'Enter it exactly as signed; it does not need to be a catalog product.',
     activateBar: 'Once active, the contract is locked and PRs and issue requests can be created.', activateNeedLines: 'Add at least one item line to activate.',
-    activateNeedSales: 'Assign a responsible sales to activate.', allStatuses: 'All statuses', view: 'View details', noProductsShort: 'None proposed', onlyDraftEdit: 'Only draft contracts can be edited.', onlyDraftActivate: 'Only draft contracts can be activated.', alreadyCanceled: 'The contract is already canceled.', allSales: 'All sales', allCustomers: 'All customers',
+    activateNeedSales: 'Assign a responsible sales to activate.', allStatuses: 'All statuses', view: 'View details', noProductsShort: 'None proposed', allSales: 'All sales', allCustomers: 'All customers',
   },
   pr: {
     title: 'Purchase requisitions', number: 'PR number', category: 'Kind', material: 'Material {{n}}', addMaterial: 'Add material',

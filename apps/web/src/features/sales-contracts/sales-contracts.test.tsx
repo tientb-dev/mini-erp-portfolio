@@ -165,7 +165,7 @@ describe('Sales contract detail', () => {
 });
 
 describe('Sales contract design rules (PR #17)', () => {
-  it('every row has one ⋯ menu; actions the status forbids are disabled with the reason', async () => {
+  it('every row has one ⋯ menu listing only the actions that can run now', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT'), row(5, 'ACTIVE'), row(6, 'CANCELED')], total: 3 }, ...common });
     renderAt('/sales-contracts');
     await screen.findByRole('link', { name: 'SC-2026-000005' });
@@ -175,23 +175,25 @@ describe('Sales contract design rules (PR #17)', () => {
     const menu = async (n: number) => {
       fireEvent.click(screen.getByRole('button', { name: `Thao tác SC-2026-00000${n}` }));
       const items = await screen.findAllByRole('menuitem');
-      const state = items.map((m) => `${m.textContent}${m.getAttribute('aria-disabled') === 'true' ? ' [disabled]' : ''}`);
+      const state = items.map((m) => m.textContent);
       fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
       await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
       return state;
     };
     expect(await menu(4)).toEqual(['Xem chi tiết', 'Sửa thông tin', 'Chốt hợp đồng', 'Hủy hợp đồng']);
-    expect(await menu(5)).toEqual(['Xem chi tiết', 'Sửa thông tinChỉ sửa được hợp đồng Nháp. [disabled]', 'Chốt hợp đồngChỉ chốt được hợp đồng Nháp. [disabled]', 'Hủy hợp đồng']);
-    expect(await menu(6)).toContain('Hủy hợp đồngHợp đồng đã hủy. [disabled]');
+    expect(await menu(5)).toEqual(['Xem chi tiết', 'Hủy hợp đồng']); // ACTIVE: no edit, no activate
+    expect(await menu(6)).toEqual(['Xem chi tiết']); // CANCELED
   });
 
-  it('"Chốt hợp đồng" in the row menu is disabled for a draft without lines, with the reason', async () => {
-    mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [{ ...row(4, 'DRAFT'), lineCount: 0 }], total: 1 }, ...common });
+  it('a draft that cannot be activated yet (no lines / no responsible sales) has no "Chốt" in the row menu', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [{ ...row(4, 'DRAFT'), lineCount: 0 }, { ...row(5, 'DRAFT'), responsibleSalesUserId: null }], total: 2 }, ...common });
     renderAt('/sales-contracts');
-    fireEvent.click(await screen.findByRole('button', { name: 'Thao tác SC-2026-000004' }));
-    const item = (await screen.findAllByRole('menuitem'))[2];
-    expect(item.textContent).toBe('Chốt hợp đồngCần ít nhất một dòng hàng hóa để chốt.');
-    expect(item.getAttribute('aria-disabled')).toBe('true');
+    for (const n of [4, 5]) {
+      fireEvent.click(await screen.findByRole('button', { name: `Thao tác SC-2026-00000${n}` }));
+      expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Xem chi tiết', 'Sửa thông tin', 'Hủy hợp đồng']);
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    }
   });
 
   it('the footer holds Hủy (outlined, red) and Chốt (contained) side by side for a draft', async () => {

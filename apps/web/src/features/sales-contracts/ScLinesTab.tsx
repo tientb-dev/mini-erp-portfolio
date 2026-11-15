@@ -1,11 +1,11 @@
 import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, IconButton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import { Button, IconButton, Stack, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import AddTaskOutlined from '@mui/icons-material/AddTaskOutlined';
 import DeleteOutline from '@mui/icons-material/DeleteOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
-import { StatusChip } from '../../shared/components';
+import { ScrollTable, StatusChip } from '../../shared/components';
 import { StatusTone } from '../../config/theme';
 import { fmtDate, num } from '../../shared/utils/format';
 import { Proposal, ScDetail, ScLine } from './types';
@@ -31,8 +31,7 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
       {d.lines.length === 0 ? (
         <Typography variant="body2" color="text.secondary">{t(editable ? 'sc.noLinesEdit' : 'sc.noLines')}</Typography>
       ) : (
-        <TableContainer>
-          <Table size="small" aria-label={t('sc.tabLines')}>
+        <ScrollTable label={t('sc.tabLines')} minWidth={760}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 48 }}>#</TableCell>
@@ -92,8 +91,7 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                 </Fragment>
               ))}
             </TableBody>
-          </Table>
-        </TableContainer>
+        </ScrollTable>
       )}
     </>
   );

@@ -81,7 +81,7 @@ function ScListView() {
         </Stack>
       ),
     },
-    { field: 'customerName', headerName: t('sc.customer'), flex: 1, minWidth: 200, sortable: false },
+    { field: 'customerName', headerName: t('sc.customer'), flex: 1, minWidth: 180, sortable: false },
     { field: 'responsibleSalesName', headerName: t('sc.responsibleSales'), width: 180, sortable: false, valueFormatter: (v: string | null) => v ?? t('sc.noResponsibleSales') },
     { field: 'status', headerName: t('common.status'), width: narrow ? 104 : 120, sortable: false, renderCell: (p) => <ScStatusChip status={p.value} /> },
     { field: 'lineCount', headerName: t('sc.lineCount'), type: 'number', width: 90, sortable: false },
@@ -115,11 +115,11 @@ function ScListView() {
   );
 
   return (
-    <ListPageLayout title={t('nav.salesContracts')} toolbar={toolbar} error={list.error}
+    <ListPageLayout fill title={t('nav.salesContracts')} toolbar={toolbar} error={list.error}
       breadcrumbs={<PageBreadcrumbs items={[{ label: t('common.home'), to: '/' }, { label: t('nav.sales') }, { label: t('nav.salesContracts') }]} />}
       actions={manage && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>{t('sc.create')}</Button>}>
       <DataTable
-        rows={list.data?.items ?? []} rowCount={list.data?.total ?? 0} columns={columns} loading={list.isFetching} emptyHint={t('sc.empty')}
+        fill rows={list.data?.items ?? []} rowCount={list.data?.total ?? 0} columns={columns} loading={list.isFetching} emptyHint={t('sc.empty')}
         paginationMode="server" sortingMode="server" disableColumnFilter
         paginationModel={{ page: page - 1, pageSize }} onPaginationModelChange={(m) => update({ page: m.page + 1, pageSize: m.pageSize === PAGE_SIZE ? null : m.pageSize })}
         sortModel={sortModel} sortingOrder={['desc', 'asc']}

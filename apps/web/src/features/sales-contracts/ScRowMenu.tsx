@@ -11,35 +11,31 @@ import { ScRow } from './types';
 export type RowAction = 'view' | 'edit' | 'activate' | 'cancel';
 
 /**
- * Why an action is unavailable for this row, or null when it can run. Mirrors the server checks (edit/activate only
- * while DRAFT; activate needs a line and a responsible sales; cancel unless already canceled); the server re-checks.
+ * Whether an action can run for this row now. Mirrors the server checks (edit/activate only while DRAFT; activate needs
+ * a line and a responsible sales; cancel unless already canceled); the server re-checks.
  */
-export function blockedReason(action: RowAction, r: ScRow): string | null {
-  if (action === 'edit' && r.status !== 'DRAFT') return 'sc.onlyDraftEdit';
-  if (action === 'activate') {
-    if (r.status !== 'DRAFT') return 'sc.onlyDraftActivate';
-    if (!r.lineCount) return 'sc.activateNeedLines';
-    if (!r.responsibleSalesUserId) return 'sc.activateNeedSales';
-  }
-  if (action === 'cancel' && r.status === 'CANCELED') return 'sc.alreadyCanceled';
-  return null;
+export function canRun(action: RowAction, r: ScRow): boolean {
+  if (action === 'edit') return r.status === 'DRAFT';
+  if (action === 'activate') return r.status === 'DRAFT' && r.lineCount > 0 && Boolean(r.responsibleSalesUserId);
+  if (action === 'cancel') return r.status !== 'CANCELED';
+  return true;
 }
 
 /**
- * One ⋯ menu per row, always in the same place. Actions the user has no permission for are left out; actions the
- * status does not allow stay visible but disabled, with the reason under the label.
+ * One ⋯ menu per row, always in the same place. It lists only actions that can run now: no permission or a status /
+ * condition that blocks it (canRun) → the item is left out. Why Chốt is blocked is explained on the detail page.
  */
 export function ScRowMenu({ row, canManage, onAction }: { row: ScRow; canManage: boolean; onAction: (a: RowAction) => void }) {
   const { t } = useTranslation();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const items: { action: RowAction; label: string; Icon: typeof EditOutlined; danger?: boolean }[] = [
-    { action: 'view', label: t('sc.view'), Icon: VisibilityOutlined },
+    { action: 'view' as const, label: t('sc.view'), Icon: VisibilityOutlined },
     ...(canManage ? [
       { action: 'edit' as const, label: t('sc.editHeader'), Icon: EditOutlined },
       { action: 'activate' as const, label: t('sc.activate'), Icon: TaskAltOutlined },
       { action: 'cancel' as const, label: t('sc.cancel'), Icon: BlockOutlined, danger: true },
     ] : []),
-  ];
+  ].filter((x) => canRun(x.action, row));
   const label = `${t('common.actions')} ${row.documentNumber}`;
   return (
     <>
@@ -51,18 +47,13 @@ export function ScRowMenu({ row, canManage, onAction }: { row: ScRow; canManage:
       </Tooltip>
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)} onClick={(e) => e.stopPropagation()}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        slotProps={{ paper: { sx: { minWidth: 220 } } }}>
-        {items.map(({ action, label: text, Icon, danger }) => {
-          const reason = blockedReason(action, row);
-          return (
-            <MenuItem key={action} disabled={Boolean(reason)} onClick={() => { setAnchor(null); onAction(action); }}
-              sx={{ alignItems: 'flex-start', color: danger ? 'error.main' : undefined, '&.Mui-disabled': { opacity: 1, color: 'text.disabled' } }}>
-              <ListItemIcon sx={{ color: 'inherit', mt: 0.25 }}><Icon fontSize="small" /></ListItemIcon>
-              <ListItemText primary={text} secondary={reason ? t(reason) : undefined}
-                slotProps={{ primary: { sx: { fontSize: '0.875rem' } }, secondary: { sx: { fontSize: '0.75rem', whiteSpace: 'normal' } } }} />
-            </MenuItem>
-          );
-        })}
+        slotProps={{ paper: { sx: { minWidth: 200 } } }}>
+        {items.map(({ action, label: text, Icon, danger }) => (
+          <MenuItem key={action} onClick={() => { setAnchor(null); onAction(action); }} sx={{ color: danger ? 'error.main' : undefined }}>
+            <ListItemIcon sx={{ color: 'inherit' }}><Icon fontSize="small" /></ListItemIcon>
+            <ListItemText primary={text} slotProps={{ primary: { sx: { fontSize: '0.875rem' } } }} />
+          </MenuItem>
+        ))}
       </Menu>
     </>
   );

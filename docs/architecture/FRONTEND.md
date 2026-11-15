@@ -146,4 +146,10 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 - **Footer quyết định** (`DetailPageLayout.footer`): ở đáy vùng main, nằm trong luồng trang nên không che dòng cuối.
 - Menu, select, dialog render qua portal nên không bị `overflow` cắt.
 
+**Danh sách phân trang phía server** (mẫu: `SalesContractsPage`):
+- Trạng thái (trang, cỡ trang, sort, lọc) nằm trên URL. Đổi trang, sort hoặc lọc tạo mục lịch sử (`push`), nên Back/Forward đi qua từng trang; gõ ô tìm kiếm chỉ `replace`. Đổi lọc, sort hoặc cỡ trang thì quay về trang 1.
+- `sortModel`/`paginationModel` truyền cho DataGrid phải **ổn định tham chiếu** (`useMemo` theo giá trị URL). Một object mới mỗi lần render bị grid coi là sort vừa đổi, và grid tự quay về trang 1 (đây là lỗi pagination đã sửa ở PR #17).
+- Query key chứa toàn bộ tham số; `placeholderData: keepPreviousData`. Phản hồi về trễ của tham số cũ chỉ ghi vào cache của key cũ, không đè dữ liệu đang hiển thị.
+- `DataTable`: `loading = isFetching || isPlaceholderData` → lớp mờ + spinner phủ vùng dòng, dữ liệu cũ vẫn ở dưới, không hiện empty state; phân trang bị khóa và vẫn mô tả dữ liệu đang hiển thị cho tới khi trang mới về. `error` → xóa dòng, thông báo không tải được, giữ trang và tổng số (không tự nhảy về trang 1); trang hiển thị chi tiết lỗi qua `ErrorAlert`.
+
 **Trạng thái áp dụng:** Hợp đồng bán (danh sách + chi tiết) đã áp dụng và kiểm chứng ở 1440×900, 1366×768, 768×1024, 390×844. Các màn PR, PO, GRR, PNK, PXK, kho, danh mục chuyển sang `fill`/`ScrollTable` ở PR sau, theo đúng quy chuẩn này.

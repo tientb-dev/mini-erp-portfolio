@@ -152,4 +152,9 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 - Query key chứa toàn bộ tham số; `placeholderData: keepPreviousData`. Phản hồi về trễ của tham số cũ chỉ ghi vào cache của key cũ, không đè dữ liệu đang hiển thị.
 - `DataTable`: `loading = isFetching || isPlaceholderData` → lớp mờ + spinner phủ vùng dòng, dữ liệu cũ vẫn ở dưới, không hiện empty state; phân trang bị khóa và vẫn mô tả dữ liệu đang hiển thị cho tới khi trang mới về. `error` → xóa dòng, thông báo không tải được, giữ trang và tổng số (không tự nhảy về trang 1); trang hiển thị chi tiết lỗi qua `ErrorAlert`.
 
-**Trạng thái áp dụng:** Hợp đồng bán (danh sách + chi tiết) đã áp dụng và kiểm chứng ở 1440×900, 1366×768, 768×1024, 390×844. Các màn PR, PO, GRR, PNK, PXK, kho, danh mục chuyển sang `fill`/`ScrollTable` ở PR sau, theo đúng quy chuẩn này.
+**Thanh bộ lọc** (mọi màn danh sách có bộ lọc; dùng `FilterToolbar` trong `shared/components`, feature chỉ đưa các ô tìm kiếm/lọc vào):
+- Nút **"Xóa bộ lọc"** (nút text màu phụ, icon xoay ngược) **luôn hiển thị** ở cuối thanh bộ lọc, không ẩn/hiện làm xô lệch bố cục. Desktop: dạt về mép phải; màn hẹp: xuống dòng cùng các ô lọc.
+- Disabled khi không có điều kiện lọc nào, enabled khi có. Trạng thái tính từ **bộ lọc đang áp dụng trên URL** (kèm từ khóa đang gõ), nên Back/Forward cũng cập nhật đúng; ô tìm kiếm đồng bộ theo `q` trên URL.
+- Bấm: xóa từ khóa và mọi điều kiện lọc trong một lần đổi URL (`push`), quay về trang 1, **giữ nguyên sort và cỡ trang**. Bảng dùng loading chuẩn ở trên, không giật.
+
+**Trạng thái áp dụng:** Hợp đồng bán (danh sách + chi tiết, kể cả `FilterToolbar`) đã áp dụng và kiểm chứng ở 1440×900, 1366×768, 768×1024, 390×844. Các màn PR, PO, GRR, PNK, PXK, kho, danh mục chuyển sang `fill`/`ScrollTable` ở PR sau, theo đúng quy chuẩn này.

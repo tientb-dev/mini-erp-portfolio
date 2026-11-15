@@ -37,7 +37,7 @@ describe('Sales contract list', () => {
     await pick('Trạng thái', 'Nháp');
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?q=cust&status=DRAFT'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Thao tác khác SC-2026-000004' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thao tác SC-2026-000004' }));
     expect(await screen.findByRole('menuitem', { name: 'Hủy hợp đồng' })).toBeTruthy();
     expect(screen.getByTestId('where').textContent).toMatch(/^\/sales-contracts\?/); // the action did not open the row
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
@@ -46,12 +46,13 @@ describe('Sales contract list', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts/4'));
   });
 
-  it('a viewer without SALES_CONTRACT.CREATE sees no create button and no action column', async () => {
+  it('a viewer without SALES_CONTRACT.CREATE gets no create button and only "Xem chi tiết" in the row menu', async () => {
     mockApi({ '/auth/me': me(['SALES_CONTRACT.VIEW']), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 } });
     renderAt('/sales-contracts');
     await screen.findByRole('link', { name: 'SC-2026-000004' });
     expect(screen.queryByRole('button', { name: 'Tạo hợp đồng' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Thao tác khác/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Thao tác SC-2026-000004' }));
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Xem chi tiết']);
     expect(screen.queryByRole('combobox', { name: 'Sales phụ trách' })).toBeNull(); // candidates need CREATE
   });
 
@@ -147,7 +148,8 @@ describe('Sales contract detail', () => {
     renderAt('/sales-contracts/4');
     await screen.findByRole('heading', { name: 'SC-2026-000004' });
     for (const name of ['Sửa thông tin', 'Thêm hàng hóa', 'Sửa hàng hóa', 'Xóa hàng hóa', 'Chốt hợp đồng']) expect(screen.queryByRole('button', { name })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Hủy hợp đồng' })).toBeTruthy();
+    const bar = screen.getByRole('region', { name: 'Thao tác quyết định' });
+    expect(within(bar).getByRole('button', { name: 'Hủy hợp đồng' })).toBeTruthy(); // Hủy lives in the footer, not the header
   });
 
   it('lists the PRs of the contract by sales_contract_id with links, for PR.VIEW', async () => {
@@ -163,16 +165,42 @@ describe('Sales contract detail', () => {
 });
 
 describe('Sales contract design rules (PR #17)', () => {
-  it('ACTIVE rows show their only action directly (no ⋮ menu); DRAFT rows show Sửa + ⋮', async () => {
+  it('every row has one ⋯ menu; actions the status forbids are disabled with the reason', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT'), row(5, 'ACTIVE'), row(6, 'CANCELED')], total: 3 }, ...common });
     renderAt('/sales-contracts');
     await screen.findByRole('link', { name: 'SC-2026-000005' });
-    expect(screen.getByRole('button', { name: 'Hủy hợp đồng SC-2026-000005' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Thao tác khác SC-2026-000005' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Sửa thông tin SC-2026-000004' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Thao tác khác SC-2026-000004' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /SC-2026-000006/ })).toBeNull();
+    for (const n of [4, 5, 6]) expect(screen.getByRole('button', { name: `Thao tác SC-2026-00000${n}` })).toBeTruthy();
     expect(screen.getAllByText('13/11/2026')).toHaveLength(3); // dd/MM/yyyy, time in the tooltip
+
+    const menu = async (n: number) => {
+      fireEvent.click(screen.getByRole('button', { name: `Thao tác SC-2026-00000${n}` }));
+      const items = await screen.findAllByRole('menuitem');
+      const state = items.map((m) => `${m.textContent}${m.getAttribute('aria-disabled') === 'true' ? ' [disabled]' : ''}`);
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+      return state;
+    };
+    expect(await menu(4)).toEqual(['Xem chi tiết', 'Sửa thông tin', 'Chốt hợp đồng', 'Hủy hợp đồng']);
+    expect(await menu(5)).toEqual(['Xem chi tiết', 'Sửa thông tinChỉ sửa được hợp đồng Nháp. [disabled]', 'Chốt hợp đồngChỉ chốt được hợp đồng Nháp. [disabled]', 'Hủy hợp đồng']);
+    expect(await menu(6)).toContain('Hủy hợp đồngHợp đồng đã hủy. [disabled]');
+  });
+
+  it('"Chốt hợp đồng" in the row menu is disabled for a draft without lines, with the reason', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [{ ...row(4, 'DRAFT'), lineCount: 0 }], total: 1 }, ...common });
+    renderAt('/sales-contracts');
+    fireEvent.click(await screen.findByRole('button', { name: 'Thao tác SC-2026-000004' }));
+    const item = (await screen.findAllByRole('menuitem'))[2];
+    expect(item.textContent).toBe('Chốt hợp đồngCần ít nhất một dòng hàng hóa để chốt.');
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('the footer holds Hủy (outlined, red) and Chốt (contained) side by side for a draft', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
+    renderAt('/sales-contracts/4');
+    const bar = await screen.findByRole('region', { name: 'Thao tác quyết định' });
+    expect(within(bar).getAllByRole('button').map((b) => b.textContent)).toEqual(['Hủy hợp đồng', 'Chốt hợp đồng']);
+    expect(within(bar).getByRole('button', { name: 'Hủy hợp đồng' }).className).toMatch(/MuiButton-outlined .*MuiButton-colorError/);
+    expect(screen.getAllByRole('button', { name: 'Hủy hợp đồng' })).toHaveLength(1); // not repeated in the header
   });
 
   it('"Xóa lọc" appears only while a filter is applied and clears them all', async () => {

@@ -37,9 +37,9 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
               <TableRow>
                 <TableCell sx={{ width: 48 }}>#</TableCell>
                 <TableCell>{t('sc.itemCode')}</TableCell>
-                <TableCell>{t('sc.itemName')}</TableCell>
-                <TableCell align="right" sx={{ width: 110 }}>{t('gr.quantity')}</TableCell>
-                <TableCell sx={{ width: 90 }}>{t('sc.uom')}</TableCell>
+                <TableCell sx={{ minWidth: 220 }}>{t('sc.itemName')}</TableCell>
+                <TableCell align="right" sx={{ width: 96 }}>{t('gr.quantity')}</TableCell>
+                <TableCell sx={{ width: 96 }}>{t('sc.uom')}</TableCell>
                 <TableCell>{t('sc.allowedProducts')}</TableCell>
                 {(editable || canPropose) && <TableCell align="right" sx={{ width: 128 }}>{t('common.actions')}</TableCell>}
               </TableRow>
@@ -53,7 +53,7 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                     <TableCell>{l.itemName}</TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{num(l.quantity)}</TableCell>
                     <TableCell>{l.uomName}</TableCell>
-                    <TableCell>{l.products.length ? t('sc.proposals', { count: l.products.length }) : <Typography variant="body2" color="text.secondary">{t('sc.noProducts')}</Typography>}</TableCell>
+                    <TableCell>{l.products.length ? t('sc.proposals', { count: l.products.length }) : <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{t('sc.noProductsShort')}</Typography>}</TableCell>
                     {(editable || canPropose) && (
                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                         {canPropose && icon(t('sc.propose'), AddTaskOutlined, () => onAction({ kind: 'propose', line: l }))}

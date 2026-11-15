@@ -47,18 +47,23 @@ export function ScDetailView({ id }: { id: number }) {
   );
   const manage = can('SALES_CONTRACT.CREATE');
   // Header keeps only secondary actions; the decision (Chốt) sits in the bottom bar.
-  const actions = d && manage && d.status !== 'CANCELED' && (
-    <>
-      <Button color="error" onClick={() => setDialog({ kind: 'cancel' })}>{t('sc.cancel')}</Button>
-      {d.status === 'DRAFT' && <Button variant="outlined" startIcon={<EditOutlined />} onClick={() => setDialog({ kind: 'header' })}>{t('sc.editHeader')}</Button>}
-    </>
+  // Header: only Sửa thông tin (DRAFT). Decisions (Hủy, Chốt) share the bottom bar, right-aligned.
+  const actions = d && manage && d.status === 'DRAFT' && (
+    <Button variant="outlined" startIcon={<EditOutlined />} onClick={() => setDialog({ kind: 'header' })}>{t('sc.editHeader')}</Button>
   );
   // Same conditions the server checks on activate: at least one line and a responsible sales.
   const blocker = d && (!d.lines.length ? t('sc.activateNeedLines') : !d.responsibleSalesUserId ? t('sc.activateNeedSales') : null);
-  const footer = d && manage && d.status === 'DRAFT' && (
+  const draft = d?.status === 'DRAFT';
+  const footer = d && manage && d.status !== 'CANCELED' && (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 2 }} sx={{ alignItems: { sm: 'center' }, justifyContent: 'flex-end' }}>
-      <Typography variant="body2" color={blocker ? 'warning.main' : 'text.secondary'} sx={{ textAlign: { sm: 'right' }, display: { xs: blocker ? 'block' : 'none', sm: 'block' } }}>{blocker ?? t('sc.activateBar')}</Typography>
-      <Button variant="contained" disabled={Boolean(blocker)} onClick={() => setDialog({ kind: 'activate' })} sx={{ flexShrink: 0 }}>{t('sc.activate')}</Button>
+      {draft && (
+        <Typography variant="body2" color={blocker ? 'warning.main' : 'text.secondary'}
+          sx={{ textAlign: { sm: 'right' }, display: { xs: blocker ? 'block' : 'none', sm: 'block' } }}>{blocker ?? t('sc.activateBar')}</Typography>
+      )}
+      <Stack direction="row" spacing={1} sx={{ flexShrink: 0, justifyContent: 'flex-end', '& > *': { flex: { xs: 1, sm: 'none' } } }}>
+        <Button variant="outlined" color="error" onClick={() => setDialog({ kind: 'cancel' })}>{t('sc.cancel')}</Button>
+        {draft && <Button variant="contained" disabled={Boolean(blocker)} onClick={() => setDialog({ kind: 'activate' })}>{t('sc.activate')}</Button>}
+      </Stack>
     </Stack>
   );
   // PR tab: PR.VIEW, or read-only for the responsible sales of this contract (ADR-0014; the API checks the same rule).
@@ -74,7 +79,7 @@ export function ScDetailView({ id }: { id: number }) {
               <InfoItem label={t('sc.customer')} value={d.customerName} detail={d.customerCode} />
               <InfoItem label={t('sc.responsibleSales')} value={d.responsibleSalesName ?? t('sc.noResponsibleSales')} muted={!d.responsibleSalesName} />
               <InfoItem label={t('gr.createdBy')} value={d.createdByName} detail={fmtDate(d.createdAt)} />
-              <InfoItem label={t('sc.updatedBy')} value={d.updatedAt ? d.updatedByName ?? '' : '—'} detail={d.updatedAt ? fmtDate(d.updatedAt) : undefined} />
+              <InfoItem label={t('sc.updatedBy')} value={(d.updatedAt && d.updatedByName) || '—'} detail={d.updatedAt ? fmtDate(d.updatedAt) : undefined} />
             </Box>
           </Paper>
           <DetailTabs tabs={[

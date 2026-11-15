@@ -2,12 +2,9 @@ import { MouseEvent, useEffect, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Button, IconButton, Link, Menu, MenuItem, Stack, Tooltip, Typography, useMediaQuery } from '@mui/material';
+import { Button, Link, Stack, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import { GridColDef, GridSortModel } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
-import EditOutlined from '@mui/icons-material/EditOutlined';
-import BlockOutlined from '@mui/icons-material/BlockOutlined';
-import MoreVert from '@mui/icons-material/MoreVert';
 import { api } from '../../services/api-client';
 import { DataTable, ListPageLayout, PageBreadcrumbs } from '../../shared/components';
 import { pagePath } from '../../shared/navigation';
@@ -17,6 +14,7 @@ import { ScDetailView } from './ScDetailView';
 import { ScStatusDialog } from './ScDialogs';
 import { ScHeaderDialog } from './ScHeaderDialog';
 import { ScListFilters } from './ScListFilters';
+import { ScRowMenu } from './ScRowMenu';
 import { ScStatusChip } from './ScStatusChip';
 import { rememberListSearch, ScRow } from './types';
 
@@ -38,7 +36,6 @@ function ScListView() {
   const [text, setText] = useState(params.get('q') ?? '');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ScRow | null>(null);
-  const [menu, setMenu] = useState<{ anchor: HTMLElement; row: ScRow } | null>(null);
   const [statusAction, setStatusAction] = useState<{ row: ScRow; kind: 'activate' | 'cancel' } | null>(null);
   const narrow = useMediaQuery('(max-width:599.95px)');
   const can = (p: string) => Boolean(me.data?.permissions.includes(p));
@@ -94,34 +91,17 @@ function ScListView() {
       renderCell: (p) => <Tooltip title={fmtDate(p.value)}><span>{fmtDay(p.value)}</span></Tooltip>,
     },
   ];
-  if (manage) {
-    // Fixed two-slot cell, right-aligned: the last slot holds the menu, or the only action when there is one.
-    columns.push({
-      field: 'actions', headerName: t('common.actions'), width: narrow ? 84 : 96, sortable: false, align: 'right', headerAlign: 'right',
-      renderCell: (p) => {
-        const r = p.row;
-        const label = (a: string) => `${a} ${r.documentNumber}`;
-        if (r.status === 'CANCELED') return null;
-        if (r.status === 'ACTIVE') {
-          return (
-            <Tooltip title={t('sc.cancel')}>
-              <IconButton size="small" aria-label={label(t('sc.cancel'))} onClick={(e) => { stop(e); setStatusAction({ row: r, kind: 'cancel' }); }}><BlockOutlined fontSize="small" /></IconButton>
-            </Tooltip>
-          );
-        }
-        return (
-          <Stack direction="row" spacing={0.5} onClick={stop}>
-            <Tooltip title={t('sc.editHeader')}>
-              <IconButton size="small" aria-label={label(t('sc.editHeader'))} onClick={() => setEditing(r)}><EditOutlined fontSize="small" /></IconButton>
-            </Tooltip>
-            <Tooltip title={t('common.more')}>
-              <IconButton size="small" aria-label={label(t('common.more'))} aria-haspopup="menu" onClick={(e) => setMenu({ anchor: e.currentTarget, row: r })}><MoreVert fontSize="small" /></IconButton>
-            </Tooltip>
-          </Stack>
-        );
-      },
-    });
-  }
+  // Every row: one ⋯ menu in a fixed, right-aligned cell (ScRowMenu decides which items show or are disabled).
+  columns.push({
+    field: 'actions', headerName: t('common.actions'), width: 88, sortable: false, align: 'right', headerAlign: 'right',
+    renderCell: (p) => (
+      <ScRowMenu row={p.row} canManage={manage} onAction={(a) => {
+        if (a === 'view') navigate(toDetail(p.row.id));
+        else if (a === 'edit') setEditing(p.row);
+        else setStatusAction({ row: p.row, kind: a });
+      }} />
+    ),
+  });
   const sortModel: GridSortModel = [{ field: sort, sort: order }];
   const open = (field: string, id: number, target: EventTarget) => {
     if (field === 'actions' || (target as HTMLElement).closest('a')) return; // links and action buttons handle themselves
@@ -150,10 +130,6 @@ function ScListView() {
         rowHeight={narrow ? 60 : undefined}
         sx={{ '& .MuiDataGrid-row': { cursor: 'pointer' } }}
       />
-      <Menu anchorEl={menu?.anchor} open={Boolean(menu)} onClose={() => setMenu(null)}>
-        {menu && <MenuItem onClick={() => { setStatusAction({ row: menu.row, kind: 'activate' }); setMenu(null); }}>{t('sc.activate')}</MenuItem>}
-        {menu && <MenuItem sx={{ color: 'error.main' }} onClick={() => { setStatusAction({ row: menu.row, kind: 'cancel' }); setMenu(null); }}>{t('sc.cancel')}</MenuItem>}
-      </Menu>
       {creating && <ScHeaderDialog onClose={() => setCreating(false)} onSaved={(id) => navigate(toDetail(id))} />}
       {editing && <ScHeaderDialog edit={editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />}
       {statusAction && (

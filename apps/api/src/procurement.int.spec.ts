@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { bootTestApp, login } from './test-utils';
+import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
 
 /** HĐ lifecycle, product proposals, PR/PO/GRR workflow actions and role permissions, against real PostgreSQL. */
 describe('Sales contracts and procurement documents (integration)', () => {
@@ -38,7 +38,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
   });
 
   async function activeContract(qty = 10) {
-    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: (await get(admin, '/auth/me')).body.id, lines: [{ itemCode: 'SW', itemName: 'Switch 24 port', uomName: 'Cái', quantity: qty }] }).expect(201)).body.id;
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: (await get(admin, '/auth/me')).body.id, lines: [{ itemCode: 'SW', itemName: 'Switch 24 port', unitOfMeasureId: pcs, quantity: qty }] }).expect(201)).body.id;
     await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
     const [line] = (await get(admin, `/sales-contracts/${sc}`).expect(200)).body.lines;
     return { sc: sc as number, lineId: line.id as number };
@@ -50,7 +50,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
   }
 
   it('HĐ: unknown customer is rejected; detail returns lines; cancel blocked while a PR is not canceled (03 §9.1)', async () => {
-    expect((await post(admin, '/sales-contracts', { customerId: 999999, lines: [{ itemCode: 'X', itemName: 'X', uomName: 'Cái', quantity: 1 }] })).body.code).toBe('CUSTOMER_NOT_FOUND');
+    expect((await post(admin, '/sales-contracts', { customerId: 999999, lines: [{ itemCode: 'X', itemName: 'X', unitOfMeasureId: pcs, quantity: 1 }] })).body.code).toBe('CUSTOMER_NOT_FOUND');
     const { sc, lineId } = await activeContract();
     const detail = (await get(admin, `/sales-contracts/${sc}`).expect(200)).body;
     expect(detail).toMatchObject({ status: 'ACTIVE', customerName: 'Customer 1' });

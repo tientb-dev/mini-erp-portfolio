@@ -42,8 +42,12 @@ export class ProcurementController {
 
   @Get('purchase-requisitions')
   @RequirePermissions('PR.VIEW')
-  listPrs(@Req() req: AuthedRequest, @Query('assignedToMe', new ParseBoolPipe({ optional: true })) mine?: boolean) {
-    return this.svc.listPrs(req.user, mine ?? false);
+  listPrs(
+    @Req() req: AuthedRequest,
+    @Query('assignedToMe', new ParseBoolPipe({ optional: true })) mine?: boolean,
+    @Query('salesContractId', new ParseIntPipe({ optional: true })) salesContractId?: number,
+  ) {
+    return this.svc.listPrs(req.user, mine ?? false, salesContractId);
   }
 
   @Get('purchase-requisitions/:id')

@@ -324,13 +324,14 @@ export class ProcurementService {
   }
 
   /** `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR/PO are not warehouse-scoped: the VIEW permission sees all. */
-  listPrs(user: CurrentUser, assignedToMe: boolean) {
+  listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number) {
     return this.ds.query(
       `SELECT ${wf.DOC_COLUMNS}, d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
-        WHERE NOT $2 OR (d.approval_status = 'WAITING_FOR_APPROVE' AND d.assigned_approver_id = $1)
+        WHERE (NOT $2 OR (d.approval_status = 'WAITING_FOR_APPROVE' AND d.assigned_approver_id = $1))
+          AND ($3::int IS NULL OR d.sales_contract_id = $3)
         ORDER BY d.id DESC`,
-      [user.id, assignedToMe],
+      [user.id, assignedToMe, salesContractId ?? null],
     );
   }
 

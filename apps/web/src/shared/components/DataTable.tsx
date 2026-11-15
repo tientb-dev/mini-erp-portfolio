@@ -2,13 +2,12 @@ import { useTranslation } from 'react-i18next';
 import { Paper, Stack, Typography } from '@mui/material';
 import { DataGrid, DataGridProps, GridValidRowModel } from '@mui/x-data-grid';
 
-/** Standard data table: compact rows, bordered surface, localized empty state with a hint. */
+/** Standard data table: 44px rows from the theme, bordered surface, localized empty state with a hint. */
 export function DataTable<R extends GridValidRowModel>({ emptyHint, ...props }: DataGridProps<R> & { emptyHint?: string }) {
   const { t } = useTranslation();
   return (
     <Paper sx={{ overflow: 'hidden', '& .MuiDataGrid-root': { border: 0 } }}>
       <DataGrid
-        density="compact"
         autoHeight
         disableRowSelectionOnClick
         pageSizeOptions={[25, 50, 100]}

@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Stack } from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Stack, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { ErrorAlert } from './ErrorAlert';
 
@@ -13,6 +13,7 @@ export function FormDialog(props: {
   title: string; submitLabel: string; error: unknown; pending: boolean; canSubmit: boolean; onSubmit: () => void; onClose: () => void; children: ReactNode;
   /** Unsaved input: closing asks for confirmation. */ dirty?: boolean;
   /** `error` for destructive actions (delete, cancel). */ submitColor?: 'primary' | 'error';
+  /** One short line under the title (what to enter, what happens). */ description?: ReactNode;
 }) {
   const { t } = useTranslation();
   const [asking, setAsking] = useState(false);
@@ -25,12 +26,13 @@ export function FormDialog(props: {
   return (
     <>
       <Dialog open onClose={requestClose} fullWidth maxWidth="sm" slotProps={{ paper: { component: 'form', onSubmit: submit } }}>
-        <DialogTitle variant="h2" sx={{ pr: 6 }}>{props.title}</DialogTitle>
-        <IconButton aria-label={t('common.close')} onClick={requestClose} disabled={props.pending} sx={{ position: 'absolute', right: 8, top: 8 }}>
+        <DialogTitle variant="h2" sx={{ pr: 7 }}>{props.title}</DialogTitle>
+        {props.description && <Typography variant="body2" color="text.secondary" sx={{ px: 3, pt: 0.75, pr: 7 }}>{props.description}</Typography>}
+        <IconButton aria-label={t('common.close')} onClick={requestClose} disabled={props.pending} sx={{ position: 'absolute', right: 12, top: 14 }}>
           <CloseIcon />
         </IconButton>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
+          <Stack spacing={2}>
             <ErrorAlert error={props.error} />
             {props.children}
           </Stack>

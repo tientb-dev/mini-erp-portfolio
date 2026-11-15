@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Button } from '@mui/material';
-import { DetailPageLayout, DetailTabs, FormDialog, ListPageLayout } from '.';
+import { MemoryRouter } from 'react-router-dom';
+import { DetailPageLayout, DetailTabs, FormDialog, ListPageLayout, PageBreadcrumbs } from '.';
 
 describe('ListPageLayout', () => {
   it('renders title, page actions, toolbar, the load error and the content', () => {
@@ -105,5 +106,47 @@ describe('FormDialog', () => {
   it('keeps the primary action disabled until the form is valid', () => {
     render(<FormDialog {...base} pending={false} canSubmit={false} onSubmit={() => undefined} />);
     expect((screen.getByRole('button', { name: 'Lưu' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('FormDialog closing', () => {
+  const base = { title: 'Tạo', submitLabel: 'Lưu', error: null, canSubmit: true, onSubmit: () => undefined, children: <input aria-label="tên" /> };
+  it('has an X button; closes without asking when nothing changed', () => {
+    const onClose = vi.fn();
+    render(<FormDialog {...base} pending={false} onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+  it('asks before discarding unsaved input (Escape too) and can keep editing', () => {
+    const onClose = vi.fn();
+    render(<FormDialog {...base} pending={false} dirty onClose={onClose} />);
+    fireEvent.keyDown(screen.getByLabelText('tên'), { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục sửa' }));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy bỏ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ thay đổi' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+  it('cannot be closed while saving', () => {
+    const onClose = vi.fn();
+    render(<FormDialog {...base} pending onClose={onClose} />);
+    expect((screen.getByRole('button', { name: 'Đóng' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Hủy bỏ' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('PageBreadcrumbs and Back', () => {
+  it('links parents, marks the current page, and the Back arrow goes to a fixed route', () => {
+    render(
+      <MemoryRouter>
+        <DetailPageLayout title="HĐ" documentNumber="SC-1" backTo="/sales-contracts?q=a"
+          breadcrumbs={<PageBreadcrumbs items={[{ label: 'Trang chủ', to: '/' }, { label: 'Bán hàng' }, { label: 'Hợp đồng bán', to: '/sales-contracts' }, { label: 'SC-1', to: '/x' }]} />} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Trang chủ' }).getAttribute('href')).toBe('/');
+    expect(screen.queryByRole('link', { name: 'Bán hàng' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'SC-1' })).toBeNull(); // the current page is not a link
+    expect(screen.getByText('SC-1').getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Quay lại danh sách' }).getAttribute('href')).toBe('/sales-contracts?q=a');
   });
 });

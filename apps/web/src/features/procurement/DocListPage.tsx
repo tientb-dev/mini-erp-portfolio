@@ -17,10 +17,10 @@ export function ReceiptStatusChip({ status }: { status: string }) {
   return <StatusChip label={t(`po.receipt.${status}`)} tone={receiptTone[status] ?? 'neutral'} />;
 }
 
-export function DocListPage({ cfg }: { cfg: DocConfig }) {
+export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: number }) {
   const { t } = useTranslation();
   const me = useMe();
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(initialId ?? null);
   const [creating, setCreating] = useState(false);
   const [mine, setMine] = useState(false);
   const list = useQuery({ queryKey: [cfg.key, 'list', mine], queryFn: () => api<DocRow[]>(`/${cfg.path}?assignedToMe=${mine}`) });

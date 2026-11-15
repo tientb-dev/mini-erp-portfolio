@@ -1,244 +1,159 @@
-import { useState } from 'react';
+import { MouseEvent, useEffect, useState } from 'react';
+import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, IconButton, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
-import { GridColDef } from '@mui/x-data-grid';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Button, IconButton, InputAdornment, Link, Menu, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
+import { GridColDef, GridSortModel } from '@mui/x-data-grid';
+import AddIcon from '@mui/icons-material/Add';
+import EditOutlined from '@mui/icons-material/EditOutlined';
+import MoreVert from '@mui/icons-material/MoreVert';
+import SearchIcon from '@mui/icons-material/Search';
 import { api } from '../../services/api-client';
-import { useMe } from '../identity';
-import { Product } from '../master-data';
+import { DataTable, ListPageLayout, PageBreadcrumbs } from '../../shared/components';
+import { pagePath } from '../../shared/navigation';
 import { fmtDate } from '../../shared/utils/format';
-import { DataTable, ErrorAlert, Field, FormDialog, PageHeader, StatusChip } from '../../shared/components';
-import { StatusTone } from '../../config/theme';
+import { useMe } from '../identity';
+import { ScDetailView } from './ScDetailView';
+import { ScStatusDialog } from './ScDialogs';
+import { ScHeaderDialog } from './ScHeaderDialog';
+import { ScStatusChip } from './ScStatusChip';
+import { rememberListSearch, ScRow } from './types';
 
-interface ScRow { id: number; documentNumber: string; status: string; customerName: string; createdByName: string; createdAt: string; pendingProposals: number; responsibleSalesName: string | null }
-interface Proposal {
-  id: number; productId: number; partNumber: string; name: string; status: string; reason: string; decisionNote: string | null;
-  proposedByName: string; decidedByName: string | null; decidedAt: string | null;
-}
-interface ScLine { id: number; itemCode: string; itemName: string; uomName: string; quantity: string; products: Proposal[] }
-interface ScDetail extends ScRow { customerId: number; customerCode: string; createdBy: number; version: number; responsibleSalesUserId: number | null; lines: ScLine[] }
-
-const scTone: Record<string, StatusTone> = { DRAFT: 'neutral', ACTIVE: 'success', CANCELED: 'muted' };
-const proposalTone: Record<string, StatusTone> = { PENDING: 'pending', APPROVED: 'success', REJECTED: 'danger' };
-
-function ScStatusChip({ status }: { status: string }) {
-  const { t } = useTranslation();
-  return <StatusChip label={t(`sc.status.${status}`)} tone={scTone[status] ?? 'neutral'} />;
-}
-
+/** `/sales-contracts` lists, `/sales-contracts/:id` opens one contract (the id comes from the route). */
 export function SalesContractsPage({ initialId }: { initialId?: number } = {}) {
+  return initialId ? <ScDetailView id={initialId} /> : <ScListView />;
+}
+
+const PAGE_SIZE = 25;
+const toDetail = (id: number) => pagePath('salesContracts', id);
+
+/** Search/filter/sort/page run on the server and live in the URL, so they survive opening a contract and coming back. */
+function ScListView() {
   const { t } = useTranslation();
   const me = useMe();
-  const [openId, setOpenId] = useState<number | null>(initialId ?? null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const [text, setText] = useState(params.get('q') ?? '');
   const [creating, setCreating] = useState(false);
-  const list = useQuery({ queryKey: ['scs'], queryFn: () => api<ScRow[]>('/sales-contracts') });
-  if (openId) return <ScDetailView id={openId} onBack={() => setOpenId(null)} />;
-  const columns: GridColDef<ScRow>[] = [
-    { field: 'documentNumber', headerName: t('sc.number'), width: 170 },
-    { field: 'status', headerName: t('common.status'), width: 130, renderCell: (p) => <ScStatusChip status={p.value} /> },
-    { field: 'customerName', headerName: t('sc.customer'), flex: 1, minWidth: 180 },
-    { field: 'responsibleSalesName', headerName: t('sc.responsibleSales'), width: 170, valueFormatter: (v: string | null) => v ?? t('sc.noResponsibleSales') },
-    { field: 'pendingProposals', headerName: t('sc.pendingProposals'), type: 'number', width: 150 },
-    { field: 'createdByName', headerName: t('gr.createdBy'), width: 160 },
-    { field: 'createdAt', headerName: t('gr.createdAt'), width: 170, valueFormatter: fmtDate },
-  ];
-  return (
-    <>
-      <PageHeader title={t('nav.salesContracts')}
-        action={me.data?.permissions.includes('SALES_CONTRACT.CREATE') && <Button variant="contained" onClick={() => setCreating(true)}>{t('sc.create')}</Button>} />
-      <Stack spacing={2}>
-        <ErrorAlert error={list.error} />
-        <DataTable rows={list.data ?? []} columns={columns} loading={list.isLoading} emptyHint={t('sc.empty')}
-          onRowClick={(p) => setOpenId(Number(p.id))} sx={{ '& .MuiDataGrid-row': { cursor: 'pointer' } }} />
-      </Stack>
-      {creating && <CreateScDialog onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setOpenId(id); }} />}
-    </>
-  );
-}
+  const [editing, setEditing] = useState<ScRow | null>(null);
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; row: ScRow } | null>(null);
+  const [statusAction, setStatusAction] = useState<{ row: ScRow; kind: 'activate' | 'cancel' } | null>(null);
+  const can = (p: string) => Boolean(me.data?.permissions.includes(p));
+  const manage = can('SALES_CONTRACT.CREATE');
 
-const emptyLine: { id?: number; itemCode: string; itemName: string; uomName: string; quantity: string } = { itemCode: '', itemName: '', uomName: '', quantity: '' };
+  const page = Number(params.get('page') ?? 1);
+  const pageSize = Number(params.get('pageSize') ?? PAGE_SIZE);
+  const sort = params.get('sort') === 'documentNumber' ? 'documentNumber' : 'createdAt';
+  const order = params.get('order') === 'asc' ? 'asc' : 'desc';
+  const update = (next: Record<string, string | number | null>) => {
+    const p = new URLSearchParams(params);
+    Object.entries(next).forEach(([k, v]) => (v === null || v === '' ? p.delete(k) : p.set(k, String(v))));
+    if (!('page' in next)) p.delete('page'); // a new filter starts from page 1
+    setParams(p, { replace: true });
+  };
+  useEffect(() => { rememberListSearch(location.search); }, [location.search]);
+  useEffect(() => {
+    const h = setTimeout(() => { if (text.trim() !== (params.get('q') ?? '')) update({ q: text.trim() }); }, 300);
+    return () => clearTimeout(h);
+  }, [text]); // debounced on typing only
 
-/** Create form; with `edit` it edits a DRAFT contract in place (PATCH, lines keep their ids). */
-function CreateScDialog({ onClose, onCreated, edit }: { onClose: () => void; onCreated: (id: number) => void; edit?: ScDetail }) {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const [customerId, setCustomerId] = useState(edit ? String(edit.customerId) : '');
-  const [responsibleSalesUserId, setResponsibleSalesUserId] = useState(edit?.responsibleSalesUserId ? String(edit.responsibleSalesUserId) : '');
-  const [lines, setLines] = useState(edit ? edit.lines.map(({ id, itemCode, itemName, uomName, quantity }) => ({ id, itemCode, itemName, uomName, quantity: String(Number(quantity)) })) : [{ ...emptyLine }]);
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/customers') });
-  const salesUsers = useQuery({ queryKey: ['responsible-sales'], queryFn: () => api<{ id: number; fullName: string }[]>('/sales-contracts/responsible-sales-candidates') });
-  const valid = lines.every((l) => l.itemCode.trim() && l.itemName.trim() && l.uomName.trim() && Number(l.quantity) > 0);
-  const create = useMutation({
-    mutationFn: async () => {
-      const body = { customerId: Number(customerId), responsibleSalesUserId: responsibleSalesUserId ? Number(responsibleSalesUserId) : null, lines: lines.map((l) => ({ ...l, quantity: Number(l.quantity) })) };
-      if (!edit) return api<{ id: number }>('/sales-contracts', { method: 'POST', body: JSON.stringify(body) });
-      await api(`/sales-contracts/${edit.id}`, { method: 'PATCH', body: JSON.stringify({ ...body, version: edit.version }) });
-      return { id: edit.id };
-    },
-    onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['scs'] }); void qc.invalidateQueries({ queryKey: ['sc', r.id] }); onCreated(r.id); },
+  const query = new URLSearchParams(params);
+  query.set('page', String(page));
+  query.set('pageSize', String(pageSize));
+  const list = useQuery({
+    queryKey: ['scs', query.toString()],
+    queryFn: () => api<{ items: ScRow[]; total: number }>(`/sales-contracts?${query}`),
+    placeholderData: keepPreviousData,
   });
-  const set = (i: number, k: keyof typeof emptyLine, v: string) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
-  return (
-    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('sc.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'sc.save')} error={create.error} pending={create.isPending}
-      canSubmit={Boolean(customerId && lines.length && valid)} onSubmit={() => create.mutate()} onClose={onClose}>
-      <TextField select label={t('sc.customer')} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required
-        helperText={customers.data?.length === 0 ? t('sc.noCustomer') : undefined}>
-        {(customers.data ?? []).map((c) => <MenuItem key={c.id} value={c.id}>{c.code}: {c.name}</MenuItem>)}
-      </TextField>
-      <TextField select label={t('sc.responsibleSales')} value={responsibleSalesUserId} onChange={(e) => setResponsibleSalesUserId(e.target.value)}
-        helperText={t('sc.responsibleSalesHint')}>
-        <MenuItem value="">{t('sc.noResponsibleSales')}</MenuItem>
-        {(salesUsers.data ?? []).map((u) => <MenuItem key={u.id} value={u.id}>{u.fullName}</MenuItem>)}
-      </TextField>
-      <Typography variant="body2" color="text.secondary">{t('sc.linesHint')}</Typography>
-      {lines.map((l, i) => (
-        <Stack key={i} spacing={1} sx={{ pt: 1, borderTop: 1, borderColor: 'divider' }}>
-          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>{t('sc.line', { n: i + 1 })}</Typography>
-            {lines.length > 1 && <IconButton size="small" aria-label={t('sc.removeLine', { n: i + 1 })} onClick={() => setLines(lines.filter((_l, j) => j !== i))}>✕</IconButton>}
-          </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <TextField label={t('sc.itemCode')} value={l.itemCode} onChange={(e) => set(i, 'itemCode', e.target.value)} required sx={{ flex: 1 }} />
-            <TextField label={t('sc.itemName')} value={l.itemName} onChange={(e) => set(i, 'itemName', e.target.value)} required sx={{ flex: 2 }} />
-          </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <TextField label={t('product.uom')} value={l.uomName} onChange={(e) => set(i, 'uomName', e.target.value)} required sx={{ flex: 1 }} />
-            <TextField label={t('gr.quantity')} type="number" value={l.quantity} onChange={(e) => set(i, 'quantity', e.target.value)} required sx={{ flex: 1 }}
-              slotProps={{ htmlInput: { min: 0 } }} />
-          </Stack>
+  // Filter options: candidates need SALES_CONTRACT.CREATE and customers CUSTOMER.VIEW; a filter without options is hidden.
+  const salesUsers = useQuery({ queryKey: ['responsible-sales'], queryFn: () => api<{ id: number; fullName: string }[]>('/sales-contracts/responsible-sales-candidates'), enabled: manage });
+  const customers = useQuery({ queryKey: ['customers'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/customers'), enabled: can('CUSTOMER.VIEW') });
+
+  const stop = (e: MouseEvent) => e.stopPropagation();
+  const columns: GridColDef<ScRow>[] = [
+    {
+      field: 'documentNumber', headerName: t('sc.number'), width: 170,
+      renderCell: (p) => <Link component={RouterLink} to={toDetail(p.row.id)} onClick={stop} sx={{ fontWeight: 600 }}>{p.value}</Link>,
+    },
+    { field: 'status', headerName: t('common.status'), width: 120, sortable: false, renderCell: (p) => <ScStatusChip status={p.value} /> },
+    { field: 'customerName', headerName: t('sc.customer'), flex: 1, minWidth: 180, sortable: false },
+    { field: 'responsibleSalesName', headerName: t('sc.responsibleSales'), width: 170, sortable: false, valueFormatter: (v: string | null) => v ?? t('sc.noResponsibleSales') },
+    { field: 'lineCount', headerName: t('sc.lineCount'), type: 'number', width: 90, sortable: false },
+    { field: 'pendingProposals', headerName: t('sc.pendingProposals'), type: 'number', width: 150, sortable: false },
+    { field: 'createdAt', headerName: t('gr.createdAt'), width: 160, valueFormatter: fmtDate },
+  ];
+  if (manage) {
+    columns.push({
+      field: 'actions', headerName: t('common.actions'), width: 100, sortable: false, align: 'right', headerAlign: 'right',
+      renderCell: (p) => p.row.status !== 'CANCELED' && (
+        <Stack direction="row" onClick={stop}>
+          {p.row.status === 'DRAFT' && (
+            <Tooltip title={t('sc.editHeader')}>
+              <IconButton size="small" aria-label={`${t('sc.editHeader')} ${p.row.documentNumber}`} onClick={() => setEditing(p.row)}><EditOutlined fontSize="small" /></IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title={t('common.more')}>
+            <IconButton size="small" aria-label={`${t('common.more')} ${p.row.documentNumber}`} aria-haspopup="menu"
+              onClick={(e) => setMenu({ anchor: e.currentTarget, row: p.row })}><MoreVert fontSize="small" /></IconButton>
+          </Tooltip>
         </Stack>
-      ))}
-      <Button onClick={() => setLines([...lines, { ...emptyLine }])} sx={{ alignSelf: 'flex-start' }}>{t('sc.addLine')}</Button>
-    </FormDialog>
-  );
-}
+      ),
+    });
+  }
+  const sortModel: GridSortModel = [{ field: sort, sort: order }];
+  const open = (field: string, id: number, target: EventTarget) => {
+    if (field === 'actions' || (target as HTMLElement).closest('a')) return; // links and action buttons handle themselves
+    navigate(toDetail(id));
+  };
 
-type Dialog = { kind: 'activate' | 'cancel' | 'edit' } | { kind: 'propose'; line: ScLine } | { kind: 'approve' | 'reject'; proposal: Proposal };
-
-function ScDetailView({ id, onBack }: { id: number; onBack: () => void }) {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const me = useMe();
-  const [dialog, setDialog] = useState<Dialog | null>(null);
-  const sc = useQuery({ queryKey: ['sc', id], queryFn: () => api<ScDetail>(`/sales-contracts/${id}`) });
-  if (!sc.data || !me.data) return <ErrorAlert error={sc.error ?? me.error} />;
-  const d = sc.data;
-  const can = (p: string) => me.data.permissions.includes(p);
-  const done = () => { setDialog(null); void qc.invalidateQueries({ queryKey: ['sc', id] }); void qc.invalidateQueries({ queryKey: ['scs'] }); };
-  const actions = (
-    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-      <Button onClick={onBack}>{t('gr.back')}</Button>
-      {can('SALES_CONTRACT.CREATE') && d.status !== 'CANCELED' && <Button onClick={() => setDialog({ kind: 'cancel' })}>{t('sc.cancel')}</Button>}
-      {can('SALES_CONTRACT.CREATE') && d.status === 'DRAFT' && <Button onClick={() => setDialog({ kind: 'edit' })}>{t('doc.edit')}</Button>}
-      {can('SALES_CONTRACT.CREATE') && d.status === 'DRAFT' && <Button variant="contained" onClick={() => setDialog({ kind: 'activate' })}>{t('sc.activate')}</Button>}
+  const toolbar = (
+    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+      <TextField size="small" label={t('common.search')} placeholder={t('sc.search')} value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: { md: 280 } }}
+        slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }} />
+      <TextField size="small" select label={t('common.status')} value={params.get('status') ?? ''} onChange={(e) => update({ status: e.target.value })} sx={{ minWidth: 150 }}>
+        <MenuItem value="">{t('common.all')}</MenuItem>
+        {['DRAFT', 'ACTIVE', 'CANCELED'].map((s) => <MenuItem key={s} value={s}>{t(`sc.status.${s}`)}</MenuItem>)}
+      </TextField>
+      {salesUsers.data && (
+        <TextField size="small" select label={t('sc.responsibleSales')} value={params.get('responsibleSalesUserId') ?? ''} onChange={(e) => update({ responsibleSalesUserId: e.target.value })} sx={{ minWidth: 180 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {salesUsers.data.map((u) => <MenuItem key={u.id} value={String(u.id)}>{u.fullName}</MenuItem>)}
+        </TextField>
+      )}
+      {customers.data && (
+        <TextField size="small" select label={t('sc.customer')} value={params.get('customerId') ?? ''} onChange={(e) => update({ customerId: e.target.value })} sx={{ minWidth: 200 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {customers.data.map((c) => <MenuItem key={c.id} value={String(c.id)}>{c.code}: {c.name}</MenuItem>)}
+        </TextField>
+      )}
     </Stack>
   );
+
   return (
-    <>
-      <PageHeader title={`${t('sc.title')} ${d.documentNumber}`} action={actions} />
-      <Stack spacing={2}>
-        <Paper sx={{ p: 2 }}>
-          <Stack spacing={1.5}>
-            <Field label={t('common.status')}><ScStatusChip status={d.status} /></Field>
-            <Field label={t('sc.customer')}>{d.customerCode}: {d.customerName}</Field>
-            <Field label={t('sc.responsibleSales')}>{d.responsibleSalesName ?? t('sc.noResponsibleSales')}</Field>
-            <Field label={t('gr.createdBy')}>{d.createdByName}, {fmtDate(d.createdAt)}</Field>
-          </Stack>
-        </Paper>
-        <Typography variant="h2">{t('sc.lines')}</Typography>
-        {d.lines.map((l) => (
-          <Paper key={l.id} sx={{ p: 2 }}>
-            <Stack spacing={1.5}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', gap: 1 }}>
-                <Stack>
-                  <Typography sx={{ fontWeight: 600 }}>{l.itemCode}: {l.itemName}</Typography>
-                  <Typography variant="body2" color="text.secondary">{t('sc.lineQuantity', { quantity: Number(l.quantity), uom: l.uomName })}</Typography>
-                </Stack>
-                {can('SALES_CONTRACT.PROPOSE_PRODUCT') && d.status !== 'CANCELED' && (
-                  <Button onClick={() => setDialog({ kind: 'propose', line: l })} sx={{ alignSelf: 'flex-start' }}>{t('sc.propose')}</Button>
-                )}
-              </Stack>
-              {l.products.length === 0 && <Typography variant="body2" color="text.secondary">{t('sc.noProducts')}</Typography>}
-              {l.products.map((p) => (
-                <Stack key={p.id} direction={{ xs: 'column', md: 'row' }} sx={{ gap: 1, pt: 1, borderTop: 1, borderColor: 'divider', alignItems: { md: 'center' } }}>
-                  <Stack sx={{ flex: 1, minWidth: 0 }}>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.partNumber}: {p.name}</Typography>
-                      <StatusChip label={t(`sc.proposal.${p.status}`)} tone={proposalTone[p.status]} />
-                    </Stack>
-                    <Typography variant="body2" color="text.secondary">{t('sc.proposedBy', { name: p.proposedByName, reason: p.reason })}</Typography>
-                    {p.decidedByName && (
-                      <Typography variant="body2" color="text.secondary">
-                        {t('sc.decidedBy', { name: p.decidedByName, at: fmtDate(p.decidedAt!) })}{p.decisionNote ? `. ${p.decisionNote}` : ''}
-                      </Typography>
-                    )}
-                  </Stack>
-                  {p.status === 'PENDING' && can('SALES_CONTRACT.CONFIRM_PRODUCT') && (
-                    <Stack direction="row" spacing={1}>
-                      <Button color="error" onClick={() => setDialog({ kind: 'reject', proposal: p })}>{t('doc.reject')}</Button>
-                      <Button variant="contained" onClick={() => setDialog({ kind: 'approve', proposal: p })}>{t('gir.confirm')}</Button>
-                    </Stack>
-                  )}
-                </Stack>
-              ))}
-            </Stack>
-          </Paper>
-        ))}
-      </Stack>
-      {dialog && (dialog.kind === 'activate' || dialog.kind === 'cancel') && <ScStatusDialog id={id} kind={dialog.kind} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === 'edit' && <CreateScDialog edit={d} onClose={() => setDialog(null)} onCreated={done} />}
-      {dialog?.kind === 'propose' && <ProposeDialog line={dialog.line} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog && (dialog.kind === 'approve' || dialog.kind === 'reject') && (
-        <DecideDialog proposal={dialog.proposal} approve={dialog.kind === 'approve'} onClose={() => setDialog(null)} onDone={done} />
+    <ListPageLayout title={t('nav.salesContracts')} toolbar={toolbar} error={list.error}
+      breadcrumbs={<PageBreadcrumbs items={[{ label: t('common.home'), to: '/' }, { label: t('nav.sales') }, { label: t('nav.salesContracts') }]} />}
+      actions={manage && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>{t('sc.create')}</Button>}>
+      <DataTable
+        rows={list.data?.items ?? []} rowCount={list.data?.total ?? 0} columns={columns} loading={list.isFetching} emptyHint={t('sc.empty')}
+        paginationMode="server" sortingMode="server" disableColumnFilter
+        paginationModel={{ page: page - 1, pageSize }} onPaginationModelChange={(m) => update({ page: m.page + 1, pageSize: m.pageSize === PAGE_SIZE ? null : m.pageSize })}
+        sortModel={sortModel} sortingOrder={['desc', 'asc']}
+        onSortModelChange={(m) => update({ sort: m[0]?.field === 'documentNumber' ? 'documentNumber' : null, order: m[0]?.sort === 'asc' ? 'asc' : null })}
+        onCellClick={(p, e) => open(p.field, Number(p.id), e.target)}
+        onCellKeyDown={(p, e) => { if (e.key === 'Enter') open(p.field, Number(p.id), e.target); }}
+        sx={{ '& .MuiDataGrid-row': { cursor: 'pointer' } }}
+      />
+      <Menu anchorEl={menu?.anchor} open={Boolean(menu)} onClose={() => setMenu(null)}>
+        {menu?.row.status === 'DRAFT' && <MenuItem onClick={() => { setStatusAction({ row: menu.row, kind: 'activate' }); setMenu(null); }}>{t('sc.activate')}</MenuItem>}
+        {menu && <MenuItem sx={{ color: 'error.main' }} onClick={() => { setStatusAction({ row: menu.row, kind: 'cancel' }); setMenu(null); }}>{t('sc.cancel')}</MenuItem>}
+      </Menu>
+      {creating && <ScHeaderDialog onClose={() => setCreating(false)} onSaved={(id) => navigate(toDetail(id))} />}
+      {editing && <ScHeaderDialog edit={editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />}
+      {statusAction && (
+        <ScStatusDialog id={statusAction.row.id} kind={statusAction.kind} onClose={() => setStatusAction(null)}
+          onDone={() => { setStatusAction(null); void list.refetch(); }} />
       )}
-    </>
-  );
-}
-
-function ScStatusDialog({ id, kind, onClose, onDone }: { id: number; kind: 'activate' | 'cancel'; onClose: () => void; onDone: () => void }) {
-  const { t } = useTranslation();
-  const run = useMutation({ mutationFn: () => api(`/sales-contracts/${id}/${kind}`, { method: 'POST' }), onSuccess: onDone });
-  return (
-    <FormDialog title={t(`sc.${kind}`)} submitLabel={t(`sc.${kind}`)} error={run.error} pending={run.isPending} canSubmit onSubmit={() => run.mutate()} onClose={onClose}>
-      <Typography variant="body2">{t(`sc.${kind}Hint`)}</Typography>
-    </FormDialog>
-  );
-}
-
-function ProposeDialog({ line, onClose, onDone }: { line: ScLine; onClose: () => void; onDone: () => void }) {
-  const { t } = useTranslation();
-  const [productId, setProductId] = useState('');
-  const [reason, setReason] = useState('');
-  const products = useQuery({ queryKey: ['products'], queryFn: () => api<Product[]>('/products') });
-  const taken = new Set(line.products.filter((p) => p.status !== 'REJECTED').map((p) => p.productId));
-  const run = useMutation({
-    mutationFn: () => api(`/sales-contract-lines/${line.id}/product-proposals`, { method: 'POST', body: JSON.stringify({ productId: Number(productId), reason }) }),
-    onSuccess: onDone,
-  });
-  return (
-    <FormDialog title={t('sc.propose')} submitLabel={t('sc.proposeSubmit')} error={run.error} pending={run.isPending}
-      canSubmit={Boolean(productId && reason.trim())} onSubmit={() => run.mutate()} onClose={onClose}>
-      <Typography variant="body2" color="text.secondary">{line.itemCode}: {line.itemName}</Typography>
-      <TextField select label={t('gir.product')} value={productId} onChange={(e) => setProductId(e.target.value)} required>
-        {(products.data ?? []).filter((p) => p.isActive && !taken.has(p.id)).map((p) => <MenuItem key={p.id} value={p.id}>{p.partNumber}: {p.name} ({p.unitOfMeasure.code})</MenuItem>)}
-      </TextField>
-      <TextField label={t('gr.reason')} value={reason} onChange={(e) => setReason(e.target.value)} required multiline minRows={2} helperText={t('sc.proposeHint')} />
-    </FormDialog>
-  );
-}
-
-function DecideDialog({ proposal, approve, onClose, onDone }: { proposal: Proposal; approve: boolean; onClose: () => void; onDone: () => void }) {
-  const { t } = useTranslation();
-  const [note, setNote] = useState('');
-  const run = useMutation({
-    mutationFn: () => api(`/product-proposals/${proposal.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: JSON.stringify({ note: note || undefined }) }),
-    onSuccess: onDone,
-  });
-  return (
-    <FormDialog title={t(approve ? 'sc.confirmProduct' : 'sc.rejectProduct')} submitLabel={t(approve ? 'gir.confirm' : 'doc.reject')} error={run.error}
-      pending={run.isPending} canSubmit onSubmit={() => run.mutate()} onClose={onClose}>
-      <Typography variant="body2">{proposal.partNumber}: {proposal.name}. {proposal.reason}</Typography>
-      <TextField label={t('sc.decisionNote')} value={note} onChange={(e) => setNote(e.target.value)} helperText={t('sc.decisionNoteHint')} autoFocus />
-    </FormDialog>
+    </ListPageLayout>
   );
 }

@@ -1,28 +1,176 @@
-import { describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { me, mockApi, wrap } from '../../test/helpers/api';
 import { SalesContractsPage } from '.';
 
-describe('Sales contract product proposals', () => {
-  const detail = {
-    id: 3, documentNumber: 'SC-2026-000001', status: 'ACTIVE', customerCode: 'C1', customerName: 'Customer 1', createdBy: 2, createdByName: 'Sales',
-    createdAt: '2026-11-13T00:00:00Z', pendingProposals: 1,
-    lines: [{
-      id: 11, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', quantity: '10',
-      products: [{ id: 21, productId: 5, partNumber: 'PN-1', name: 'Switch 24', status: 'PENDING', reason: 'Thay thế', decisionNote: null, proposedByName: 'PM', decidedByName: null, decidedAt: null }],
-    }],
-  };
+const SALES = ['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CREATE', 'CUSTOMER.VIEW'];
+const row = (id: number, status: string, documentNumber = `SC-2026-00000${id}`) => ({
+  id, documentNumber, status, version: 2, customerId: 8, customerName: 'Customer 1', createdByName: 'Sales', createdAt: '2026-11-13T00:00:00Z',
+  pendingProposals: 0, lineCount: 1, responsibleSalesUserId: 2, responsibleSalesName: 'Sales A',
+});
+const line = { id: 12, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', unitOfMeasureId: 1, uomCode: 'PCS', quantity: '10.000', products: [] };
+const detail = (status: string, extra: object = {}) => ({ ...row(4, status), customerCode: 'C1', createdBy: 2, updatedAt: null, updatedByName: null, lines: [line], ...extra });
+const common = { '/customers': [{ id: 8, code: 'C1', name: 'Customer 1' }], '/units-of-measure': [{ id: 1, code: 'PCS', name: 'Cái' }, { id: 2, code: 'BOX', name: 'Hộp' }],
+  '/sales-contracts/responsible-sales-candidates': [{ id: 2, fullName: 'Sales A' }] };
 
-  async function openContract(permissions: string[]) {
-    const posts = mockApi({ '/auth/me': me(permissions), '/sales-contracts/3': detail, '/sales-contracts': [detail] });
-    wrap(<SalesContractsPage />);
-    fireEvent.click(await screen.findByText('SC-2026-000001'));
-    await screen.findByText('PN-1: Switch 24');
-    return posts;
-  }
+function Where() { return <span data-testid="where">{useLocation().pathname + useLocation().search}</span>; }
+function Detail() { return <SalesContractsPage initialId={Number(useParams().id)} />; }
+const renderAt = (url: string) => wrap(
+  <><Routes><Route path="/sales-contracts" element={<SalesContractsPage />} /><Route path="/sales-contracts/:id" element={<Detail />} /></Routes><Where /></>, url);
+const fetched = () => vi.mocked(globalThis.fetch).mock.calls.map(([u]) => String(u).replace(/^https?:\/\/[^/]+/, ''));
+const pick = async (label: RegExp | string, option: string) => {
+  fireEvent.mouseDown(await screen.findByRole('combobox', { name: label }));
+  fireEvent.click(await screen.findByRole('option', { name: option }));
+};
+
+describe('Sales contract list', () => {
+  it('searches, filters and pages on the server; the number is a real link; row click opens, action icons do not', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 }, ...common });
+    renderAt('/sales-contracts');
+    const link = await screen.findByRole('link', { name: 'SC-2026-000004' });
+    expect(link.getAttribute('href')).toBe('/sales-contracts/4');
+    expect(fetched()).toContain('/sales-contracts?page=1&pageSize=25');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Tìm kiếm' }), { target: { value: 'cust' } });
+    await waitFor(() => expect(fetched()).toContain('/sales-contracts?q=cust&page=1&pageSize=25'));
+    await pick('Trạng thái', 'Nháp');
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?q=cust&status=DRAFT'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thao tác khác SC-2026-000004' }));
+    expect(await screen.findByRole('menuitem', { name: 'Hủy hợp đồng' })).toBeTruthy();
+    expect(screen.getByTestId('where').textContent).toMatch(/^\/sales-contracts\?/); // the action did not open the row
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+
+    fireEvent.click(screen.getByText('Customer 1'));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts/4'));
+  });
+
+  it('a viewer without SALES_CONTRACT.CREATE sees no create button and no action column', async () => {
+    mockApi({ '/auth/me': me(['SALES_CONTRACT.VIEW']), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 } });
+    renderAt('/sales-contracts');
+    await screen.findByRole('link', { name: 'SC-2026-000004' });
+    expect(screen.queryByRole('button', { name: 'Tạo hợp đồng' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Thao tác khác/ })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Sales phụ trách' })).toBeNull(); // candidates need CREATE
+  });
+
+  it('creates a header-only DRAFT and opens it', async () => {
+    const posts = mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [], total: 0 }, '/sales-contracts/99': detail('DRAFT', { id: 99, lines: [] }), ...common });
+    renderAt('/sales-contracts');
+    fireEvent.click(await screen.findByRole('button', { name: 'Tạo hợp đồng' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByLabelText(/Mã hàng/)).toBeNull(); // no item lines in the create dialog
+    await pick(/Khách hàng/, 'C1: Customer 1');
+    await pick('Sales phụ trách', 'Sales A');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Tạo hợp đồng' }));
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts', body: { customerId: 8, responsibleSalesUserId: 2 } }]));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts/99'));
+    expect(await screen.findByText('Hợp đồng chưa có hàng hóa. Bấm "Thêm hàng hóa" để nhập từng dòng theo hợp đồng đã ký.')).toBeTruthy();
+  });
+});
+
+describe('Sales contract detail', () => {
+  it('shows breadcrumbs, a Back arrow to the list and the Hàng hóa tab with its count', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
+    renderAt('/sales-contracts/4');
+    expect(await screen.findByRole('heading', { name: 'Hợp đồng bán SC-2026-000004' })).toBeTruthy();
+    const crumbs = screen.getByRole('navigation', { name: 'Vị trí trang' });
+    expect(within(crumbs).getByRole('link', { name: 'Trang chủ' }).getAttribute('href')).toBe('/');
+    expect(within(crumbs).getByRole('link', { name: 'Hợp đồng bán' }).getAttribute('href')).toMatch(/^\/sales-contracts/);
+    expect(within(crumbs).getByText('SC-2026-000004').getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Quay lại danh sách' }).getAttribute('href')).toMatch(/^\/sales-contracts/);
+    expect(screen.getByRole('tab', { name: 'Hàng hóa (1)', selected: true })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeNull(); // no PR.VIEW
+  });
+
+  it('adds a line from the UoM catalog; the version is sent', async () => {
+    const posts = mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
+    renderAt('/sales-contracts/4');
+    fireEvent.click(await screen.findByRole('button', { name: 'Thêm hàng hóa' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Mã hàng theo HĐ/), { target: { value: 'RT' } });
+    fireEvent.change(within(dialog).getByLabelText(/Tên hàng theo HĐ/), { target: { value: 'Router' } });
+    await pick(/Đơn vị tính/, 'Hộp (BOX)');
+    fireEvent.change(within(dialog).getByLabelText(/Số lượng/), { target: { value: '3' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu hàng hóa' }));
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts/4/lines', body: { itemCode: 'RT', itemName: 'Router', unitOfMeasureId: 2, quantity: 3, version: 2 } }]));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('edits one line by its id and deletes after confirmation', async () => {
+    const posts = mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
+    renderAt('/sales-contracts/4');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sửa hàng hóa' }));
+    const qty = await screen.findByLabelText(/Số lượng/);
+    expect((qty as HTMLInputElement).value).toBe('10');
+    fireEvent.change(qty, { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contract-lines/12', body: { itemCode: 'SW', itemName: 'Switch', unitOfMeasureId: 1, quantity: 12, version: 2 } }]));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Xóa hàng hóa' }));
+    const confirm = await screen.findByRole('dialog');
+    expect(posts).toHaveLength(1); // nothing deleted before confirming
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Xóa hàng hóa' }));
+    await waitFor(() => expect(posts.at(-1)).toEqual({ url: '/sales-contract-lines/12?version=2', body: {} }));
+  });
+
+  it('keeps the dialog and its input when the API fails', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
+    const ok = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => (init?.method === 'PATCH'
+      ? new Response(JSON.stringify({ code: 'STALE_VERSION', detail: 'stale' }), { status: 409 }) : ok(input, init)));
+    renderAt('/sales-contracts/4');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sửa hàng hóa' }));
+    fireEvent.change(await screen.findByLabelText(/Số lượng/), { target: { value: '15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Dữ liệu đã được người khác thay đổi');
+    expect((screen.getByLabelText(/Số lượng/) as HTMLInputElement).value).toBe('15');
+  });
+
+  it('asks before discarding unsaved input (Hủy bỏ / X)', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
+    renderAt('/sales-contracts/4');
+    fireEvent.click(await screen.findByRole('button', { name: 'Thêm hàng hóa' }));
+    fireEvent.change(await screen.findByLabelText(/Mã hàng theo HĐ/), { target: { value: 'X' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy bỏ' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tiếp tục sửa' }));
+    expect((screen.getByLabelText(/Mã hàng theo HĐ/) as HTMLInputElement).value).toBe('X');
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Bỏ thay đổi' }));
+    await waitFor(() => expect(screen.queryByLabelText(/Mã hàng theo HĐ/)).toBeNull());
+  });
+
+  it('an ACTIVE contract has no header edit and no line add/edit/delete', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE'), ...common });
+    renderAt('/sales-contracts/4');
+    await screen.findByRole('heading', { name: 'Hợp đồng bán SC-2026-000004' });
+    for (const name of ['Sửa thông tin', 'Thêm hàng hóa', 'Sửa hàng hóa', 'Xóa hàng hóa', 'Chốt hợp đồng']) expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Hủy hợp đồng' })).toBeTruthy();
+  });
+
+  it('lists the PRs of the contract by sales_contract_id with links, for PR.VIEW', async () => {
+    mockApi({
+      '/auth/me': me([...SALES, 'PR.VIEW']), '/sales-contracts/4': detail('ACTIVE'),
+      '/purchase-requisitions?salesContractId=4': [{ id: 7, documentNumber: 'PR-2026-000007', approvalStatus: 'APPROVED', category: 'SALES_GOODS', createdAt: '2026-11-14T00:00:00Z', createdByName: 'PM' }],
+    });
+    renderAt('/sales-contracts/4');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Đề nghị mua (PR)' }));
+    expect((await screen.findByRole('link', { name: 'PR-2026-000007' })).getAttribute('href')).toBe('/purchase-requisitions/7');
+    expect(fetched()).toContain('/purchase-requisitions?salesContractId=4');
+  });
+});
+
+describe('Sales contract product proposals', () => {
+  const withProposal = detail('ACTIVE', {
+    lines: [{ ...line, products: [{ id: 21, productId: 5, partNumber: 'PN-1', name: 'Switch 24', status: 'PENDING', reason: 'Thay thế', decisionNote: null, proposedByName: 'PM', decidedByName: null, decidedAt: null }] }],
+  });
 
   it('Sales sees confirm/reject on a pending proposal and confirms with a note', async () => {
-    const posts = await openContract(['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CONFIRM_PRODUCT']);
+    const posts = mockApi({ '/auth/me': me(['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CONFIRM_PRODUCT']), '/sales-contracts/4': withProposal });
+    renderAt('/sales-contracts/4');
+    await screen.findByText('PN-1: Switch 24');
     expect(screen.queryByRole('button', { name: 'Đề xuất mã hàng' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Xác nhận' }));
     fireEvent.change(await screen.findByLabelText('Ghi chú hoặc số phụ lục'), { target: { value: 'PL-01' } });
@@ -31,46 +179,10 @@ describe('Sales contract product proposals', () => {
   });
 
   it('PM can propose but never confirm in place of Sales (04 §2)', async () => {
-    await openContract(['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.PROPOSE_PRODUCT']);
+    mockApi({ '/auth/me': me(['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.PROPOSE_PRODUCT']), '/sales-contracts/4': withProposal });
+    renderAt('/sales-contracts/4');
+    await screen.findByText('PN-1: Switch 24');
     expect(screen.getByRole('button', { name: 'Đề xuất mã hàng' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Xác nhận' })).toBeNull();
   });
-});
-
-describe('Document editing (IM18)', () => {
-  it('Sales edits a DRAFT contract in the create form; lines keep their ids and the version is sent', async () => {
-    const draft = {
-      id: 4, documentNumber: 'SC-2026-000002', status: 'DRAFT', version: 2, customerId: 8, customerCode: 'C1', customerName: 'Customer 1', createdBy: 2,
-      createdByName: 'Sales', createdAt: '2026-11-13T00:00:00Z', pendingProposals: 0, responsibleSalesUserId: 2, responsibleSalesName: 'Sales A',
-      lines: [{ id: 12, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', quantity: '10.000', products: [] }],
-    };
-    const posts = mockApi({
-      '/auth/me': me(['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CREATE']), '/customers': [{ id: 8, code: 'C1', name: 'Customer 1' }],
-      '/sales-contracts/4': draft, '/sales-contracts': [draft],
-      '/sales-contracts/responsible-sales-candidates': [{ id: 2, fullName: 'Sales A' }, { id: 3, fullName: 'Sales B' }],
-    });
-    wrap(<SalesContractsPage />);
-    fireEvent.click(await screen.findByText('SC-2026-000002'));
-    expect(await screen.findByText('Sales A')).toBeTruthy(); // responsible sales shown on the detail
-    fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
-    const qty = await screen.findByLabelText(/Số lượng/);
-    expect((qty as HTMLInputElement).value).toBe('10');
-    fireEvent.change(qty, { target: { value: '12' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
-    await waitFor(() => expect(posts).toEqual([{
-      url: '/sales-contracts/4',
-      body: { version: 2, customerId: 8, responsibleSalesUserId: 2, lines: [{ id: 12, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', quantity: 12 }] },
-    }]));
-  });
-
-  it('An ACTIVE contract has no edit button', async () => {
-    const active = { id: 5, documentNumber: 'SC-2026-000003', status: 'ACTIVE', version: 3, customerId: 8, customerCode: 'C1', customerName: 'C', createdBy: 2,
-      createdByName: 'Sales', createdAt: '2026-11-13T00:00:00Z', pendingProposals: 0, lines: [] };
-    mockApi({ '/auth/me': me(['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CREATE']), '/sales-contracts/5': active, '/sales-contracts': [active] });
-    wrap(<SalesContractsPage />);
-    fireEvent.click(await screen.findByText('SC-2026-000003'));
-    await screen.findByText('Hợp đồng bán SC-2026-000003');
-    expect(screen.queryByRole('button', { name: 'Sửa' })).toBeNull();
-  });
-
 });

@@ -16,6 +16,9 @@ const vi = {
   common: {
     cancel: 'Hủy bỏ', yes: 'Có', no: 'Không', status: 'Trạng thái', active: 'Đang dùng', inactive: 'Ngừng dùng',
     empty: 'Chưa có dữ liệu', error: 'Không thực hiện được: {{detail}}', loading: 'Đang tải…',
+    close: 'Đóng', discardTitle: 'Bỏ thay đổi chưa lưu?', discardHint: 'Dữ liệu bạn vừa nhập sẽ không được lưu.', keepEditing: 'Tiếp tục sửa', discard: 'Bỏ thay đổi',
+    actions: 'Thao tác', more: 'Thao tác khác', search: 'Tìm kiếm', all: 'Tất cả', home: 'Trang chủ', back: 'Quay lại danh sách', breadcrumbs: 'Vị trí trang',
+    notFound: 'Không tìm thấy trang hoặc bạn không có quyền truy cập.', sortBy: 'Sắp xếp',
   },
   status: { DRAFT: 'Nháp', WAITING_FOR_APPROVE: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Bị từ chối', CANCELED: 'Đã hủy' },
   product: {
@@ -113,6 +116,8 @@ const vi = {
     DUPLICATE_SOURCE_LINE: 'Mỗi dòng nguồn chỉ được chọn một lần trong một chứng từ.',
     LINE_NOT_EDITABLE: 'Dòng không thuộc chứng từ này hoặc đang được chứng từ khác tham chiếu nên không đổi được hàng/nguồn.',
     RECORD_IN_USE: 'Không xóa được dòng đang được chứng từ hoặc đề xuất khác tham chiếu.',
+    SALES_CONTRACT_NO_LINES: 'Hợp đồng cần ít nhất một dòng hàng hóa trước khi chốt.',
+    UOM_NOT_FOUND: 'Đơn vị tính không có trong danh mục. Chọn lại ĐVT.',
     PRODUCT_IDENTITY_LOCKED: 'Không thể đổi mã hoặc tên của hàng đã dùng trên chứng từ.',
     PRODUCT_UOM_LOCKED: 'Không thể đổi ĐVT của hàng đã dùng trên chứng từ.',
     SERIAL_TRACKING_LOCKED: 'Không thể đổi cờ quản lý SN của hàng đã có trên chứng từ nhập/xuất.',
@@ -132,6 +137,12 @@ const vi = {
     proposal: { PENDING: 'Chờ Sales xác nhận', APPROVED: 'Sales đã xác nhận', REJECTED: 'Sales từ chối' },
     confirmProduct: 'Xác nhận mã hàng được phép giao', rejectProduct: 'Từ chối mã hàng đề xuất', decisionNote: 'Ghi chú hoặc số phụ lục',
     decisionNoteHint: 'Không bắt buộc.',
+    search: 'Mã HĐ hoặc tên khách hàng', lineCount: 'Số dòng', editHeader: 'Sửa thông tin', editHeaderTitle: 'Sửa thông tin hợp đồng {{number}}',
+    createHint: 'Chỉ nhập thông tin chung. Hàng hóa được thêm ở trang chi tiết sau khi tạo.', tabLines: 'Hàng hóa', tabPrs: 'Đề nghị mua (PR)',
+    noPrs: 'Chưa có đề nghị mua nào tham chiếu hợp đồng này.', addItem: 'Thêm hàng hóa', editItem: 'Sửa hàng hóa', deleteItem: 'Xóa hàng hóa', saveItem: 'Lưu hàng hóa',
+    deleteItemHint: 'Xóa dòng {{code}}: {{name}}? Không xóa được dòng đã có mã hàng đề xuất.', noLines: 'Hợp đồng chưa có hàng hóa.', noLinesEdit: 'Hợp đồng chưa có hàng hóa. Bấm "Thêm hàng hóa" để nhập từng dòng theo hợp đồng đã ký.',
+    uom: 'Đơn vị tính', updatedBy: 'Cập nhật lần cuối',
+    allowedProducts: 'Mã hàng được phép giao', proposals: '{{count}} mã hàng', sortCreatedAt: 'Ngày tạo', sortNumber: 'Số HĐ',
   },
   pr: {
     title: 'Đề nghị mua (PR)', number: 'Số PR', category: 'Phân loại', material: 'Vật tư {{n}}', addMaterial: 'Thêm vật tư',
@@ -185,6 +196,9 @@ const en: typeof vi = {
   common: {
     cancel: 'Cancel', yes: 'Yes', no: 'No', status: 'Status', active: 'Active', inactive: 'Inactive',
     empty: 'No data yet', error: 'Could not complete: {{detail}}', loading: 'Loading…',
+    close: 'Close', discardTitle: 'Discard unsaved changes?', discardHint: 'What you entered will not be saved.', keepEditing: 'Keep editing', discard: 'Discard',
+    actions: 'Actions', more: 'More actions', search: 'Search', all: 'All', home: 'Home', back: 'Back to list', breadcrumbs: 'Breadcrumb',
+    notFound: 'Page not found or you do not have access.', sortBy: 'Sort',
   },
   status: { DRAFT: 'Draft', WAITING_FOR_APPROVE: 'Waiting for approval', APPROVED: 'Approved', REJECTED: 'Rejected', CANCELED: 'Canceled' },
   product: {
@@ -282,6 +296,8 @@ const en: typeof vi = {
     DUPLICATE_SOURCE_LINE: 'Each source line can be used only once per document.',
     LINE_NOT_EDITABLE: 'The line is not on this document or is referenced elsewhere, so its product/source cannot change.',
     RECORD_IN_USE: 'The line cannot be removed while another document or proposal references it.',
+    SALES_CONTRACT_NO_LINES: 'Add at least one item before activating the contract.',
+    UOM_NOT_FOUND: 'The unit of measure is not in the catalog. Choose another one.',
     PRODUCT_IDENTITY_LOCKED: 'Code or name cannot change once the product is used in documents.',
     PRODUCT_UOM_LOCKED: 'UoM cannot change once the product is used in documents.',
     SERIAL_TRACKING_LOCKED: 'Serial tracking cannot change once the product is on receipts or issues.',
@@ -301,6 +317,12 @@ const en: typeof vi = {
     proposal: { PENDING: 'Waiting for Sales', APPROVED: 'Confirmed by Sales', REJECTED: 'Rejected by Sales' },
     confirmProduct: 'Confirm deliverable product', rejectProduct: 'Reject proposed product', decisionNote: 'Note or appendix number',
     decisionNoteHint: 'Optional.',
+    search: 'Contract number or customer name', lineCount: 'Lines', editHeader: 'Edit details', editHeaderTitle: 'Edit contract {{number}}',
+    createHint: 'Only the general details. Add items on the detail page after creating.', tabLines: 'Items', tabPrs: 'Purchase requisitions',
+    noPrs: 'No purchase requisitions reference this contract yet.', addItem: 'Add item', editItem: 'Edit item', deleteItem: 'Delete item', saveItem: 'Save item',
+    deleteItemHint: 'Delete line {{code}}: {{name}}? A line with proposed products cannot be deleted.', noLines: 'This contract has no items yet.', noLinesEdit: 'This contract has no items yet. Select "Add item" to enter each signed line.',
+    uom: 'Unit of measure', updatedBy: 'Last updated',
+    allowedProducts: 'Deliverable products', proposals: '{{count}} products', sortCreatedAt: 'Created', sortNumber: 'Contract number',
   },
   pr: {
     title: 'Purchase requisitions', number: 'PR number', category: 'Kind', material: 'Material {{n}}', addMaterial: 'Add material',

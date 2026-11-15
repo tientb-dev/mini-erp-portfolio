@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { Button } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
 import { TableBody, TableCell, TableHead, TableRow } from '@mui/material';
-import { DetailPageLayout, DetailTabs, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
+import { DataTable, DetailPageLayout, DetailTabs, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
 
 describe('ListPageLayout', () => {
   it('renders title, page actions, toolbar, the load error and the content', () => {
@@ -177,5 +177,29 @@ describe('Fill layout markers (scroll standard, FRONTEND §10)', () => {
     expect(container.querySelector('[data-fill-page]')).toBeNull();
     rerender(<ListPageLayout title="T" fill><div /></ListPageLayout>);
     expect(container.querySelector('[data-fill-page]')).toBeTruthy();
+  });
+});
+
+describe('DataTable loading and error (list standard)', () => {
+  const rows = [{ id: 1, name: 'Dòng A' }];
+  const base = { rows, columns: [{ field: 'name', headerName: 'Tên' }], rowCount: 30, paginationMode: 'server' as const, paginationModel: { page: 0, pageSize: 25 } };
+  it('while loading: spinner over the previous rows, no empty state, pagination locked', () => {
+    const onPage = vi.fn();
+    render(<DataTable {...base} loading emptyHint="Trống" onPaginationModelChange={onPage} />);
+    expect(screen.getByRole('progressbar', { name: 'Đang tải…' })).toBeTruthy();
+    expect(screen.getByText('Dòng A')).toBeTruthy();
+    expect(screen.queryByText('Trống')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Tới trang tiếp theo|next page/i }));
+    expect(onPage).not.toHaveBeenCalled();
+  });
+  it('on error: no spinner, rows cleared, a load-failed message, the page and total kept', () => {
+    const onPage = vi.fn();
+    const { rerender } = render(<DataTable {...base} onPaginationModelChange={onPage} />);
+    rerender(<DataTable {...base} rowCount={0} paginationModel={{ page: 1, pageSize: 25 }} error={{ message: 'x' }} onPaginationModelChange={onPage} />);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByText('Dòng A')).toBeNull();
+    expect(screen.getByText('Không tải được dữ liệu. Thử lại sau.')).toBeTruthy();
+    expect(screen.getByText(/^26–30 (trên|of) 30$/)).toBeTruthy();
+    expect(onPage).not.toHaveBeenCalled(); // the grid did not jump back to page 1 on its own
   });
 });

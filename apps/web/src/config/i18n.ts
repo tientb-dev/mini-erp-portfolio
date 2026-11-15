@@ -18,7 +18,7 @@ const vi = {
     empty: 'Chưa có dữ liệu', error: 'Không thực hiện được: {{detail}}', loading: 'Đang tải…',
     close: 'Đóng', discardTitle: 'Bỏ thay đổi chưa lưu?', discardHint: 'Dữ liệu bạn vừa nhập sẽ không được lưu.', keepEditing: 'Tiếp tục sửa', discard: 'Bỏ thay đổi',
     actions: 'Thao tác', more: 'Thao tác khác', search: 'Tìm kiếm', all: 'Tất cả', home: 'Trang chủ', back: 'Quay lại danh sách', breadcrumbs: 'Vị trí trang',
-    notFound: 'Không tìm thấy trang hoặc bạn không có quyền truy cập.', sortBy: 'Sắp xếp', decision: 'Thao tác quyết định', clearFilters: 'Xóa lọc',
+    notFound: 'Không tìm thấy trang hoặc bạn không có quyền truy cập.', sortBy: 'Sắp xếp', decision: 'Thao tác quyết định', clearFilters: 'Xóa lọc', loadFailed: 'Không tải được dữ liệu. Thử lại sau.',
   },
   status: { DRAFT: 'Nháp', WAITING_FOR_APPROVE: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Bị từ chối', CANCELED: 'Đã hủy' },
   product: {
@@ -202,7 +202,7 @@ const en: typeof vi = {
     empty: 'No data yet', error: 'Could not complete: {{detail}}', loading: 'Loading…',
     close: 'Close', discardTitle: 'Discard unsaved changes?', discardHint: 'What you entered will not be saved.', keepEditing: 'Keep editing', discard: 'Discard',
     actions: 'Actions', more: 'More actions', search: 'Search', all: 'All', home: 'Home', back: 'Back to list', breadcrumbs: 'Breadcrumb',
-    notFound: 'Page not found or you do not have access.', sortBy: 'Sort', decision: 'Decision', clearFilters: 'Clear filters',
+    notFound: 'Page not found or you do not have access.', sortBy: 'Sort', decision: 'Decision', clearFilters: 'Clear filters', loadFailed: 'Could not load the data. Try again later.',
   },
   status: { DRAFT: 'Draft', WAITING_FOR_APPROVE: 'Waiting for approval', APPROVED: 'Approved', REJECTED: 'Rejected', CANCELED: 'Canceled' },
   product: {

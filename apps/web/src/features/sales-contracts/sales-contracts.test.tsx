@@ -71,6 +71,27 @@ describe('Sales contract list', () => {
   });
 });
 
+describe('Sales contract list pagination (regression: Next jumped back to page 1)', () => {
+  const page = (ids: number[]) => ({ items: ids.map((id) => row(id, 'DRAFT', `SC-P-${String(id).padStart(3, '0')}`)), total: 30 });
+  it('Next loads page 2 and stays there; URL, rows and label agree', async () => {
+    mockApi({
+      '/auth/me': me(SALES), ...common,
+      '/sales-contracts?page=1': page(Array.from({ length: 25 }, (_, i) => 30 - i)),
+      '/sales-contracts?page=2': page([5, 4, 3, 2, 1]),
+    });
+    renderAt('/sales-contracts');
+    await screen.findByRole('link', { name: 'SC-P-030' });
+    fireEvent.click(screen.getByRole('button', { name: /Tới trang tiếp theo|next page/i }));
+    expect(await screen.findByRole('link', { name: 'SC-P-005' })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50)); // the grid's debounced reset used to fire here
+    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?page=2');
+    expect(screen.queryByRole('link', { name: 'SC-P-030' })).toBeNull();
+    expect(screen.getByText(/^26–30 (trên|of) 30$/)).toBeTruthy();
+    const calls = fetched().filter((u) => u.startsWith('/sales-contracts?'));
+    expect(calls.at(-1)).toBe('/sales-contracts?page=2&pageSize=25'); // no request back to page 1 after page 2
+  });
+});
+
 describe('Sales contract detail', () => {
   it('shows breadcrumbs, a Back arrow to the list and the Hàng hóa tab with its count', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });

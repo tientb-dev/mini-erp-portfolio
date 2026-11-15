@@ -1,4 +1,4 @@
-import { MouseEvent, useEffect, useState } from 'react';
+import { MouseEvent, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -45,15 +45,16 @@ function ScListView() {
   const pageSize = Number(params.get('pageSize') ?? PAGE_SIZE);
   const sort = params.get('sort') === 'documentNumber' ? 'documentNumber' : 'createdAt';
   const order = params.get('order') === 'asc' ? 'asc' : 'desc';
-  const update = (next: Record<string, string | number | null>) => {
+  // Page, sort and filter changes are history entries (Back/Forward walk them); typing in the search box replaces.
+  const update = (next: Record<string, string | number | null>, replace = false) => {
     const p = new URLSearchParams(params);
     Object.entries(next).forEach(([k, v]) => (v === null || v === '' ? p.delete(k) : p.set(k, String(v))));
     if (!('page' in next)) p.delete('page'); // a new filter starts from page 1
-    setParams(p, { replace: true });
+    setParams(p, { replace });
   };
   useEffect(() => { rememberListSearch(location.search); }, [location.search]);
   useEffect(() => {
-    const h = setTimeout(() => { if (text.trim() !== (params.get('q') ?? '')) update({ q: text.trim() }); }, 300);
+    const h = setTimeout(() => { if (text.trim() !== (params.get('q') ?? '')) update({ q: text.trim() }, true); }, 300);
     return () => clearTimeout(h);
   }, [text]); // debounced on typing only
 
@@ -102,7 +103,9 @@ function ScListView() {
       }} />
     ),
   });
-  const sortModel: GridSortModel = [{ field: sort, sort: order }];
+  // Stable references: DataGrid treats a new sortModel object as a sort change and jumps back to page 1 (server mode).
+  const sortModel = useMemo<GridSortModel>(() => [{ field: sort, sort: order }], [sort, order]);
+  const paginationModel = useMemo(() => ({ page: page - 1, pageSize }), [page, pageSize]);
   const open = (field: string, id: number, target: EventTarget) => {
     if (field === 'actions' || (target as HTMLElement).closest('a')) return; // links and action buttons handle themselves
     navigate(toDetail(id));
@@ -119,9 +122,10 @@ function ScListView() {
       breadcrumbs={<PageBreadcrumbs items={[{ label: t('common.home'), to: '/' }, { label: t('nav.sales') }, { label: t('nav.salesContracts') }]} />}
       actions={manage && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>{t('sc.create')}</Button>}>
       <DataTable
-        fill rows={list.data?.items ?? []} rowCount={list.data?.total ?? 0} columns={columns} loading={list.isFetching} emptyHint={t('sc.empty')}
+        fill rows={list.data?.items ?? []} rowCount={list.data?.total ?? 0} columns={columns} loading={list.isFetching || list.isPlaceholderData} error={list.error} emptyHint={t('sc.empty')}
         paginationMode="server" sortingMode="server" disableColumnFilter
-        paginationModel={{ page: page - 1, pageSize }} onPaginationModelChange={(m) => update({ page: m.page + 1, pageSize: m.pageSize === PAGE_SIZE ? null : m.pageSize })}
+        paginationModel={paginationModel}
+        onPaginationModelChange={(m) => update({ page: m.page + 1, pageSize: m.pageSize === PAGE_SIZE ? null : m.pageSize, ...(m.pageSize !== pageSize && { page: null }) })}
         sortModel={sortModel} sortingOrder={['desc', 'asc']}
         onSortModelChange={(m) => update({ sort: m[0]?.field === 'documentNumber' ? 'documentNumber' : null, order: m[0]?.sort === 'asc' ? 'asc' : null })}
         onCellClick={(p, e) => open(p.field, Number(p.id), e.target)}

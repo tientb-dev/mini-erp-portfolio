@@ -112,3 +112,18 @@ Không làm (chưa có nhu cầu thực): `ConfirmDialog` riêng (xác nhận = 
 
 - Nhóm cha (icon nghiệp vụ) → trang con (icon nhỏ) theo `NAV`; chỉ hiện con có quyền VIEW, nhóm không còn con thì ẩn.
 - Mặc định mọi nhóm mở; người dùng thu gọn từng nhóm, lựa chọn lưu ở `localStorage` (`mini-erp.nav.collapsed`, lỗi storage → mặc định mở). Vào trang thuộc nhóm đang thu gọn → nhóm tự mở. Nhóm chứa trang hiện tại có màu nhấn.
+
+## 10. Design system ("Hồ sơ chứng từ", PR #17)
+
+Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI theme); feature không đặt cứng màu hay kích thước.
+
+| Nhóm | Quy tắc |
+|---|---|
+| Màu | Primary `#1F5FC4` (hover `#184DA3`, nền nhạt `#EAF1FC`); nền trang `#F5F7FA`; bề mặt trắng; chữ `#18222F` / `#5A6878`; viền `#DCE2E9`. Trạng thái giữ nghĩa qua `statusTones` (Nháp xám, Chờ vàng, Đã chốt/duyệt xanh lá, Từ chối đỏ, Đã hủy xám nhạt). |
+| Chữ | Be Vietnam Pro tự host (`@fontsource`, không gọi CDN). Tiêu đề trang 22/600, tiêu đề vùng 16/600, nội dung và bảng 14px, nhãn 13px màu phụ. |
+| Nút | Contained: một nút chính mỗi vùng. Outlined: phụ. Text: hủy, điều hướng. Màu đỏ: thao tác phá hủy, luôn có xác nhận. Cao 36px (pointer thô: 44px), bo 6px. |
+| Form | Nhãn luôn nằm trên ô (không nổi trong viền), ô cao 40px, khoảng cách bội số 8. Thanh lọc không có nhãn trên: giá trị rỗng ghi "Tất cả …", tên trường là `aria-label`. |
+| Bảng | DataGrid dòng 44px, header 40px, chữ 14px; số căn phải; ngày trong danh sách `dd/MM/yyyy`, giờ đầy đủ ở tooltip; phân trang tiếng Việt ("1–3 trên 3"). |
+| Thao tác theo dòng | Ô cố định, căn phải. 0 thao tác: trống. 1 thao tác: hiện thẳng icon đó. Từ 2: icon chính + menu ⋮. |
+| Chi tiết chứng từ | Tiêu đề là mã chứng từ, chip trạng thái ngay cạnh, phụ đề là loại chứng từ. Header chỉ có thao tác phụ. Quyết định (vd. Chốt) nằm ở `DetailPageLayout.footer`: thanh dính đáy màn hình, nằm trong luồng trang nên không che nội dung cuối. |
+| Dialog | Tiêu đề + X, một dòng `description`, footer có đường kẻ, Hủy bỏ + nút chính căn phải. Trường văn bản chiếm cả hàng; cặp giá trị đọc cùng nhau (Số lượng + ĐVT) chung một hàng. |

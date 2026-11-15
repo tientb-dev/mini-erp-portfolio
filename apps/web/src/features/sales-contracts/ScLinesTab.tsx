@@ -24,11 +24,10 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
   );
   return (
     <>
-      {editable && (
-        <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
-          <Button variant="outlined" startIcon={<AddIcon />} onClick={() => onAction({ kind: 'add' })}>{t('sc.addItem')}</Button>
-        </Stack>
-      )}
+      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, minHeight: 36 }}>
+        <Typography variant="body2" color="text.secondary">{t('sc.lineSummary', { count: d.lines.length })}</Typography>
+        {editable && <Button variant="contained" startIcon={<AddIcon />} onClick={() => onAction({ kind: 'add' })}>{t('sc.addItem')}</Button>}
+      </Stack>
       {d.lines.length === 0 ? (
         <Typography variant="body2" color="text.secondary">{t(editable ? 'sc.noLinesEdit' : 'sc.noLines')}</Typography>
       ) : (
@@ -36,13 +35,13 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
           <Table size="small" aria-label={t('sc.tabLines')}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: 40 }}>#</TableCell>
+                <TableCell sx={{ width: 48 }}>#</TableCell>
                 <TableCell>{t('sc.itemCode')}</TableCell>
                 <TableCell>{t('sc.itemName')}</TableCell>
-                <TableCell>{t('sc.uom')}</TableCell>
-                <TableCell align="right">{t('gr.quantity')}</TableCell>
+                <TableCell align="right" sx={{ width: 110 }}>{t('gr.quantity')}</TableCell>
+                <TableCell sx={{ width: 90 }}>{t('sc.uom')}</TableCell>
                 <TableCell>{t('sc.allowedProducts')}</TableCell>
-                {(editable || canPropose) && <TableCell align="right" sx={{ width: 120 }}>{t('common.actions')}</TableCell>}
+                {(editable || canPropose) && <TableCell align="right" sx={{ width: 128 }}>{t('common.actions')}</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -50,10 +49,10 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                 <Fragment key={l.id}>
                   <TableRow hover>
                     <TableCell>{i + 1}</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>{l.itemCode}</TableCell>
+                    <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{l.itemCode}</TableCell>
                     <TableCell>{l.itemName}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{num(l.quantity)}</TableCell>
                     <TableCell>{l.uomName}</TableCell>
-                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{num(l.quantity)}</TableCell>
                     <TableCell>{l.products.length ? t('sc.proposals', { count: l.products.length }) : <Typography variant="body2" color="text.secondary">{t('sc.noProducts')}</Typography>}</TableCell>
                     {(editable || canPropose) && (
                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>

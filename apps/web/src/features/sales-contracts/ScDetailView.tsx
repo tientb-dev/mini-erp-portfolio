@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Paper, Stack } from '@mui/material';
+import { Box, Button, Paper, Stack, Typography } from '@mui/material';
+import EditOutlined from '@mui/icons-material/EditOutlined';
 import { api } from '../../services/api-client';
-import { DetailPageLayout, DetailTabs, Field, PageBreadcrumbs } from '../../shared/components';
+import { DetailPageLayout, DetailTabs, PageBreadcrumbs } from '../../shared/components';
 import { fmtDate } from '../../shared/utils/format';
 import { useMe } from '../identity';
 import { DecideDialog, DeleteLineDialog, ProposeDialog, ScStatusDialog } from './ScDialogs';
@@ -13,6 +14,17 @@ import { LineAction, ScLinesTab } from './ScLinesTab';
 import { ScPrsTab } from './ScPrsTab';
 import { ScStatusChip } from './ScStatusChip';
 import { listUrl, ScDetail } from './types';
+
+/** Label above value; an optional second line (code, time) in the muted colour. */
+function InfoItem({ label, value, detail, muted }: { label: string; value: string; detail?: string; muted?: boolean }) {
+  return (
+    <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+      <Typography variant="body2" color="text.secondary">{label}</Typography>
+      <Typography sx={{ fontWeight: 500, color: muted ? 'text.secondary' : 'text.primary', overflowWrap: 'anywhere' }}>{value}</Typography>
+      {detail && <Typography variant="body2" color="text.secondary">{detail}</Typography>}
+    </Stack>
+  );
+}
 
 type Dialog = LineAction | { kind: 'activate' | 'cancel' | 'header' };
 
@@ -34,29 +46,40 @@ export function ScDetailView({ id }: { id: number }) {
     <PageBreadcrumbs items={[{ label: t('common.home'), to: '/' }, { label: t('nav.sales') }, { label: t('nav.salesContracts'), to: listUrl() }, { label: d?.documentNumber ?? '…' }]} />
   );
   const manage = can('SALES_CONTRACT.CREATE');
+  // Header keeps only secondary actions; the decision (Chốt) sits in the bottom bar.
   const actions = d && manage && d.status !== 'CANCELED' && (
-    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+    <>
       <Button color="error" onClick={() => setDialog({ kind: 'cancel' })}>{t('sc.cancel')}</Button>
-      {d.status === 'DRAFT' && <Button variant="outlined" onClick={() => setDialog({ kind: 'header' })}>{t('sc.editHeader')}</Button>}
-      {d.status === 'DRAFT' && <Button variant="contained" onClick={() => setDialog({ kind: 'activate' })}>{t('sc.activate')}</Button>}
+      {d.status === 'DRAFT' && <Button variant="outlined" startIcon={<EditOutlined />} onClick={() => setDialog({ kind: 'header' })}>{t('sc.editHeader')}</Button>}
+    </>
+  );
+  // Same conditions the server checks on activate: at least one line and a responsible sales.
+  const blocker = d && (!d.lines.length ? t('sc.activateNeedLines') : !d.responsibleSalesUserId ? t('sc.activateNeedSales') : null);
+  const footer = d && manage && d.status === 'DRAFT' && (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 2 }} sx={{ alignItems: { sm: 'center' }, justifyContent: 'flex-end' }}>
+      <Typography variant="body2" color={blocker ? 'warning.main' : 'text.secondary'} sx={{ textAlign: { sm: 'right' }, display: { xs: blocker ? 'block' : 'none', sm: 'block' } }}>{blocker ?? t('sc.activateBar')}</Typography>
+      <Button variant="contained" disabled={Boolean(blocker)} onClick={() => setDialog({ kind: 'activate' })} sx={{ flexShrink: 0 }}>{t('sc.activate')}</Button>
     </Stack>
   );
+  // PR tab: PR.VIEW, or read-only for the responsible sales of this contract (ADR-0014; the API checks the same rule).
+  const seesPrs = Boolean(d && me.data && (can('PR.VIEW') || (can('SALES_CONTRACT.VIEW') && d.responsibleSalesUserId === me.data.id)));
   return (
-    <DetailPageLayout title={t('sc.title')} documentNumber={d?.documentNumber} loading={!d || !me.data} error={sc.error ?? me.error}
-      breadcrumbs={breadcrumbs} backTo={listUrl()} status={d && <ScStatusChip status={d.status} />} actions={actions}>
+    <DetailPageLayout title={d?.documentNumber ?? t('sc.title')} loading={!d || !me.data} error={sc.error ?? me.error}
+      status={d && <ScStatusChip status={d.status} />} subtitle={t('sc.title')}
+      breadcrumbs={breadcrumbs} backTo={listUrl()} actions={actions} footer={footer}>
       {d && (
         <>
-          <Paper sx={{ p: 2 }}>
-            <Stack spacing={1}>
-              <Field label={t('sc.customer')}>{d.customerCode}: {d.customerName}</Field>
-              <Field label={t('sc.responsibleSales')}>{d.responsibleSalesName ?? t('sc.noResponsibleSales')}</Field>
-              <Field label={t('gr.createdBy')}>{d.createdByName}, {fmtDate(d.createdAt)}</Field>
-              {d.updatedAt && <Field label={t('sc.updatedBy')}>{d.updatedByName ?? ''}, {fmtDate(d.updatedAt)}</Field>}
-            </Stack>
+          <Paper sx={{ p: { xs: 2, md: 2.5 } }}>
+            <Box sx={{ display: 'grid', gap: { xs: 2, md: 3 }, gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' } }}>
+              <InfoItem label={t('sc.customer')} value={d.customerName} detail={d.customerCode} />
+              <InfoItem label={t('sc.responsibleSales')} value={d.responsibleSalesName ?? t('sc.noResponsibleSales')} muted={!d.responsibleSalesName} />
+              <InfoItem label={t('gr.createdBy')} value={d.createdByName} detail={fmtDate(d.createdAt)} />
+              <InfoItem label={t('sc.updatedBy')} value={d.updatedAt ? d.updatedByName ?? '' : '—'} detail={d.updatedAt ? fmtDate(d.updatedAt) : undefined} />
+            </Box>
           </Paper>
           <DetailTabs tabs={[
             { key: 'lines', label: `${t('sc.tabLines')} (${d.lines.length})`, content: <ScLinesTab d={d} can={can} onAction={setDialog} /> },
-            { key: 'prs', label: t('sc.tabPrs'), hidden: !can('PR.VIEW'), content: <ScPrsTab contractId={d.id} /> },
+            { key: 'prs', label: t('sc.tabPrs'), hidden: !seesPrs, content: <ScPrsTab contractId={d.id} /> },
           ]} />
           {(dialog?.kind === 'activate' || dialog?.kind === 'cancel') && <ScStatusDialog id={id} kind={dialog.kind} onClose={close} onDone={done} />}
           {dialog?.kind === 'header' && <ScHeaderDialog edit={d} onClose={close} onSaved={done} />}

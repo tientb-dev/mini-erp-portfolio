@@ -6,17 +6,18 @@ import MenuIcon from '@mui/icons-material/Menu';
 import { tokens } from '../../config/theme';
 import { useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';
-import { NAV, PageKey, PAGES } from '../routes';
+import { DETAIL_ALSO, NAV, PageKey, PAGES } from '../routes';
 import { SideNav } from './SideNav';
 
 const pageOf = (path?: string) => (Object.keys(PAGES) as PageKey[]).find((k) => pagePath(k) === `/${path}`) ?? null;
 
 /** `/:page/:id?` → that page (with `initialId`) when the user may view it; anything else shows "not found". */
-function PageRoute({ allowed }: { allowed: (k: PageKey) => boolean }) {
+function PageRoute({ allowed, has }: { allowed: (k: PageKey) => boolean; has: (p: string) => boolean }) {
   const { t } = useTranslation();
   const { page: path, id } = useParams();
   const page = pageOf(path);
-  if (!page || !allowed(page)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
+  const viaDetail = Boolean(page && id && DETAIL_ALSO[page] && has(DETAIL_ALSO[page]!));
+  if (!page || !(allowed(page) || viaDetail)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
   const Page = PAGES[page][0];
   return <Page key={`${page}-${id ?? ''}`} initialId={id ? Number(id) : undefined} />;
 }
@@ -59,7 +60,7 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
           {me.data && (
             <Routes>
               <Route path="/" element={first ? <Navigate to={pagePath(first)} replace /> : null} />
-              <Route path="/:page/:id?" element={<PageRoute allowed={allowed} />} />
+              <Route path="/:page/:id?" element={<PageRoute allowed={allowed} has={(p) => Boolean(me.data?.permissions.includes(p))} />} />
               <Route path="*" element={<Typography color="text.secondary">{t('common.notFound')}</Typography>} />
             </Routes>
           )}

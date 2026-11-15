@@ -55,6 +55,12 @@ export class SalesContractFacade {
     return r;
   }
 
+  /** Responsible sales of one contract (plain read, for read-only scope checks); undefined when the contract does not exist. */
+  static async responsibleSalesOf(m: EntityManager, id: number): Promise<number | null | undefined> {
+    const [r] = await m.query(`SELECT responsible_sales_user_id AS id FROM sales_contracts WHERE id = $1`, [id]);
+    return r ? r.id : undefined;
+  }
+
   /** Number and status of contracts, for pickers. */
   static async summaries(m: EntityManager, ids: number[]): Promise<Map<number, { documentNumber: string; status: string }>> {
     const rows: { id: number; documentNumber: string; status: string }[] = await m.query(

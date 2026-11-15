@@ -1,0 +1,80 @@
+import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
+import { DataSource } from 'typeorm';
+import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
+
+/** PR #17 / ADR-0014: without PR.VIEW, the responsible sales of a contract may read (only read) that contract's PRs. */
+describe('PR read scope for the responsible sales (integration)', () => {
+  let app: INestApplication;
+  let ds: DataSource;
+  let admin: string;
+  let sales: string;
+  let purchaser: string;
+  let pm: string;
+  let own: { sc: number; pr: number };
+  let other: { sc: number; pr: number };
+
+  const http = () => request(app.getHttpServer());
+  const as = (t: string) => ({ Authorization: `Bearer ${t}` });
+  const get = (t: string, url: string) => http().get(url).set(as(t));
+  const post = (t: string, url: string, body: object = {}) => http().post(url).set(as(t)).send(body);
+  const patch = (t: string, url: string, body: object) => http().patch(url).set(as(t)).send(body);
+
+  beforeAll(async () => {
+    process.env.SEED_ROLE_USERS_PASSWORD = 'role-users-test';
+    ({ app, ds } = await bootTestApp());
+    admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    sales = await login(app, 'sales', 'role-users-test');
+    purchaser = await login(app, 'purchaser', 'role-users-test');
+    pm = await login(app, 'pm', 'role-users-test');
+    const salesId = (await get(sales, '/auth/me')).body.id;
+    const adminId = (await get(admin, '/auth/me')).body.id;
+    const customerId = (await post(admin, '/customers', { code: 'PS1', name: 'Scope Corp' }).expect(201)).body.id;
+    const productId = (await post(admin, '/products', { partNumber: 'PN-PS', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    const contractWithPr = async (responsibleSalesUserId: number) => {
+      const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId, lines: [{ itemCode: 'A', itemName: 'A', unitOfMeasureId: pcs, quantity: 5 }] }).expect(201)).body.id;
+      await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
+      const lineId = (await get(admin, `/sales-contracts/${sc}`)).body.lines[0].id;
+      const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 5 }] }).expect(201)).body.id;
+      return { sc: sc as number, pr: pr as number };
+    };
+    own = await contractWithPr(salesId);
+    other = await contractWithPr(adminId);
+  });
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  it('the responsible sales lists and opens the PRs of their contract, without PO numbers', async () => {
+    expect((await get(sales, `/purchase-requisitions?salesContractId=${own.sc}`).expect(200)).body.map((r: { id: number }) => r.id)).toEqual([own.pr]);
+    const d = (await get(sales, `/purchase-requisitions/${own.pr}`).expect(200)).body;
+    expect(d).toMatchObject({ id: own.pr, salesContractId: own.sc, children: [] });
+    expect(d.lines).toHaveLength(1);
+  });
+
+  it('is refused outside that scope, without revealing whether an id exists', async () => {
+    await get(sales, `/purchase-requisitions?salesContractId=${other.sc}`).expect(403);
+    await get(sales, '/purchase-requisitions').expect(403); // no filter: never the whole list
+    await get(sales, '/purchase-requisitions?salesContractId=999999').expect(403);
+    await get(sales, `/purchase-requisitions/${other.pr}`).expect(403);
+    await get(sales, '/purchase-requisitions/999999').expect(403);
+    await get(pm, `/purchase-requisitions?salesContractId=${own.sc}`).expect(403); // not the responsible sales
+  });
+
+  it('grants no write and no other document', async () => {
+    await post(sales, '/purchase-requisitions', { salesContractId: own.sc, lines: [] }).expect(403);
+    await patch(sales, `/purchase-requisitions/${own.pr}`, { version: 1, lines: [] }).expect(403);
+    for (const action of ['submit', 'approve', 'reject', 'recall', 'cancel']) await post(sales, `/purchase-requisitions/${own.pr}/${action}`, { reason: 'x' }).expect(403);
+    await get(sales, `/purchase-requisitions/${own.pr}/lines`).expect(403);
+    await get(sales, '/purchase-orders').expect(403);
+  });
+
+  it('roles with PR.VIEW keep seeing every PR as before', async () => {
+    const all = (await get(purchaser, '/purchase-requisitions').expect(200)).body.map((r: { id: number }) => r.id);
+    expect(all).toEqual(expect.arrayContaining([own.pr, other.pr]));
+    await get(purchaser, `/purchase-requisitions/${other.pr}`).expect(200);
+    expect((await get(purchaser, '/purchase-requisitions/999999')).status).toBe(404);
+    expect(ds).toBeTruthy();
+  });
+});

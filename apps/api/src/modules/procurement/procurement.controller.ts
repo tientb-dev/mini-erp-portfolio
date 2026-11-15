@@ -40,8 +40,8 @@ class UpdatePoDto extends CreatePoDto {
 export class ProcurementController {
   constructor(private readonly svc: ProcurementService, @InjectDataSource() private readonly ds: DataSource) {}
 
+  /** PR.VIEW, or read-only for the responsible sales of `salesContractId` (scope checked in the service). */
   @Get('purchase-requisitions')
-  @RequirePermissions('PR.VIEW')
   listPrs(
     @Req() req: AuthedRequest,
     @Query('assignedToMe', new ParseBoolPipe({ optional: true })) mine?: boolean,
@@ -50,10 +50,10 @@ export class ProcurementController {
     return this.svc.listPrs(req.user, mine ?? false, salesContractId);
   }
 
+  /** PR.VIEW, or read-only for the responsible sales of the PR's contract (scope checked in the service). */
   @Get('purchase-requisitions/:id')
-  @RequirePermissions('PR.VIEW')
-  getPr(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.getPr(id);
+  getPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.getPr(req.user, id);
   }
 
   @Get('purchase-requisition-lines/available-for-po')

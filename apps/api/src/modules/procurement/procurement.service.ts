@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
@@ -323,8 +323,21 @@ export class ProcurementService {
     });
   }
 
+  /**
+   * Read scope for PRs (PR #17, ADR-0014): PR.VIEW sees every PR as before. Without it, a user with SALES_CONTRACT.VIEW
+   * may read (never write) the PRs of a contract where they are the responsible sales. Anything else is 403, whether or
+   * not the contract exists, so ids cannot be probed.
+   */
+  private async assertPrReadScope(user: CurrentUser, salesContractId: number | undefined): Promise<'all' | 'contract'> {
+    if (user.permissions.includes('PR.VIEW')) return 'all';
+    if (user.permissions.includes('SALES_CONTRACT.VIEW') && salesContractId !== undefined
+      && (await SalesContractFacade.responsibleSalesOf(this.ds.manager, salesContractId)) === user.id) return 'contract';
+    throw new ForbiddenException('Missing permission: PR.VIEW');
+  }
+
   /** `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR/PO are not warehouse-scoped: the VIEW permission sees all. */
-  listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number) {
+  async listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number) {
+    await this.assertPrReadScope(user, salesContractId);
     return this.ds.query(
       `SELECT ${wf.DOC_COLUMNS}, d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
@@ -335,13 +348,14 @@ export class ProcurementService {
     );
   }
 
-  async getPr(id: number) {
+  async getPr(user: CurrentUser, id: number) {
     const [pr] = await this.ds.query(
       `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", d.category, d.purpose, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
         WHERE d.id = $1`,
       [id],
     );
+    const scope = await this.assertPrReadScope(user, pr?.salesContractId);
     if (!pr) throw new NotFoundException();
     const lines = await this.ds.query(
       `SELECT l.id, l.sales_contract_line_id AS "sourceLineId", l.product_id AS "productId", sl.item_name AS "ref", l.snapshot_code AS "partNumber", l.snapshot_name AS "productName", u.code AS uom, l.quantity,
@@ -360,7 +374,8 @@ export class ProcurementService {
         WHERE prl.purchase_requisition_id = $1 ORDER BY po.id`,
       [id],
     );
-    return { ...pr, lines, children, history: await wf.history(this.ds.manager, 'PR', id) };
+    // The contract-scoped reader gets no PO numbers: PO.VIEW is not widened (PR #17).
+    return { ...pr, lines, children: scope === 'all' ? children : [], history: await wf.history(this.ds.manager, 'PR', id) };
   }
 
   /** Lines of APPROVED PRs with quantity not yet covered by WAITING/APPROVED POs, for the PO form. */

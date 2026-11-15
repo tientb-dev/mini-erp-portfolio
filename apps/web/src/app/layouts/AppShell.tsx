@@ -34,7 +34,8 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
   const openDoc = (p: string, id: number) => navigate(pagePath(p, id));
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    // The shell fills the viewport exactly: the document never scrolls; the sidebar and the main area scroll on their own.
+    <Box sx={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
       <AppBar position="fixed" color="inherit" sx={{ zIndex: (th) => th.zIndex.drawer + 1 }}>
         <Toolbar variant="dense" sx={{ gap: 1 }}>
           {!desktop && (
@@ -54,17 +55,22 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
         <Toolbar variant="dense" />
         <SideNav active={active} allowed={allowed} onNavigate={() => setMobileOpen(false)} />
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, px: { xs: 2, md: 3 }, py: 3 }}>
-        <Toolbar variant="dense" />
-        <NavContext.Provider value={openDoc}>
-          {me.data && (
-            <Routes>
-              <Route path="/" element={first ? <Navigate to={pagePath(first)} replace /> : null} />
-              <Route path="/:page/:id?" element={<PageRoute allowed={allowed} has={(p) => Boolean(me.data?.permissions.includes(p))} />} />
-              <Route path="*" element={<Typography color="text.secondary">{t('common.notFound')}</Typography>} />
-            </Routes>
-          )}
-        </NavContext.Provider>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Toolbar variant="dense" sx={{ flexShrink: 0 }} />
+        {/* The only vertical scroller for page content; DetailPageLayout's footer sticks to its bottom edge. */}
+        <Box data-main-scroll sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <Box sx={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column', minWidth: 0, px: { xs: 2, md: 3 }, py: 3 }}>
+            <NavContext.Provider value={openDoc}>
+              {me.data && (
+                <Routes>
+                  <Route path="/" element={first ? <Navigate to={pagePath(first)} replace /> : null} />
+                  <Route path="/:page/:id?" element={<PageRoute allowed={allowed} has={(p) => Boolean(me.data?.permissions.includes(p))} />} />
+                  <Route path="*" element={<Typography color="text.secondary">{t('common.notFound')}</Typography>} />
+                </Routes>
+              )}
+            </NavContext.Provider>
+          </Box>
+        </Box>
       </Box>
     </Box>
   );

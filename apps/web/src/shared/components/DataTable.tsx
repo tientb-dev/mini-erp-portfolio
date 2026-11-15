@@ -10,6 +10,7 @@ export function DataTable<R extends GridValidRowModel>({ emptyHint, ...props }: 
       <DataGrid
         autoHeight
         disableRowSelectionOnClick
+        disableColumnMenu
         pageSizeOptions={[25, 50, 100]}
         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
         slots={{

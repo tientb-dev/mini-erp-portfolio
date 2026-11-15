@@ -19,7 +19,8 @@ export function DetailPageLayout({ title, documentNumber, status, subtitle, acti
   const { t } = useTranslation();
   if (loading) return <>{breadcrumbs}{error ? <ErrorAlert error={error} /> : <LinearProgress aria-label={t('common.loading')} />}</>;
   return (
-    <Stack sx={{ minHeight: footer ? 'calc(100dvh - 72px)' : undefined }}>
+    // Fills the main scroll area so the footer (mt: auto) rests on its bottom edge when the page is short.
+    <Stack sx={{ flex: '1 0 auto' }}>
       <PageHeader title={documentNumber ? `${title} ${documentNumber}` : title} status={status} subtitle={subtitle} action={actions} breadcrumbs={breadcrumbs} backTo={backTo} />
       {notice && <Typography variant="body2" color="text.secondary" sx={{ mt: -1.5, mb: 2 }}>{notice}</Typography>}
       <Stack spacing={2} sx={{ mb: footer ? 3 : 0 }}>

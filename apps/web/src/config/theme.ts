@@ -68,10 +68,11 @@ function build(locale: 'vi' | 'en'): Theme {
         MuiButtonBase: { styleOverrides: { root: { '&.Mui-focusVisible': { outline: `2px solid ${tokens.primary}`, outlineOffset: 2 } } } },
         MuiButton: {
           defaultProps: { disableElevation: true },
+          // Neutral border for the primary outlined button only; coloured ones (error) keep their colour.
+          variants: [{ props: { variant: 'outlined', color: 'primary' }, style: { borderColor: tokens.borderStrong, '&:hover': { borderColor: tokens.primary } } }],
           styleOverrides: {
             root: { minHeight: tokens.control, borderRadius: 6, paddingInline: 14, [coarse]: { minHeight: tokens.touch } },
             sizeSmall: { minHeight: 30, paddingInline: 10 },
-            outlined: { borderColor: tokens.borderStrong, '&:hover': { borderColor: tokens.primary } },
             startIcon: { marginRight: 6, '& > *:nth-of-type(1)': { fontSize: 18 } },
           },
         },

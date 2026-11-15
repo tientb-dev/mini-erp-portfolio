@@ -8,7 +8,7 @@ import { InventoryFacade } from './modules/inventory/inventory.service';
 import { ProcurementFacade, ProcurementService } from './modules/procurement/procurement.service';
 import { SalesContractsService } from './modules/sales-contracts/sales-contracts.service';
 import { RECONCILE_SQL } from './database/migrations/1732060800000-LotAllocations';
-import { bootTestApp, login } from './test-utils';
+import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
 
 /** Product lock, HĐ line products, GIR, GI and completion against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
 describe('Outbound: GIR → GI (integration)', () => {
@@ -66,8 +66,8 @@ describe('Outbound: GIR → GI (integration)', () => {
     const svc = app.get(SalesContractsService);
     const [{ id: cust }] = await ds.query(`INSERT INTO customers (code, name) VALUES ($1, 'C') RETURNING id`, [`C${Math.random()}`]);
     const sc = await svc.create(pmUser, cust, salesId, [
-      { itemCode: 'R', itemName: 'Router', uomName: 'Cái', quantity: routerQty },
-      { itemCode: 'C', itemName: 'Cable', uomName: 'Cái', quantity: cableQty },
+      { itemCode: 'R', itemName: 'Router', unitOfMeasureId: pcs, quantity: routerQty },
+      { itemCode: 'C', itemName: 'Cable', unitOfMeasureId: pcs, quantity: cableQty },
     ]);
     await svc.activate(sc.id);
     const [r, c] = await ds.query(`SELECT id FROM sales_contract_lines WHERE sales_contract_id = $1 ORDER BY id`, [sc.id]);

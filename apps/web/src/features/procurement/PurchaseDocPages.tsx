@@ -30,6 +30,6 @@ const GRR: DocConfig = {
   fields: (d, t) => [[t('gr.po'), `${String(d.poNumber)}: ${String(d.supplierName)}`], [t('inventory.warehouse'), String(d.warehouseCode)]],
 };
 
-export const PurchaseRequisitionsPage = () => <DocListPage cfg={PR} />;
-export const PurchaseOrdersPage = () => <DocListPage cfg={PO} />;
-export const GoodsReceiptRequestsPage = () => <DocListPage cfg={GRR} />;
+export const PurchaseRequisitionsPage = ({ initialId }: { initialId?: number }) => <DocListPage cfg={PR} initialId={initialId} />;
+export const PurchaseOrdersPage = ({ initialId }: { initialId?: number }) => <DocListPage cfg={PO} initialId={initialId} />;
+export const GoodsReceiptRequestsPage = ({ initialId }: { initialId?: number }) => <DocListPage cfg={GRR} initialId={initialId} />;

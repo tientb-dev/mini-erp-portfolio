@@ -1,6 +1,6 @@
 # Kiến trúc Frontend (`apps/web`)
 
-React 19 + TypeScript + Vite + MUI 9 + MUI X Data Grid + TanStack Query + `react-i18next`. Một SPA, điều hướng bằng state trong `AppShell` (chưa có React Router — xem `shortcut:` trong [AppShell.tsx](../../apps/web/src/app/layouts/AppShell.tsx)).
+React 19 + TypeScript + Vite + MUI 9 + MUI X Data Grid + TanStack Query + `react-i18next`. Một SPA, điều hướng bằng **React Router** (`BrowserRouter` trong `main.tsx`): mỗi trang có URL `/<kebab-key>` và `/<kebab-key>/<id>` (`pagePath` trong `shared/navigation.ts`); trang nhận id qua `initialId`. URL không có quyền → "không tìm thấy"; server vẫn kiểm tra quyền.
 
 ## 1. Cấu trúc thư mục
 
@@ -9,14 +9,14 @@ apps/web/src/
 ├── main.tsx                  # entry duy nhất ở root: QueryClient + i18n + <App/>
 ├── app/                      # ghép ứng dụng; không chứa nghiệp vụ
 │   ├── App.tsx               # theme theo ngôn ngữ, Login ↔ AppShell
-│   ├── routes.ts             # PAGES (trang + quyền VIEW) và NAV (nhóm sidebar)
-│   └── layouts/AppShell.tsx  # AppBar, sidebar theo quyền, NavContext
+│   ├── routes.ts             # PAGES (trang + quyền VIEW + icon) và NAV (nhóm sidebar + icon)
+│   └── layouts/              # AppShell (AppBar, Routes, NavContext), SideNav (nhóm cha/con, thu gọn được)
 ├── config/                   # i18n.ts (vi/en), theme.ts (tokens, statusTones)
 ├── services/api-client.ts    # HTTP client duy nhất: base URL, token, ApiError (RFC 9457 code)
 ├── shared/                   # không biết nghiệp vụ
 │   ├── components/           # PageHeader, StatusChip, ErrorAlert, DataTable, FormDialog, Field,
-│   │                         # ListPageLayout, DetailPageLayout, DetailTabs (+ index.ts)
-│   ├── navigation.ts         # NavContext: mở trang khác trên một chứng từ
+│   │                         # ListPageLayout, DetailPageLayout, DetailTabs, PageBreadcrumbs (+ index.ts)
+│   ├── navigation.ts         # NavContext (mở chứng từ ở trang khác), pagePath (URL theo page key)
 │   └── utils/format.ts       # fmtDate, num
 ├── features/<feature>/       # một thư mục cho mỗi module nghiệp vụ backend
 │   ├── index.ts              # public API của feature — nơi DUY NHẤT feature khác/app được import
@@ -36,7 +36,7 @@ Features hiện có (khớp module backend, ARCHITECTURE §2):
 | `identity` | Login, `useMe` | `Login`, `useMe`, `Me` |
 | `workflow` | Hộp thoại Gửi duyệt/Duyệt/Từ chối/Thu hồi/Hủy/Hoàn thành, lịch sử | `DocActionDialog`, `HistoryList`, `DocAction`, `HistoryEntry`, `Person` |
 | `master-data` | Product, Warehouse, Khách hàng, NCC | các `*Page`, `Product`, `Uom`, `Warehouse` |
-| `sales-contracts` | HĐ + đề xuất/xác nhận Product | `SalesContractsPage` |
+| `sales-contracts` | HĐ: danh sách (tìm/lọc/sắp xếp/phân trang phía server, trạng thái trên URL), chi tiết (tab Hàng hóa, Đề nghị mua), lưu từng dòng qua dialog, đề xuất/xác nhận Product | `SalesContractsPage` |
 | `procurement` | PR, PO, GRR (dùng chung `DocListPage`/`DocDetailView` + cấu hình) | 3 `*Page` |
 | `inbound` | GR | `GoodsReceiptsPage` |
 | `outbound` | GIR, GI | `GoodsIssueRequestsPage`, `GoodsIssuesPage` |
@@ -80,14 +80,15 @@ Hướng cho phép: `app → features → (features khác qua index) → shared/
 
 | Component | Dùng khi | Ví dụ thật |
 |---|---|---|
-| `ListPageLayout` | Trang danh sách: `title`, `actions` (header), `toolbar` (tìm kiếm/lọc do feature tự làm), `error`, `children` (bảng) | `procurement/DocListPage.tsx`, `master-data/ProductsPage.tsx` |
+| `ListPageLayout` | Trang danh sách: `title`, `actions` (header), `toolbar` (tìm kiếm/lọc do feature tự làm), `error`, `breadcrumbs`, `children` (bảng) | `procurement/DocListPage.tsx`, `master-data/ProductsPage.tsx` |
 | `DataTable` | Bảng: DataGrid compact, sort/phân trang/empty/loading sẵn; `emptyHint` | mọi trang |
-| `DetailPageLayout` | Chi tiết chứng từ: `title` + `documentNumber`, `status`, `actions`, `notice`; `loading` → thanh tiến trình, `error` khi tải lỗi | `procurement/DocDetailView.tsx` |
+| `DetailPageLayout` | Chi tiết chứng từ: `title` + `documentNumber`, `status`, `actions`, `notice`, `breadcrumbs`, `backTo` (mũi tên Back về route cố định, không dựa browser history); `loading` → thanh tiến trình, `error` khi tải lỗi | `procurement/DocDetailView.tsx` |
 | `DetailTabs` | Tab do feature cấp `{ key, label, content, hidden? }`; tự quản lý hoặc `value`/`onChange` theo key | `procurement/DocDetailView.tsx` |
-| `FormDialog` | Mọi form/xác nhận: tiêu đề, nội dung, lỗi, footer **Hủy bỏ + hành động chính căn phải**; Enter submit; nút chính disabled khi `!canSubmit` hoặc `pending` (chống submit trùng) | các `Create*Dialog`, `workflow/DocActionDialog` |
+| `FormDialog` | Mọi form/xác nhận: tiêu đề + nút X, nội dung, lỗi, footer **Hủy bỏ + hành động chính căn phải**; Enter submit; nút chính disabled khi `!canSubmit` hoặc `pending` (chống submit trùng); không đóng khi đang lưu; `dirty` → hỏi trước khi bỏ thay đổi (X/Hủy bỏ/Escape/backdrop); `submitColor="error"` cho thao tác phá hủy. Chỉ đóng trong `onSuccess` | các `Create*Dialog`, `workflow/DocActionDialog` |
 | `Field` | Dòng nhãn/giá trị ở phần thông tin chung | `DocDetailView`, `GirDetailView` |
 | `StatusChip`, `ApprovalStatusChip`, `ActiveChip` | Nhãn trạng thái theo tone của theme | danh sách/chi tiết |
 | `ErrorAlert` | Hiển thị Problem Details (`errors.<code>` hoặc `detail`) | mọi nơi |
+| `PageBreadcrumbs` | `Trang chủ / Nhóm / Trang / [Mã]`: mục có `to` là link, mục cuối là trang hiện tại; feature chỉ truyền route người dùng có quyền | `sales-contracts` |
 
 Không làm (chưa có nhu cầu thực): `ConfirmDialog` riêng (xác nhận = `FormDialog`/`DocActionDialog` không có trường), `ActionButton`, `EmptyState`/`LoadingState` riêng (đã có trong `DataTable`/`DetailPageLayout`), generic DataTable bọc thêm.
 
@@ -96,7 +97,8 @@ Không làm (chưa có nhu cầu thực): `ConfirmDialog` riêng (xác nhận = 
 - **Button** = hành động (gọi API, mở dialog). **Link** (`@mui/material/Link`) = điều hướng sang chứng từ/trang khác (vd. số GR/HĐ trong truy vết lô, qua `NavContext`). Không dùng Link thay Button.
 - Biến thể: hành động chính `variant="contained"` (một nút chính mỗi vùng); phụ `text` (mặc định) hoặc `outlined`; phá hủy/từ chối `color="error"`; điều kiện chưa đủ → `disabled`, không ẩn khi người dùng có quyền.
 - Đang chạy: nút chính disabled bởi `pending` của mutation.
-- Vị trí: dialog/form → footer căn phải (Hủy bỏ trước, hành động chính cuối). Trang chi tiết → nhóm thao tác ở bên phải header (`DetailPageLayout.actions`), thứ tự: Quay lại, thao tác phụ, rồi hành động chính cuối cùng. Danh sách → thao tác chung ở header (`ListPageLayout.actions`); thao tác theo dòng ở cột cuối bảng (hoặc bấm dòng để mở).
+- Thao tác theo dòng trong bảng: `IconButton` + `Tooltip` + `aria-label` (kèm mã chứng từ); thao tác ít dùng vào menu ba chấm; click thao tác không mở dòng. Mã chứng từ là Link thật (mở tab mới/copy URL được); click vùng còn lại của dòng hoặc Enter cũng mở chi tiết.
+- Vị trí: dialog/form → footer căn phải (Hủy bỏ trước, hành động chính cuối). Trang chi tiết → Back là mũi tên cạnh tiêu đề (`backTo`); nhóm thao tác ở bên phải header (`DetailPageLayout.actions`), thứ tự: thao tác phá hủy/phụ, rồi hành động chính cuối cùng. Danh sách → thao tác chung ở header (`ListPageLayout.actions`); thao tác theo dòng ở cột cuối bảng (hoặc bấm dòng để mở).
 - Hiển thị thao tác theo quyền + trạng thái + vai trò (người tạo/người duyệt) — do feature quyết định; server kiểm tra lại.
 
 ## 8. Test
@@ -105,3 +107,8 @@ Không làm (chưa có nhu cầu thực): `ConfirmDialog` riêng (xác nhận = 
 - Gọi API giả bằng `mockApi({ '/path': json })`; kiểm tra body POST/PATCH trả về từ `mockApi`.
 - Test feature đặt cạnh feature; helper chung trong `src/test/helpers`; không lặp setup i18n/cleanup (đã có `test/setup.ts`).
 - Unit test không thay thế smoke test trên trình duyệt cho luồng chứng từ.
+
+## 9. Sidebar
+
+- Nhóm cha (icon nghiệp vụ) → trang con (icon nhỏ) theo `NAV`; chỉ hiện con có quyền VIEW, nhóm không còn con thì ẩn.
+- Mặc định mọi nhóm mở; người dùng thu gọn từng nhóm, lựa chọn lưu ở `localStorage` (`mini-erp.nav.collapsed`, lỗi storage → mặc định mở). Vào trang thuộc nhóm đang thu gọn → nhóm tự mở. Nhóm chứa trang hiện tại có màu nhấn.

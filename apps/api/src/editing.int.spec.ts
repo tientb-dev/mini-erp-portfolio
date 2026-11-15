@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { bootTestApp, login } from './test-utils';
+import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
 
 /** Editing HĐ (DRAFT) and PR/PO/GRR (DRAFT/REJECTED): limits, versions, RBAC, warehouse scope, history (IM18). */
 describe('Document editing (integration)', () => {
@@ -47,7 +47,7 @@ describe('Document editing (integration)', () => {
     await app?.close();
   });
 
-  const scLine = (quantity: number, itemCode = 'SW') => ({ itemCode, itemName: `Item ${itemCode}`, uomName: 'Cái', quantity });
+  const scLine = (quantity: number, itemCode = 'SW') => ({ itemCode, itemName: `Item ${itemCode}`, unitOfMeasureId: pcs, quantity });
 
   async function activeContract(qty = 10) {
     const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(qty)] }).expect(201)).body.id;

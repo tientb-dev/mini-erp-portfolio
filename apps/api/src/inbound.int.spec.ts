@@ -3,7 +3,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { ProcurementFacade } from './modules/procurement/procurement.service';
 import { RECONCILE_SQL } from './database/migrations/1732060800000-LotAllocations';
-import { bootTestApp, login } from './test-utils';
+import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
 
 /** HĐ → PR → PO → GRR → GR → Inventory, against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
 describe('Inbound chain and GR (integration)', () => {
@@ -49,7 +49,7 @@ describe('Inbound chain and GR (integration)', () => {
     const sup = (await post(creator, '/suppliers', { code: `S-${tag}`, name: 'Supplier' }).expect(201)).body.id;
     const sc = (await post(creator, '/sales-contracts', {
       customerId: cust, responsibleSalesUserId: salesUserId,
-      lines: [{ itemCode: 'R', itemName: 'Router', uomName: 'Cái', quantity: 100 }, { itemCode: 'C', itemName: 'Cable', uomName: 'Cái', quantity: 100 }],
+      lines: [{ itemCode: 'R', itemName: 'Router', unitOfMeasureId: pcs, quantity: 100 }, { itemCode: 'C', itemName: 'Cable', unitOfMeasureId: pcs, quantity: 100 }],
     }).expect(201)).body.id;
     await post(creator, `/sales-contracts/${sc}/activate`).expect(204);
     const scLines = (await http().get(`/sales-contracts/${sc}/lines`).set(as(creator))).body;
@@ -96,7 +96,7 @@ describe('Inbound chain and GR (integration)', () => {
 
   it('rejects referencing a DRAFT sales contract (G03)', async () => {
     const cust = (await post(creator, '/customers', { code: 'C-DRAFT', name: 'X' })).body.id;
-    const sc = (await post(creator, '/sales-contracts', { customerId: cust, responsibleSalesUserId: salesUserId, lines: [{ itemCode: 'A', itemName: 'A', uomName: 'Cái', quantity: 1 }] })).body.id;
+    const sc = (await post(creator, '/sales-contracts', { customerId: cust, responsibleSalesUserId: salesUserId, lines: [{ itemCode: 'A', itemName: 'A', unitOfMeasureId: pcs, quantity: 1 }] })).body.id;
     const [line] = (await http().get(`/sales-contracts/${sc}/lines`).set(as(creator))).body;
     const res = await post(creator, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: line.id, productId: snProductId, quantity: 1 }] });
     expect(res.status).toBe(422);
@@ -237,7 +237,7 @@ describe('Inbound chain and GR (integration)', () => {
     const sup = (await post(creator, '/suppliers', { code: `S-${tag}`, name: 'Supplier' }).expect(201)).body.id;
     const sc = (await post(creator, '/sales-contracts', {
       customerId: cust, responsibleSalesUserId: salesUserId,
-      lines: [{ itemCode: 'A', itemName: 'A', uomName: 'Cái', quantity: 10 }, { itemCode: 'B', itemName: 'B', uomName: 'Cái', quantity: 5 }],
+      lines: [{ itemCode: 'A', itemName: 'A', unitOfMeasureId: pcs, quantity: 10 }, { itemCode: 'B', itemName: 'B', unitOfMeasureId: pcs, quantity: 5 }],
     }).expect(201)).body.id;
     await post(creator, `/sales-contracts/${sc}/activate`).expect(204);
     const scLines = (await http().get(`/sales-contracts/${sc}/lines`).set(as(creator))).body;

@@ -31,3 +31,6 @@ export async function login(app: INestApplication, username: string, password: s
   const res = await request(app.getHttpServer()).post('/auth/login').send({ username, password }).expect(200);
   return res.body.accessToken;
 }
+
+/** UoM PCS ("Cái"): the seed inserts it first into the freshly recreated schema, so its id is always 1. */
+export const PCS_UOM_ID = 1;

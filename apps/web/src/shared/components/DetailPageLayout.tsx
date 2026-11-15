@@ -9,15 +9,16 @@ import { PageHeader } from './PageHeader';
  * a notice line (e.g. who the document waits for) and the content (often DetailTabs).
  * While `loading` it shows only the error (if any) or a progress bar; the feature decides status, actions and permissions.
  */
-export function DetailPageLayout({ title, documentNumber, status, actions, notice, loading, error, children }: {
+export function DetailPageLayout({ title, documentNumber, status, actions, notice, loading, error, breadcrumbs, backTo, children }: {
   title: string; documentNumber?: string; status?: ReactNode; actions?: ReactNode; notice?: ReactNode;
   loading?: boolean; error?: unknown; children?: ReactNode;
+  /** Shown above the title. */ breadcrumbs?: ReactNode; /** Back arrow next to the title, to this route. */ backTo?: string;
 }) {
   const { t } = useTranslation();
-  if (loading) return error ? <ErrorAlert error={error} /> : <LinearProgress aria-label={t('common.loading')} />;
+  if (loading) return <>{breadcrumbs}{error ? <ErrorAlert error={error} /> : <LinearProgress aria-label={t('common.loading')} />}</>;
   return (
     <>
-      <PageHeader title={documentNumber ? `${title} ${documentNumber}` : title} action={actions} />
+      <PageHeader title={documentNumber ? `${title} ${documentNumber}` : title} action={actions} breadcrumbs={breadcrumbs} backTo={backTo} />
       {status && <Stack direction="row" sx={{ mb: 1 }}>{status}</Stack>}
       {notice && <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{notice}</Typography>}
       <Stack spacing={2}>

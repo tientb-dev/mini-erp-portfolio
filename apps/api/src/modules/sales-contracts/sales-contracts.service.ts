@@ -5,7 +5,13 @@ import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
-export interface ScLineInput { id?: number; itemCode: string; itemName: string; uomName: string; quantity: number }
+export interface ScLineInput { id?: number; itemCode: string; itemName: string; unitOfMeasureId: number; quantity: number }
+
+/** HĐ list filters/sort/paging; all optional, so old callers (pickers) keep getting every contract as an array. */
+export interface ScListQuery {
+  q?: string; status?: string; responsibleSalesUserId?: number; customerId?: number;
+  sort?: 'createdAt' | 'documentNumber'; order?: 'asc' | 'desc'; page?: number; pageSize?: number;
+}
 
 /**
  * Facade for other modules (Procurement, Outbound). Runs inside the caller's transaction.
@@ -96,11 +102,7 @@ export class SalesContractsService {
         `INSERT INTO sales_contracts (document_number, customer_id, responsible_sales_user_id, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
         [number, customerId, responsibleSalesUserId, user.id],
       );
-      for (const l of lines) {
-        await m.query(`INSERT INTO sales_contract_lines (sales_contract_id, item_code, item_name, uom_name, quantity) VALUES ($1, $2, $3, $4, $5)`, [
-          sc.id, l.itemCode, l.itemName, l.uomName, l.quantity,
-        ]);
-      }
+      for (const l of lines) await this.insertLine(m, sc.id, l);
       return { id: sc.id as number, documentNumber: number };
     });
   }
@@ -111,27 +113,18 @@ export class SalesContractsService {
    * ACTIVE contracts are locked; PR/GIR only reference ACTIVE ones, so a DRAFT is never referenced by them.
    */
   /** `responsibleSalesUserId`: undefined keeps the current value, null clears it, a number assigns it (validated). */
-  update(user: CurrentUser, id: number, version: number, customerId: number, responsibleSalesUserId: number | null | undefined, lines: ScLineInput[]) {
+  /** `lines`: undefined keeps the lines untouched (header-only edit); an array replaces them as described above. */
+  update(user: CurrentUser, id: number, version: number, customerId: number, responsibleSalesUserId: number | null | undefined, lines?: ScLineInput[]) {
     return this.ds.transaction(async (m) => {
-      // FOR UPDATE serializes with activate/cancel and with PR/GIR creation (FOR SHARE in lockActiveLines).
-      const [sc] = await m.query(`SELECT status, version FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
-      if (!sc) throw new NotFoundException();
-      if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be edited', HttpStatus.CONFLICT);
-      if (sc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
+      await this.lockDraft(m, id, version);
       const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
       if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
       if (responsibleSalesUserId !== undefined) await this.assertResponsibleSales(m, responsibleSalesUserId);
-      await wf.deleteOmittedLines(m, 'sales_contract_lines', 'sales_contract_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
-      for (const l of lines) {
-        if (l.id) {
-          wf.assertLineUpdated(await m.query(
-            `UPDATE sales_contract_lines SET item_code = $3, item_name = $4, uom_name = $5, quantity = $6 WHERE id = $1 AND sales_contract_id = $2`,
-            [l.id, id, l.itemCode, l.itemName, l.uomName, l.quantity],
-          ), l.id);
-        } else {
-          await m.query(`INSERT INTO sales_contract_lines (sales_contract_id, item_code, item_name, uom_name, quantity) VALUES ($1, $2, $3, $4, $5)`, [
-            id, l.itemCode, l.itemName, l.uomName, l.quantity,
-          ]);
+      if (lines) {
+        await wf.deleteOmittedLines(m, 'sales_contract_lines', 'sales_contract_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
+        for (const l of lines) {
+          if (l.id) await this.updateLine(m, id, l.id, l);
+          else await this.insertLine(m, id, l);
         }
       }
       await m.query(
@@ -142,16 +135,91 @@ export class SalesContractsService {
     });
   }
 
+  /** Adds one line to a DRAFT contract (each line is saved on its own). */
+  addLine(user: CurrentUser, id: number, version: number, line: ScLineInput) {
+    return this.ds.transaction(async (m) => {
+      await this.lockDraft(m, id, version);
+      const lineId = await this.insertLine(m, id, line);
+      await this.touch(m, id, user);
+      return { id: lineId };
+    });
+  }
+
+  /** Edits one line of a DRAFT contract by its id; product proposals keep pointing at the same line. */
+  editLine(user: CurrentUser, lineId: number, version: number, line: ScLineInput) {
+    return this.ds.transaction(async (m) => {
+      const id = await this.lineContract(m, lineId);
+      await this.lockDraft(m, id, version);
+      await this.updateLine(m, id, lineId, line);
+      await this.touch(m, id, user);
+    });
+  }
+
+  /** Deletes one line of a DRAFT contract; a line that still has product proposals is kept (FK → RECORD_IN_USE, no cascade). */
+  deleteLine(user: CurrentUser, lineId: number, version: number) {
+    return this.ds.transaction(async (m) => {
+      const id = await this.lineContract(m, lineId);
+      await this.lockDraft(m, id, version);
+      await m.query(`DELETE FROM sales_contract_lines WHERE id = $1`, [lineId]);
+      await this.touch(m, id, user);
+    });
+  }
+
+  private async lineContract(m: EntityManager, lineId: number): Promise<number> {
+    const [l] = await m.query(`SELECT sales_contract_id AS id FROM sales_contract_lines WHERE id = $1`, [lineId]);
+    if (!l) throw new NotFoundException('Sales contract line not found');
+    return l.id;
+  }
+
+  /** FOR UPDATE serializes with activate/cancel and with PR/GIR creation (FOR SHARE in lockActiveLines). */
+  private async lockDraft(m: EntityManager, id: number, version: number) {
+    const [sc] = await m.query(`SELECT status, version FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
+    if (!sc) throw new NotFoundException();
+    if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be edited', HttpStatus.CONFLICT);
+    if (sc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
+  }
+
+  private touch(m: EntityManager, id: number, user: CurrentUser) {
+    return m.query(`UPDATE sales_contracts SET version = version + 1, updated_by = $2, updated_at = now() WHERE id = $1`, [id, user.id]);
+  }
+
+  /** A clear business error before the FK would reject an unknown UoM (the FK alone maps to a generic RECORD_IN_USE). */
+  private async assertUom(m: EntityManager, unitOfMeasureId: number) {
+    const [u] = await m.query(`SELECT 1 FROM units_of_measure WHERE id = $1`, [unitOfMeasureId]);
+    if (!u) throw new BusinessError('UOM_NOT_FOUND', `Unit of measure ${unitOfMeasureId} not found`);
+  }
+
+  private async insertLine(m: EntityManager, id: number, l: ScLineInput): Promise<number> {
+    await this.assertUom(m, l.unitOfMeasureId);
+    const [row] = await m.query(
+      `INSERT INTO sales_contract_lines (sales_contract_id, item_code, item_name, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [id, l.itemCode, l.itemName, l.unitOfMeasureId, l.quantity],
+    );
+    return row.id;
+  }
+
+  private async updateLine(m: EntityManager, id: number, lineId: number, l: ScLineInput) {
+    await this.assertUom(m, l.unitOfMeasureId);
+    wf.assertLineUpdated(await m.query(
+      `UPDATE sales_contract_lines SET item_code = $3, item_name = $4, unit_of_measure_id = $5, quantity = $6 WHERE id = $1 AND sales_contract_id = $2`,
+      [lineId, id, l.itemCode, l.itemName, l.unitOfMeasureId, l.quantity],
+    ), lineId);
+  }
+
   /** DRAFT → ACTIVE; ACTIVE never returns to DRAFT (H2). Requires a responsible sales, which is locked from then on (CT17). */
   async activate(id: number) {
     const [, count] = await this.ds.query(
-      `UPDATE sales_contracts SET status = 'ACTIVE', version = version + 1 WHERE id = $1 AND status = 'DRAFT' AND responsible_sales_user_id IS NOT NULL`,
+      `UPDATE sales_contracts SET status = 'ACTIVE', version = version + 1 WHERE id = $1 AND status = 'DRAFT' AND responsible_sales_user_id IS NOT NULL
+         AND EXISTS (SELECT 1 FROM sales_contract_lines WHERE sales_contract_id = $1)`,
       [id],
     );
     if (count) return;
-    const [sc] = await this.ds.query(`SELECT status FROM sales_contracts WHERE id = $1`, [id]);
+    const [sc] = await this.ds.query(
+      `SELECT status, EXISTS (SELECT 1 FROM sales_contract_lines WHERE sales_contract_id = $1) AS "hasLines" FROM sales_contracts WHERE id = $1`, [id]);
     if (!sc) throw new NotFoundException();
     if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be activated', HttpStatus.CONFLICT);
+    // Assumption (OPEN-QUESTIONS §3, confirmed by the user for PR #16): activation needs at least one line.
+    if (!sc.hasLines) throw new BusinessError('SALES_CONTRACT_NO_LINES', 'Add at least one line before activating the contract');
     throw new BusinessError('RESPONSIBLE_SALES_REQUIRED', 'Assign a responsible sales before activating the contract');
   }
 
@@ -173,15 +241,32 @@ export class SalesContractsService {
     });
   }
 
-  list() {
-    return this.ds.query(
-      `SELECT s.id, s.document_number AS "documentNumber", s.status, c.name AS "customerName", s.created_at AS "createdAt",
-              u.full_name AS "createdByName", rs.full_name AS "responsibleSalesName",
+  /** Server-side search/filter/sort; with `page` it returns `{ items, total }`, otherwise the plain array (pickers). */
+  async list(f: ScListQuery = {}) {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const add = (sql: (n: string) => string, v: unknown) => { params.push(v); where.push(sql(`$${params.length}`)); };
+    // strpos instead of ILIKE: no wildcard escaping needed for user input.
+    if (f.q?.trim()) add((n) => `(strpos(lower(s.document_number), lower(${n})) > 0 OR strpos(lower(c.name), lower(${n})) > 0)`, f.q.trim());
+    if (f.status) add((n) => `s.status = ${n}`, f.status);
+    if (f.responsibleSalesUserId) add((n) => `s.responsible_sales_user_id = ${n}`, f.responsibleSalesUserId);
+    if (f.customerId) add((n) => `s.customer_id = ${n}`, f.customerId);
+    const from = `FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
+         LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
+    const order = `${f.sort === 'documentNumber' ? 's.document_number' : 's.created_at'} ${f.order === 'asc' ? 'ASC' : 'DESC'}, s.id DESC`;
+    const size = f.pageSize ?? 25;
+    const items = await this.ds.query(
+      `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId", c.name AS "customerName", s.created_at AS "createdAt",
+              u.full_name AS "createdByName", s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName",
+              (SELECT COUNT(*)::int FROM sales_contract_lines l WHERE l.sales_contract_id = s.id) AS "lineCount",
               (SELECT COUNT(*)::int FROM sales_contract_line_products x JOIN sales_contract_lines l ON l.id = x.sales_contract_line_id
                 WHERE l.sales_contract_id = s.id AND x.status = 'PENDING') AS "pendingProposals"
-         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
-         LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id ORDER BY s.id DESC`,
+         ${from} ORDER BY ${order} ${f.page ? `LIMIT ${size} OFFSET ${(f.page - 1) * size}` : ''}`,
+      params,
     );
+    if (!f.page) return items;
+    const [{ total }] = await this.ds.query(`SELECT COUNT(*)::int AS total ${from}`, params);
+    return { items, total };
   }
 
   async get(id: number) {
@@ -202,14 +287,16 @@ export class SalesContractsService {
   /** Lines with confirmed (APPROVED) products and GIR quota usage, for GIR forms. */
   lines(id: number) {
     return this.ds.query(
-      `SELECT l.id, l.item_code AS "itemCode", l.item_name AS "itemName", l.uom_name AS "uomName", l.quantity,
+      `SELECT l.id, l.item_code AS "itemCode", l.item_name AS "itemName", l.unit_of_measure_id AS "unitOfMeasureId", uom.name AS "uomName",
+              uom.code AS "uomCode", l.quantity,
               COALESCE((SELECT json_agg(json_build_object('id', x.id, 'productId', p.id, 'partNumber', p.part_number, 'name', p.name,
                                                           'status', x.status, 'reason', x.reason, 'decisionNote', x.decision_note,
                                                           'proposedByName', pu.full_name, 'decidedByName', du.full_name, 'decidedAt', x.decided_at) ORDER BY x.id)
                           FROM sales_contract_line_products x JOIN products p ON p.id = x.product_id
                           JOIN users pu ON pu.id = x.proposed_by LEFT JOIN users du ON du.id = x.decided_by
                          WHERE x.sales_contract_line_id = l.id), '[]') AS products
-         FROM sales_contract_lines l WHERE l.sales_contract_id = $1 ORDER BY l.id`,
+         FROM sales_contract_lines l JOIN units_of_measure uom ON uom.id = l.unit_of_measure_id
+        WHERE l.sales_contract_id = $1 ORDER BY l.id`,
       [id],
     );
   }

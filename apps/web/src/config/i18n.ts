@@ -18,7 +18,7 @@ const vi = {
     empty: 'Chưa có dữ liệu', error: 'Không thực hiện được: {{detail}}', loading: 'Đang tải…',
     close: 'Đóng', discardTitle: 'Bỏ thay đổi chưa lưu?', discardHint: 'Dữ liệu bạn vừa nhập sẽ không được lưu.', keepEditing: 'Tiếp tục sửa', discard: 'Bỏ thay đổi',
     actions: 'Thao tác', more: 'Thao tác khác', search: 'Tìm kiếm', all: 'Tất cả', home: 'Trang chủ', back: 'Quay lại danh sách', breadcrumbs: 'Vị trí trang',
-    notFound: 'Không tìm thấy trang hoặc bạn không có quyền truy cập.', sortBy: 'Sắp xếp', decision: 'Thao tác quyết định', clearFilters: 'Xóa lọc', loadFailed: 'Không tải được dữ liệu. Thử lại sau.',
+    notFound: 'Không tìm thấy trang hoặc bạn không có quyền truy cập.', sortBy: 'Sắp xếp', decision: 'Thao tác quyết định', clearFilters: 'Xóa bộ lọc', loadFailed: 'Không tải được dữ liệu. Thử lại sau.',
   },
   status: { DRAFT: 'Nháp', WAITING_FOR_APPROVE: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Bị từ chối', CANCELED: 'Đã hủy' },
   product: {

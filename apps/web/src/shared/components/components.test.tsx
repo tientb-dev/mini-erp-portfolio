@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { Button } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
 import { TableBody, TableCell, TableHead, TableRow } from '@mui/material';
-import { DataTable, DetailPageLayout, DetailTabs, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
+import { DataTable, DetailPageLayout, DetailTabs, FilterToolbar, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
 
 describe('ListPageLayout', () => {
   it('renders title, page actions, toolbar, the load error and the content', () => {
@@ -201,5 +201,18 @@ describe('DataTable loading and error (list standard)', () => {
     expect(screen.getByText('Không tải được dữ liệu. Thử lại sau.')).toBeTruthy();
     expect(screen.getByText(/^26–30 (trên|of) 30$/)).toBeTruthy();
     expect(onPage).not.toHaveBeenCalled(); // the grid did not jump back to page 1 on its own
+  });
+});
+
+describe('FilterToolbar (list standard)', () => {
+  it('always shows "Xóa bộ lọc" last; disabled without filters, clears when enabled', () => {
+    const onClear = vi.fn();
+    const { rerender } = render(<FilterToolbar active={false} onClear={onClear}><input aria-label="q" /></FilterToolbar>);
+    const btn = screen.getByRole('button', { name: /Xóa bộ lọc|Clear filters/ }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.previousElementSibling?.getAttribute('aria-label')).toBe('q');
+    rerender(<FilterToolbar active onClear={onClear}><input aria-label="q" /></FilterToolbar>);
+    fireEvent.click(btn);
+    expect(onClear).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,6 +5,7 @@ export { ErrorAlert } from './ErrorAlert';
 export { DataTable } from './DataTable';
 export { FormDialog } from './FormDialog';
 export { Field } from './Field';
+export { FilterToolbar } from './FilterToolbar';
 export { ListPageLayout } from './ListPageLayout';
 export { DetailPageLayout } from './DetailPageLayout';
 export { DetailTabs } from './DetailTabs';

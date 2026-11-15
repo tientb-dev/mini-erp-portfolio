@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { me, mockApi, wrap } from '../../test/helpers/api';
 import { SalesContractsPage } from '.';
 
@@ -226,12 +226,25 @@ describe('Sales contract design rules (PR #17)', () => {
     expect(screen.getAllByRole('button', { name: 'Hủy hợp đồng' })).toHaveLength(1); // not repeated in the header
   });
 
-  it('"Xóa lọc" appears only while a filter is applied and clears them all', async () => {
+  it('"Xóa bộ lọc" is always shown, disabled without filters; clearing keeps sort and page size, goes to page 1; Back re-enables it', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 }, ...common });
-    renderAt('/sales-contracts?status=DRAFT&customerId=8');
-    fireEvent.click(await screen.findByRole('button', { name: 'Xóa lọc' }));
-    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts'));
-    expect(screen.queryByRole('button', { name: 'Xóa lọc' })).toBeNull();
+    function Back() { const nav = useNavigate(); return <button onClick={() => nav(-1)}>history-back</button>; }
+    wrap(<><Routes><Route path="/sales-contracts" element={<SalesContractsPage />} /></Routes><Where /><Back /></>,
+      '/sales-contracts?q=cust&status=DRAFT&customerId=8&sort=documentNumber&order=asc&pageSize=50&page=2');
+    const clear = await screen.findByRole('button', { name: 'Xóa bộ lọc' }) as HTMLButtonElement;
+    expect(clear.disabled).toBe(false);
+    expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('cust');
+    fireEvent.click(clear);
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?sort=documentNumber&order=asc&pageSize=50'));
+    expect(clear.disabled).toBe(true);
+    expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('');
+    await waitFor(() => expect(fetched().at(-1)).toContain('sort=documentNumber&order=asc&pageSize=50&page=1'));
+    await new Promise((r) => setTimeout(r, 500)); // past the search debounce: it must not bring the cleared filters back
+    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?sort=documentNumber&order=asc&pageSize=50');
+    fireEvent.click(screen.getByText('history-back'));
+    await waitFor(() => expect(clear.disabled).toBe(false));
+    expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('cust');
+    expect(screen.getByTestId('where').textContent).toContain('q=cust&status=DRAFT');
   });
 
   it('Chốt hợp đồng sits in the bottom bar and is disabled with the reason the server would give', async () => {

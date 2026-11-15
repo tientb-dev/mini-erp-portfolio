@@ -1,4 +1,4 @@
-import { MouseEvent, useEffect, useMemo, useState } from 'react';
+import { MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -33,6 +33,8 @@ function ScListView() {
   const navigate = useNavigate();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
+  const latest = useRef(params);
+  latest.current = params;
   const [text, setText] = useState(params.get('q') ?? '');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ScRow | null>(null);
@@ -47,9 +49,12 @@ function ScListView() {
   const order = params.get('order') === 'asc' ? 'asc' : 'desc';
   // Page, sort and filter changes are history entries (Back/Forward walk them); typing in the search box replaces.
   const update = (next: Record<string, string | number | null>, replace = false) => {
-    const p = new URLSearchParams(params);
+    // Built from the latest URL, not this render's params: the search debounce fires later and must not restore cleared
+    // filters (react-router's functional setParams also hands back the render's params).
+    const p = new URLSearchParams(latest.current);
     Object.entries(next).forEach(([k, v]) => (v === null || v === '' ? p.delete(k) : p.set(k, String(v))));
     if (!('page' in next)) p.delete('page'); // a new filter starts from page 1
+    latest.current = p;
     setParams(p, { replace });
   };
   useEffect(() => { rememberListSearch(location.search); }, [location.search]);
@@ -57,6 +62,9 @@ function ScListView() {
     const h = setTimeout(() => { if (text.trim() !== (params.get('q') ?? '')) update({ q: text.trim() }, true); }, 300);
     return () => clearTimeout(h);
   }, [text]); // debounced on typing only
+  const appliedQ = params.get('q') ?? '';
+  // Back/Forward (or "Xóa bộ lọc") change the URL: the search box follows it.
+  useEffect(() => { if (appliedQ !== text.trim()) setText(appliedQ); }, [appliedQ]);
 
   const query = new URLSearchParams(params);
   query.set('page', String(page));

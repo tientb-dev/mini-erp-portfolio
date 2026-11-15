@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, InputAdornment, MenuItem, Stack, TextField } from '@mui/material';
+import { InputAdornment, MenuItem, TextField } from '@mui/material';
+import { FilterToolbar } from '../../shared/components';
 import SearchIcon from '@mui/icons-material/Search';
 
 type Option = { value: string; label: string };
@@ -21,7 +22,7 @@ function FilterSelect({ name, empty, value, options, width, onChange }: {
   );
 }
 
-/** Search + status/sales/customer filters in one row (wraps on small screens); "Xóa lọc" only while something is applied. */
+/** Search + status/sales/customer filters in the shared FilterToolbar; clearing keeps sort and page size, back to page 1. */
 export function ScListFilters({ text, onText, params, update, salesOptions, customerOptions }: {
   text: string; onText: (v: string) => void; params: URLSearchParams; update: (next: Record<string, string | null>) => void;
   salesOptions?: Option[]; customerOptions?: Option[];
@@ -41,16 +42,13 @@ export function ScListFilters({ text, onText, params, update, salesOptions, cust
       options={customerOptions} onChange={(v) => update({ customerId: v })} />);
   }
   return (
-    <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1.5, alignItems: 'center' }}>
+    <FilterToolbar active={active} onClear={() => { onText(''); update({ q: null, status: null, responsibleSalesUserId: null, customerId: null }); }}>
       <TextField value={text} onChange={(e) => onText(e.target.value)} placeholder={t('sc.search')} sx={{ flex: { xs: '1 1 100%', sm: '1 1 260px' }, maxWidth: { sm: 360 } }}
         slotProps={{
           htmlInput: { 'aria-label': t('common.search') },
           input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> },
         }} />
       {filters}
-      {active && (
-        <Button onClick={() => { onText(''); update({ q: null, status: null, responsibleSalesUserId: null, customerId: null }); }}>{t('common.clearFilters')}</Button>
-      )}
-    </Stack>
+    </FilterToolbar>
   );
 }

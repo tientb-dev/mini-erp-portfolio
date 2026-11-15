@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 're
 import { useTranslation } from 'react-i18next';
 import { AppBar, Box, Button, Drawer, IconButton, Toolbar, Typography, useMediaQuery } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
-import { tokens } from '../../config/theme';
+import { fillMedia, tokens } from '../../config/theme';
 import { useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';
 import { DETAIL_ALSO, NAV, PageKey, PAGES } from '../routes';
@@ -59,7 +59,8 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
         <Toolbar variant="dense" sx={{ flexShrink: 0 }} />
         {/* The only vertical scroller for page content; DetailPageLayout's footer sticks to its bottom edge. */}
         <Box data-main-scroll sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column', minWidth: 0, px: { xs: 2, md: 3 }, py: 3 }}>
+          {/* A fill page is held to the main area's height so its own data region scrolls instead (see fillMedia). */}
+          <Box sx={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column', minWidth: 0, px: { xs: 2, md: 3 }, py: 3, [fillMedia]: { '&:has([data-fill-page])': { flex: '1 1 0', minHeight: 0 } } }}>
             <NavContext.Provider value={openDoc}>
               {me.data && (
                 <Routes>

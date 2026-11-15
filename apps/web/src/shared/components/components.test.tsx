@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Button } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
-import { DetailPageLayout, DetailTabs, FormDialog, ListPageLayout, PageBreadcrumbs } from '.';
+import { TableBody, TableCell, TableHead, TableRow } from '@mui/material';
+import { DetailPageLayout, DetailTabs, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
 
 describe('ListPageLayout', () => {
   it('renders title, page actions, toolbar, the load error and the content', () => {
@@ -148,5 +149,33 @@ describe('PageBreadcrumbs and Back', () => {
     expect(screen.queryByRole('link', { name: 'SC-1' })).toBeNull(); // the current page is not a link
     expect(screen.getByText('SC-1').getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: 'Quay lại danh sách' }).getAttribute('href')).toBe('/sales-contracts?q=a');
+  });
+});
+
+describe('Fill layout markers (scroll standard, FRONTEND §10)', () => {
+  it('DetailPageLayout and a fill ListPageLayout mark the page; DetailTabs and ScrollTable mark the scrolling region', () => {
+    render(
+      <MemoryRouter>
+        <DetailPageLayout title="HĐ">
+          <DetailTabs tabs={[{ key: 'a', label: 'Hàng hóa', content: (
+            <ScrollTable label="Dòng">
+              <TableHead><TableRow><TableCell>Mã</TableCell></TableRow></TableHead>
+              <TableBody><TableRow><TableCell>SW</TableCell></TableRow></TableBody>
+            </ScrollTable>
+          ) }]} />
+        </DetailPageLayout>
+      </MemoryRouter>,
+    );
+    const table = screen.getByRole('table', { name: 'Dòng' });
+    expect(table.className).toContain('MuiTable-stickyHeader');
+    expect(table.closest('[data-fill-grow]')).toBeTruthy();
+    expect(screen.getByRole('tabpanel').closest('[data-fill-grow]')).toBeTruthy();
+    expect(table.closest('[data-fill-page]')).toBeTruthy();
+  });
+  it('ListPageLayout marks the page only when it opts in with fill', () => {
+    const { container, rerender } = render(<ListPageLayout title="T"><div /></ListPageLayout>);
+    expect(container.querySelector('[data-fill-page]')).toBeNull();
+    rerender(<ListPageLayout title="T" fill><div /></ListPageLayout>);
+    expect(container.querySelector('[data-fill-page]')).toBeTruthy();
   });
 });

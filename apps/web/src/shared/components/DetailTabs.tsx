@@ -1,4 +1,5 @@
 import { ReactNode, useId, useState } from 'react';
+import { fillMedia } from '../../config/theme';
 import { Paper, Stack, Tab, Tabs } from '@mui/material';
 
 export interface DetailTab {
@@ -19,11 +20,13 @@ export function DetailTabs({ tabs, value, onChange }: { tabs: DetailTab[]; value
   if (!active) return null;
   const select = (key: string) => { setOwn(key); onChange?.(key); };
   return (
-    <Paper>
-      <Tabs value={active.key} onChange={(_e, k: string) => select(k)} variant="scrollable" sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
+    // data-fill-grow: on fill screens the tab box takes the remaining height and its panel's table scrolls inside.
+    <Paper data-fill-grow sx={{ [fillMedia]: { display: 'flex', flexDirection: 'column', flex: '0 1 auto', minHeight: 0 } }}>
+      <Tabs value={active.key} onChange={(_e, k: string) => select(k)} variant="scrollable" sx={{ px: 2, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
         {visible.map((x) => <Tab key={x.key} value={x.key} label={x.label} id={`${id}-tab-${x.key}`} aria-controls={`${id}-panel-${x.key}`} />)}
       </Tabs>
-      <Stack role="tabpanel" id={`${id}-panel-${active.key}`} aria-labelledby={`${id}-tab-${active.key}`} sx={{ p: 2 }} spacing={1.5}>
+      <Stack role="tabpanel" id={`${id}-panel-${active.key}`} aria-labelledby={`${id}-tab-${active.key}`} spacing={1.5}
+        sx={{ p: 2, [fillMedia]: { flex: '0 1 auto', minHeight: 0, '& > :not([data-fill-grow])': { flexShrink: 0 } } }}>
         {active.content}
       </Stack>
     </Paper>

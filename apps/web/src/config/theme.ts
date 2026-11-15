@@ -25,6 +25,13 @@ export const tokens = {
   touch: 44,
 };
 
+/**
+ * Screens tall and wide enough for "fill" pages: a page marked `data-fill-page` takes exactly the main area, its header,
+ * tabs and footer stay put and only its data region (`data-fill-grow`, e.g. ScrollTable) scrolls. Smaller screens scroll
+ * the main area as a whole (no nested scrolling on phones).
+ */
+export const fillMedia = '@media (min-width: 600px) and (min-height: 700px)';
+
 /** Tones used by status chips; one meaning per tone across all documents (03 §6). */
 export const statusTones = {
   neutral: { fg: '#475467', bg: '#EEF1F5' }, // Nháp

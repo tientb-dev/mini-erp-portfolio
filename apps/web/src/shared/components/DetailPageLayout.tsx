@@ -1,14 +1,17 @@
 import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Box, LinearProgress, Stack, Typography } from '@mui/material';
+import { fillMedia } from '../../config/theme';
 import { ErrorAlert } from './ErrorAlert';
 import { PageHeader } from './PageHeader';
 
 /**
  * Document detail skeleton: "<title> <documentNumber>" header with an inline status, optional subtitle, the action group
  * on the right, a notice line (e.g. who the document waits for) and the content (often DetailTabs).
- * `footer` is a decision bar pinned to the bottom of the viewport while it scrolls (it stays in the page flow, so it
- * never covers the last content). While `loading` it shows only the error (if any) or a progress bar.
+ * `footer` is a decision bar pinned to the bottom of the main area (it stays in the page flow, so it never covers the
+ * last content). On screens matching `fillMedia` the page holds the main area's height: header, info and tabs stay put
+ * and only a `data-fill-grow` region (DetailTabs → ScrollTable) shrinks and scrolls. While `loading` it shows only the
+ * error (if any) or a progress bar.
  */
 export function DetailPageLayout({ title, documentNumber, status, subtitle, actions, notice, loading, error, breadcrumbs, backTo, footer, children }: {
   title: string; documentNumber?: string; status?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; notice?: ReactNode;
@@ -20,10 +23,10 @@ export function DetailPageLayout({ title, documentNumber, status, subtitle, acti
   if (loading) return <>{breadcrumbs}{error ? <ErrorAlert error={error} /> : <LinearProgress aria-label={t('common.loading')} />}</>;
   return (
     // Fills the main scroll area so the footer (mt: auto) rests on its bottom edge when the page is short.
-    <Stack sx={{ flex: '1 0 auto' }}>
+    <Stack data-fill-page sx={{ flex: '1 0 auto', [fillMedia]: { flex: '1 1 0', minHeight: 0 } }}>
       <PageHeader title={documentNumber ? `${title} ${documentNumber}` : title} status={status} subtitle={subtitle} action={actions} breadcrumbs={breadcrumbs} backTo={backTo} />
       {notice && <Typography variant="body2" color="text.secondary" sx={{ mt: -1.5, mb: 2 }}>{notice}</Typography>}
-      <Stack spacing={2} sx={{ mb: footer ? 3 : 0 }}>
+      <Stack spacing={2} sx={{ mb: footer ? 3 : 0, [fillMedia]: { flex: '1 1 0', minHeight: 0, '& > :not([data-fill-grow])': { flexShrink: 0 } } }}>
         <ErrorAlert error={error} />
         {children}
       </Stack>

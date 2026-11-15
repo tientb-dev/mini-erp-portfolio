@@ -1,14 +1,22 @@
 import { useTranslation } from 'react-i18next';
-import { Paper, Stack, Typography } from '@mui/material';
+import { Paper, Stack, Typography, useMediaQuery } from '@mui/material';
+import { fillMedia } from '../../config/theme';
 import { DataGrid, DataGridProps, GridValidRowModel } from '@mui/x-data-grid';
 
-/** Standard data table: 44px rows from the theme, bordered surface, localized empty state with a hint. */
-export function DataTable<R extends GridValidRowModel>({ emptyHint, ...props }: DataGridProps<R> & { emptyHint?: string }) {
+/**
+ * Standard data table: 44px rows from the theme, bordered surface, localized empty state with a hint.
+ * `fill` (inside a fill page, e.g. ListPageLayout fill): on fill screens the grid keeps its natural height for a few
+ * rows and, with many, takes the remaining height and scrolls its rows under sticky headers; elsewhere it grows with
+ * its rows and the main area scrolls.
+ */
+export function DataTable<R extends GridValidRowModel>({ emptyHint, fill, ...props }: DataGridProps<R> & { emptyHint?: string; fill?: boolean }) {
   const { t } = useTranslation();
+  const filling = useMediaQuery(fillMedia.replace('@media ', '')) && Boolean(fill);
   return (
-    <Paper sx={{ overflow: 'hidden', '& .MuiDataGrid-root': { border: 0 } }}>
+    <Paper data-fill-grow={fill ? '' : undefined}
+      sx={{ overflow: 'hidden', '& .MuiDataGrid-root': { border: 0 }, ...(filling && { display: 'flex', flexDirection: 'column', flex: '0 1 auto', minHeight: 0 }) }}>
       <DataGrid
-        autoHeight
+        autoHeight={!filling}
         disableRowSelectionOnClick
         disableColumnMenu
         pageSizeOptions={[25, 50, 100]}

@@ -112,3 +112,49 @@ Không làm (chưa có nhu cầu thực): `ConfirmDialog` riêng (xác nhận = 
 
 - Nhóm cha (icon nghiệp vụ) → trang con (icon nhỏ) theo `NAV`; chỉ hiện con có quyền VIEW, nhóm không còn con thì ẩn.
 - Mặc định mọi nhóm mở; người dùng thu gọn từng nhóm, lựa chọn lưu ở `localStorage` (`mini-erp.nav.collapsed`, lỗi storage → mặc định mở). Vào trang thuộc nhóm đang thu gọn → nhóm tự mở. Nhóm chứa trang hiện tại có màu nhấn.
+
+## 10. Design system ("Hồ sơ chứng từ", PR #17)
+
+Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI theme); feature không đặt cứng màu hay kích thước.
+
+| Nhóm | Quy tắc |
+|---|---|
+| Màu | Primary `#1F5FC4` (hover `#184DA3`, nền nhạt `#EAF1FC`); nền trang `#F5F7FA`; bề mặt trắng; chữ `#18222F` / `#5A6878`; viền `#DCE2E9`. Trạng thái giữ nghĩa qua `statusTones` (Nháp xám, Chờ vàng, Đã chốt/duyệt xanh lá, Từ chối đỏ, Đã hủy xám nhạt). |
+| Chữ | Be Vietnam Pro tự host (`@fontsource`, không gọi CDN). Tiêu đề trang 22/600, tiêu đề vùng 16/600, nội dung và bảng 14px, nhãn 13px màu phụ. |
+| Nút | Contained: một nút chính mỗi vùng. Outlined: phụ. Text: hủy, điều hướng. Màu đỏ: thao tác phá hủy, luôn có xác nhận. Cao 36px (pointer thô: 44px), bo 6px. |
+| Form | Nhãn luôn nằm trên ô (không nổi trong viền), ô cao 40px, khoảng cách bội số 8. Thanh lọc không có nhãn trên: giá trị rỗng ghi "Tất cả …", tên trường là `aria-label`. |
+| Bảng | DataGrid dòng 44px, header 40px, chữ 14px; số căn phải; ngày trong danh sách `dd/MM/yyyy`, giờ đầy đủ ở tooltip; phân trang tiếng Việt ("1–3 trên 3"). |
+| Thao tác theo dòng | Mỗi dòng đúng một menu `⋯` (`MoreHoriz`) trong ô cố định, căn phải. Menu **chỉ liệt kê thao tác chạy được ngay**: không có quyền, hoặc trạng thái/điều kiện chưa cho phép (cùng điều kiện server) → ẩn, không hiện mờ. Lý do chưa đủ điều kiện (vd. chưa thể Chốt) do trang chi tiết giải thích. DataGrid tắt menu cột (`disableColumnMenu`). |
+| Chi tiết chứng từ | Tiêu đề là mã chứng từ, chip trạng thái ngay cạnh, phụ đề là loại chứng từ. Header chỉ có thao tác sửa. Quyết định (Hủy: outlined đỏ, có xác nhận; Chốt: contained) cùng nằm ở `DetailPageLayout.footer`, căn phải. Không có thao tác nào thì không hiện footer. |
+| Layout và cuộn | `AppShell` cao đúng `100dvh` nên document không bao giờ cuộn. Topbar cố định; sidebar cuộn riêng; `[data-main-scroll]` là vùng cuộn dọc duy nhất của nội dung. `DetailPageLayout` lấp đầy vùng đó, footer `sticky` ở đáy (nằm trong luồng trang nên không che dòng cuối). Bảng rộng cuộn ngang trong khung bảng; bảng ít dòng không có vùng cuộn riêng (DataGrid `autoHeight`). Menu, select, dialog render qua portal nên không bị overflow cắt. |
+| Dialog | Tiêu đề + X, một dòng `description`, footer có đường kẻ, Hủy bỏ + nút chính căn phải. Trường văn bản chiếm cả hàng; cặp giá trị đọc cùng nhau (Số lượng + ĐVT) chung một hàng. |
+
+## 11. Quy chuẩn bố cục và cuộn (mọi chứng từ: HĐ, PR, PO, PNK, PXK, chứng từ sau này)
+
+**Hai chế độ**, chuyển bằng một media query duy nhất `fillMedia` (`config/theme.ts`: rộng ≥ 600px và cao ≥ 700px):
+
+| | Màn đủ lớn (fill) | Màn thấp hoặc điện thoại |
+|---|---|---|
+| Trang đánh dấu `data-fill-page` | Cao đúng vùng main; tiêu đề, bộ lọc, thông tin chung, tabs, footer đứng yên | Cao theo nội dung; vùng main cuộn cả trang |
+| Vùng dữ liệu `data-fill-grow` | Chiều cao tự nhiên khi ít dòng; co lại và **cuộn bên trong** khi nhiều dòng; header cột dính | Cao theo nội dung, không cuộn lồng nhau |
+| Cuộn ngang | Luôn bên trong khung bảng | Như bên trái |
+
+**Dùng thế nào** (không viết CSS cuộn trong feature):
+- **List page:** `<ListPageLayout fill>` + `<DataTable fill>`. DataGrid cuộn dòng bên trong, thanh phân trang luôn nhìn thấy. Bảng ít dòng không có vùng cuộn thừa.
+- **Detail page:** `DetailPageLayout` luôn là fill page. Tab dạng bảng (hàng hóa, vật tư, serial…) đặt bảng trong `<ScrollTable label minWidth>` (MUI Table, `stickyHeader`) ngay trong nội dung tab của `DetailTabs`; các phần khác của tab (thanh công cụ, ghi chú) tự đứng yên.
+- **Chuỗi flex:** `AppShell` (`:has([data-fill-page])`) → trang (`data-fill-page`) → `DetailTabs`/`DataTable` (`data-fill-grow`) → `ScrollTable` (`data-fill-grow`). Mỗi cấp chỉ cho phần tử `data-fill-grow` co lại; phần còn lại `flexShrink: 0`. Không đặt cứng chiều cao bảng.
+- **Footer quyết định** (`DetailPageLayout.footer`): ở đáy vùng main, nằm trong luồng trang nên không che dòng cuối.
+- Menu, select, dialog render qua portal nên không bị `overflow` cắt.
+
+**Danh sách phân trang phía server** (mẫu: `SalesContractsPage`):
+- Trạng thái (trang, cỡ trang, sort, lọc) nằm trên URL. Đổi trang, sort hoặc lọc tạo mục lịch sử (`push`), nên Back/Forward đi qua từng trang; gõ ô tìm kiếm chỉ `replace`. Đổi lọc, sort hoặc cỡ trang thì quay về trang 1.
+- `sortModel`/`paginationModel` truyền cho DataGrid phải **ổn định tham chiếu** (`useMemo` theo giá trị URL). Một object mới mỗi lần render bị grid coi là sort vừa đổi, và grid tự quay về trang 1 (đây là lỗi pagination đã sửa ở PR #17).
+- Query key chứa toàn bộ tham số; `placeholderData: keepPreviousData`. Phản hồi về trễ của tham số cũ chỉ ghi vào cache của key cũ, không đè dữ liệu đang hiển thị.
+- `DataTable`: `loading = isFetching || isPlaceholderData` → lớp mờ + spinner phủ vùng dòng, dữ liệu cũ vẫn ở dưới, không hiện empty state; phân trang bị khóa và vẫn mô tả dữ liệu đang hiển thị cho tới khi trang mới về. `error` → xóa dòng, thông báo không tải được, giữ trang và tổng số (không tự nhảy về trang 1); trang hiển thị chi tiết lỗi qua `ErrorAlert`.
+
+**Thanh bộ lọc** (mọi màn danh sách có bộ lọc; dùng `FilterToolbar` trong `shared/components`, feature chỉ đưa các ô tìm kiếm/lọc vào):
+- Nút **"Xóa bộ lọc"** (nút text màu phụ, icon xoay ngược) **luôn hiển thị** ở cuối thanh bộ lọc, không ẩn/hiện làm xô lệch bố cục. Nút nằm **ngay sau ô lọc cuối cùng**, cùng nhóm và cùng khoảng cách (`gap`) với các ô lọc; **không** dùng `margin-left: auto` hay bố cục đẩy nút ra mép container (trên màn rộng như 2K nút sẽ bị tách xa bộ lọc). Thiếu chiều ngang thì nút tự xuống dòng như một ô lọc, không tràn ngang; chiều rộng các ô lọc không đổi.
+- Disabled khi không có điều kiện lọc nào, enabled khi có. Trạng thái tính từ **bộ lọc đang áp dụng trên URL** (kèm từ khóa đang gõ), nên Back/Forward cũng cập nhật đúng; ô tìm kiếm đồng bộ theo `q` trên URL.
+- Bấm: xóa từ khóa và mọi điều kiện lọc trong một lần đổi URL (`push`), quay về trang 1, **giữ nguyên sort và cỡ trang**. Bảng dùng loading chuẩn ở trên, không giật.
+
+**Trạng thái áp dụng:** Hợp đồng bán (danh sách + chi tiết, kể cả `FilterToolbar`) đã áp dụng và kiểm chứng ở 1440×900, 1366×768, 768×1024, 390×844. Các màn PR, PO, GRR, PNK, PXK, kho, danh mục chuyển sang `fill`/`ScrollTable` ở PR sau, theo đúng quy chuẩn này.

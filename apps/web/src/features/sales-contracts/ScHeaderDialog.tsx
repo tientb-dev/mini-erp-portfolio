@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MenuItem, TextField, Typography } from '@mui/material';
+import { MenuItem, TextField } from '@mui/material';
 import { api } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 
@@ -28,8 +28,7 @@ export function ScHeaderDialog({ edit, onClose, onSaved }: { edit?: Header; onCl
   return (
     <FormDialog title={edit ? t('sc.editHeaderTitle', { number: edit.documentNumber }) : t('sc.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'sc.create')}
       error={save.error} pending={save.isPending} canSubmit={Boolean(customerId)} onSubmit={() => save.mutate()} onClose={onClose}
-      dirty={customerId !== initial.customerId || sales !== initial.sales}>
-      {!edit && <Typography variant="body2" color="text.secondary">{t('sc.createHint')}</Typography>}
+      dirty={customerId !== initial.customerId || sales !== initial.sales} description={edit ? undefined : t('sc.createHint')}>
       <TextField select label={t('sc.customer')} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required autoFocus
         helperText={customers.data?.length === 0 ? t('sc.noCustomer') : undefined}>
         {(customers.data ?? []).map((c) => <MenuItem key={c.id} value={c.id}>{c.code}: {c.name}</MenuItem>)}

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Button } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
-import { DetailPageLayout, DetailTabs, FormDialog, ListPageLayout, PageBreadcrumbs } from '.';
+import { TableBody, TableCell, TableHead, TableRow } from '@mui/material';
+import { DataTable, DetailPageLayout, DetailTabs, FilterToolbar, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
 
 describe('ListPageLayout', () => {
   it('renders title, page actions, toolbar, the load error and the content', () => {
@@ -148,5 +149,70 @@ describe('PageBreadcrumbs and Back', () => {
     expect(screen.queryByRole('link', { name: 'SC-1' })).toBeNull(); // the current page is not a link
     expect(screen.getByText('SC-1').getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: 'Quay lại danh sách' }).getAttribute('href')).toBe('/sales-contracts?q=a');
+  });
+});
+
+describe('Fill layout markers (scroll standard, FRONTEND §10)', () => {
+  it('DetailPageLayout and a fill ListPageLayout mark the page; DetailTabs and ScrollTable mark the scrolling region', () => {
+    render(
+      <MemoryRouter>
+        <DetailPageLayout title="HĐ">
+          <DetailTabs tabs={[{ key: 'a', label: 'Hàng hóa', content: (
+            <ScrollTable label="Dòng">
+              <TableHead><TableRow><TableCell>Mã</TableCell></TableRow></TableHead>
+              <TableBody><TableRow><TableCell>SW</TableCell></TableRow></TableBody>
+            </ScrollTable>
+          ) }]} />
+        </DetailPageLayout>
+      </MemoryRouter>,
+    );
+    const table = screen.getByRole('table', { name: 'Dòng' });
+    expect(table.className).toContain('MuiTable-stickyHeader');
+    expect(table.closest('[data-fill-grow]')).toBeTruthy();
+    expect(screen.getByRole('tabpanel').closest('[data-fill-grow]')).toBeTruthy();
+    expect(table.closest('[data-fill-page]')).toBeTruthy();
+  });
+  it('ListPageLayout marks the page only when it opts in with fill', () => {
+    const { container, rerender } = render(<ListPageLayout title="T"><div /></ListPageLayout>);
+    expect(container.querySelector('[data-fill-page]')).toBeNull();
+    rerender(<ListPageLayout title="T" fill><div /></ListPageLayout>);
+    expect(container.querySelector('[data-fill-page]')).toBeTruthy();
+  });
+});
+
+describe('DataTable loading and error (list standard)', () => {
+  const rows = [{ id: 1, name: 'Dòng A' }];
+  const base = { rows, columns: [{ field: 'name', headerName: 'Tên' }], rowCount: 30, paginationMode: 'server' as const, paginationModel: { page: 0, pageSize: 25 } };
+  it('while loading: spinner over the previous rows, no empty state, pagination locked', () => {
+    const onPage = vi.fn();
+    render(<DataTable {...base} loading emptyHint="Trống" onPaginationModelChange={onPage} />);
+    expect(screen.getByRole('progressbar', { name: 'Đang tải…' })).toBeTruthy();
+    expect(screen.getByText('Dòng A')).toBeTruthy();
+    expect(screen.queryByText('Trống')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Tới trang tiếp theo|next page/i }));
+    expect(onPage).not.toHaveBeenCalled();
+  });
+  it('on error: no spinner, rows cleared, a load-failed message, the page and total kept', () => {
+    const onPage = vi.fn();
+    const { rerender } = render(<DataTable {...base} onPaginationModelChange={onPage} />);
+    rerender(<DataTable {...base} rowCount={0} paginationModel={{ page: 1, pageSize: 25 }} error={{ message: 'x' }} onPaginationModelChange={onPage} />);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByText('Dòng A')).toBeNull();
+    expect(screen.getByText('Không tải được dữ liệu. Thử lại sau.')).toBeTruthy();
+    expect(screen.getByText(/^26–30 (trên|of) 30$/)).toBeTruthy();
+    expect(onPage).not.toHaveBeenCalled(); // the grid did not jump back to page 1 on its own
+  });
+});
+
+describe('FilterToolbar (list standard)', () => {
+  it('always shows "Xóa bộ lọc" last; disabled without filters, clears when enabled', () => {
+    const onClear = vi.fn();
+    const { rerender } = render(<FilterToolbar active={false} onClear={onClear}><input aria-label="q" /></FilterToolbar>);
+    const btn = screen.getByRole('button', { name: /Xóa bộ lọc|Clear filters/ }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.previousElementSibling?.getAttribute('aria-label')).toBe('q');
+    rerender(<FilterToolbar active onClear={onClear}><input aria-label="q" /></FilterToolbar>);
+    fireEvent.click(btn);
+    expect(onClear).toHaveBeenCalledTimes(1);
   });
 });

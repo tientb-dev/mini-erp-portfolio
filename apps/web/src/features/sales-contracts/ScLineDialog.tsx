@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, MenuItem, TextField } from '@mui/material';
 import { api } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 import { Uom } from '../master-data';
@@ -35,19 +35,17 @@ export function ScLineDialog({ contractId, version, line, onClose, onSaved }: {
   const dirty = (Object.keys(initial) as (keyof typeof initial)[]).some((k) => f[k] !== initial[k]);
   return (
     <FormDialog title={t(line ? 'sc.editItem' : 'sc.addItem')} submitLabel={t(line ? 'doc.saveEdit' : 'sc.saveItem')} error={save.error} pending={save.isPending}
-      canSubmit={Boolean(valid)} onSubmit={() => save.mutate()} onClose={onClose} dirty={dirty}>
-      <Typography variant="body2" color="text.secondary">{t('sc.linesHint')}</Typography>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <TextField label={t('sc.itemCode')} value={f.itemCode} onChange={set('itemCode')} required autoFocus sx={{ flex: 1 }} />
-        <TextField label={t('sc.itemName')} value={f.itemName} onChange={set('itemName')} required sx={{ flex: 2 }} />
-      </Stack>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <TextField select label={t('sc.uom')} value={f.unitOfMeasureId} onChange={set('unitOfMeasureId')} required sx={{ flex: 1 }}>
+      canSubmit={Boolean(valid)} onSubmit={() => save.mutate()} onClose={onClose} dirty={dirty} description={t('sc.lineDialogHint')}>
+      {/* Layout rule: text fields take the full row; quantity and its unit share one row (read together, e.g. "4 Cái"). */}
+      <TextField label={t('sc.itemCode')} value={f.itemCode} onChange={set('itemCode')} required autoFocus />
+      <TextField label={t('sc.itemName')} value={f.itemName} onChange={set('itemName')} required />
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
+        <TextField label={t('gr.quantity')} type="number" value={f.quantity} onChange={set('quantity')} required
+          slotProps={{ htmlInput: { min: 0, step: 'any', inputMode: 'decimal' } }} />
+        <TextField select label={t('sc.uom')} value={f.unitOfMeasureId} onChange={set('unitOfMeasureId')} required>
           {(uoms.data ?? []).map((u) => <MenuItem key={u.id} value={String(u.id)}>{u.name} ({u.code})</MenuItem>)}
         </TextField>
-        <TextField label={t('gr.quantity')} type="number" value={f.quantity} onChange={set('quantity')} required sx={{ flex: 1 }}
-          slotProps={{ htmlInput: { min: 0, step: 'any' } }} />
-      </Stack>
+      </Box>
     </FormDialog>
   );
 }

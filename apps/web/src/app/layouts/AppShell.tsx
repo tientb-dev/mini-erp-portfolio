@@ -3,20 +3,21 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 're
 import { useTranslation } from 'react-i18next';
 import { AppBar, Box, Button, Drawer, IconButton, Toolbar, Typography, useMediaQuery } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
-import { tokens } from '../../config/theme';
+import { fillMedia, tokens } from '../../config/theme';
 import { useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';
-import { NAV, PageKey, PAGES } from '../routes';
+import { DETAIL_ALSO, NAV, PageKey, PAGES } from '../routes';
 import { SideNav } from './SideNav';
 
 const pageOf = (path?: string) => (Object.keys(PAGES) as PageKey[]).find((k) => pagePath(k) === `/${path}`) ?? null;
 
 /** `/:page/:id?` → that page (with `initialId`) when the user may view it; anything else shows "not found". */
-function PageRoute({ allowed }: { allowed: (k: PageKey) => boolean }) {
+function PageRoute({ allowed, has }: { allowed: (k: PageKey) => boolean; has: (p: string) => boolean }) {
   const { t } = useTranslation();
   const { page: path, id } = useParams();
   const page = pageOf(path);
-  if (!page || !allowed(page)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
+  const viaDetail = Boolean(page && id && DETAIL_ALSO[page] && has(DETAIL_ALSO[page]!));
+  if (!page || !(allowed(page) || viaDetail)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
   const Page = PAGES[page][0];
   return <Page key={`${page}-${id ?? ''}`} initialId={id ? Number(id) : undefined} />;
 }
@@ -33,7 +34,8 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
   const openDoc = (p: string, id: number) => navigate(pagePath(p, id));
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    // The shell fills the viewport exactly: the document never scrolls; the sidebar and the main area scroll on their own.
+    <Box sx={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
       <AppBar position="fixed" color="inherit" sx={{ zIndex: (th) => th.zIndex.drawer + 1 }}>
         <Toolbar variant="dense" sx={{ gap: 1 }}>
           {!desktop && (
@@ -53,17 +55,23 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
         <Toolbar variant="dense" />
         <SideNav active={active} allowed={allowed} onNavigate={() => setMobileOpen(false)} />
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, px: { xs: 2, md: 3 }, py: 3 }}>
-        <Toolbar variant="dense" />
-        <NavContext.Provider value={openDoc}>
-          {me.data && (
-            <Routes>
-              <Route path="/" element={first ? <Navigate to={pagePath(first)} replace /> : null} />
-              <Route path="/:page/:id?" element={<PageRoute allowed={allowed} />} />
-              <Route path="*" element={<Typography color="text.secondary">{t('common.notFound')}</Typography>} />
-            </Routes>
-          )}
-        </NavContext.Provider>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Toolbar variant="dense" sx={{ flexShrink: 0 }} />
+        {/* The only vertical scroller for page content; DetailPageLayout's footer sticks to its bottom edge. */}
+        <Box data-main-scroll sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {/* A fill page is held to the main area's height so its own data region scrolls instead (see fillMedia). */}
+          <Box sx={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column', minWidth: 0, px: { xs: 2, md: 3 }, py: 3, [fillMedia]: { '&:has([data-fill-page])': { flex: '1 1 0', minHeight: 0 } } }}>
+            <NavContext.Provider value={openDoc}>
+              {me.data && (
+                <Routes>
+                  <Route path="/" element={first ? <Navigate to={pagePath(first)} replace /> : null} />
+                  <Route path="/:page/:id?" element={<PageRoute allowed={allowed} has={(p) => Boolean(me.data?.permissions.includes(p))} />} />
+                  <Route path="*" element={<Typography color="text.secondary">{t('common.notFound')}</Typography>} />
+                </Routes>
+              )}
+            </NavContext.Provider>
+          </Box>
+        </Box>
       </Box>
     </Box>
   );

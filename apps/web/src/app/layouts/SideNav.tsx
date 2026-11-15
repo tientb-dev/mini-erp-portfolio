@@ -53,7 +53,7 @@ export function SideNav({ active, allowed, onNavigate }: { active: PageKey | nul
                 aria-expanded={open}
                 aria-controls={id}
                 onClick={() => save(open ? [...collapsed, group] : collapsed.filter((g) => g !== group))}
-                sx={{ mx: 1, borderRadius: 1, color: group === activeGroup ? 'primary.main' : 'text.secondary' }}
+                sx={{ mx: 1, color: group === activeGroup ? 'primary.main' : 'text.secondary' }}
               >
                 <ListItemIcon sx={{ minWidth: 34, color: 'inherit' }}><GroupIcon fontSize="small" /></ListItemIcon>
                 <ListItemText primary={t(group)} slotProps={{ primary: { sx: { fontWeight: 600, fontSize: 13 } } }} />
@@ -71,7 +71,7 @@ export function SideNav({ active, allowed, onNavigate }: { active: PageKey | nul
                         selected={k === active}
                         aria-current={k === active ? 'page' : undefined}
                         onClick={onNavigate}
-                        sx={{ mx: 1, pl: 3, borderRadius: 1, '&.Mui-selected': { color: 'primary.main', fontWeight: 600 } }}
+                        sx={{ mx: 1, pl: 3, '&.Mui-selected': { fontWeight: 600 } }}
                       >
                         <ListItemIcon sx={{ minWidth: 30, color: 'inherit' }}><ItemIcon sx={{ fontSize: 18 }} /></ListItemIcon>
                         <ListItemText primary={t(`nav.${k}`)} slotProps={{ primary: { sx: { fontWeight: 'inherit' } } }} />

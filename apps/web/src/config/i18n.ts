@@ -18,7 +18,7 @@ const vi = {
     empty: 'Chưa có dữ liệu', error: 'Không thực hiện được: {{detail}}', loading: 'Đang tải…',
     close: 'Đóng', discardTitle: 'Bỏ thay đổi chưa lưu?', discardHint: 'Dữ liệu bạn vừa nhập sẽ không được lưu.', keepEditing: 'Tiếp tục sửa', discard: 'Bỏ thay đổi',
     actions: 'Thao tác', more: 'Thao tác khác', search: 'Tìm kiếm', all: 'Tất cả', home: 'Trang chủ', back: 'Quay lại danh sách', breadcrumbs: 'Vị trí trang',
-    notFound: 'Không tìm thấy trang hoặc bạn không có quyền truy cập.', sortBy: 'Sắp xếp',
+    notFound: 'Không tìm thấy trang hoặc bạn không có quyền truy cập.', sortBy: 'Sắp xếp', decision: 'Thao tác quyết định', clearFilters: 'Xóa bộ lọc', loadFailed: 'Không tải được dữ liệu. Thử lại sau.',
   },
   status: { DRAFT: 'Nháp', WAITING_FOR_APPROVE: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Bị từ chối', CANCELED: 'Đã hủy' },
   product: {
@@ -143,6 +143,10 @@ const vi = {
     deleteItemHint: 'Xóa dòng {{code}}: {{name}}? Không xóa được dòng đã có mã hàng đề xuất.', noLines: 'Hợp đồng chưa có hàng hóa.', noLinesEdit: 'Hợp đồng chưa có hàng hóa. Bấm "Thêm hàng hóa" để nhập từng dòng theo hợp đồng đã ký.',
     uom: 'Đơn vị tính', updatedBy: 'Cập nhật lần cuối',
     allowedProducts: 'Mã hàng được phép giao', proposals: '{{count}} mã hàng', sortCreatedAt: 'Ngày tạo', sortNumber: 'Số HĐ',
+    subtitle: 'Hợp đồng bán của {{customer}}', lineSummary: '{{count}} dòng hàng hóa', pendingShort: 'Chờ xác nhận', createdShort: 'Ngày tạo',
+    lineDialogHint: 'Nhập đúng như hợp đồng đã ký; không bắt buộc là mã trong danh mục.',
+    activateBar: 'Sau khi chốt, hợp đồng không sửa được và mới tạo được PR, đề nghị xuất.', activateNeedLines: 'Cần ít nhất một dòng hàng hóa để chốt.',
+    activateNeedSales: 'Cần chỉ định Sales phụ trách để chốt.', allStatuses: 'Tất cả trạng thái', view: 'Xem chi tiết', noProductsShort: 'Chưa đề xuất', allSales: 'Tất cả Sales', allCustomers: 'Tất cả khách hàng',
   },
   pr: {
     title: 'Đề nghị mua (PR)', number: 'Số PR', category: 'Phân loại', material: 'Vật tư {{n}}', addMaterial: 'Thêm vật tư',
@@ -198,7 +202,7 @@ const en: typeof vi = {
     empty: 'No data yet', error: 'Could not complete: {{detail}}', loading: 'Loading…',
     close: 'Close', discardTitle: 'Discard unsaved changes?', discardHint: 'What you entered will not be saved.', keepEditing: 'Keep editing', discard: 'Discard',
     actions: 'Actions', more: 'More actions', search: 'Search', all: 'All', home: 'Home', back: 'Back to list', breadcrumbs: 'Breadcrumb',
-    notFound: 'Page not found or you do not have access.', sortBy: 'Sort',
+    notFound: 'Page not found or you do not have access.', sortBy: 'Sort', decision: 'Decision', clearFilters: 'Clear filters', loadFailed: 'Could not load the data. Try again later.',
   },
   status: { DRAFT: 'Draft', WAITING_FOR_APPROVE: 'Waiting for approval', APPROVED: 'Approved', REJECTED: 'Rejected', CANCELED: 'Canceled' },
   product: {
@@ -323,6 +327,10 @@ const en: typeof vi = {
     deleteItemHint: 'Delete line {{code}}: {{name}}? A line with proposed products cannot be deleted.', noLines: 'This contract has no items yet.', noLinesEdit: 'This contract has no items yet. Select "Add item" to enter each signed line.',
     uom: 'Unit of measure', updatedBy: 'Last updated',
     allowedProducts: 'Deliverable products', proposals: '{{count}} products', sortCreatedAt: 'Created', sortNumber: 'Contract number',
+    subtitle: 'Sales contract for {{customer}}', lineSummary: '{{count}} item lines', pendingShort: 'To confirm', createdShort: 'Created',
+    lineDialogHint: 'Enter it exactly as signed; it does not need to be a catalog product.',
+    activateBar: 'Once active, the contract is locked and PRs and issue requests can be created.', activateNeedLines: 'Add at least one item line to activate.',
+    activateNeedSales: 'Assign a responsible sales to activate.', allStatuses: 'All statuses', view: 'View details', noProductsShort: 'None proposed', allSales: 'All sales', allCustomers: 'All customers',
   },
   pr: {
     title: 'Purchase requisitions', number: 'PR number', category: 'Kind', material: 'Material {{n}}', addMaterial: 'Add material',

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { me, mockApi, wrap } from '../../test/helpers/api';
 import { SalesContractsPage } from '.';
 
@@ -37,7 +37,7 @@ describe('Sales contract list', () => {
     await pick('Trạng thái', 'Nháp');
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?q=cust&status=DRAFT'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Thao tác khác SC-2026-000004' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thao tác SC-2026-000004' }));
     expect(await screen.findByRole('menuitem', { name: 'Hủy hợp đồng' })).toBeTruthy();
     expect(screen.getByTestId('where').textContent).toMatch(/^\/sales-contracts\?/); // the action did not open the row
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
@@ -46,12 +46,13 @@ describe('Sales contract list', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts/4'));
   });
 
-  it('a viewer without SALES_CONTRACT.CREATE sees no create button and no action column', async () => {
+  it('a viewer without SALES_CONTRACT.CREATE gets no create button and only "Xem chi tiết" in the row menu', async () => {
     mockApi({ '/auth/me': me(['SALES_CONTRACT.VIEW']), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 } });
     renderAt('/sales-contracts');
     await screen.findByRole('link', { name: 'SC-2026-000004' });
     expect(screen.queryByRole('button', { name: 'Tạo hợp đồng' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Thao tác khác/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Thao tác SC-2026-000004' }));
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Xem chi tiết']);
     expect(screen.queryByRole('combobox', { name: 'Sales phụ trách' })).toBeNull(); // candidates need CREATE
   });
 
@@ -70,11 +71,32 @@ describe('Sales contract list', () => {
   });
 });
 
+describe('Sales contract list pagination (regression: Next jumped back to page 1)', () => {
+  const page = (ids: number[]) => ({ items: ids.map((id) => row(id, 'DRAFT', `SC-P-${String(id).padStart(3, '0')}`)), total: 30 });
+  it('Next loads page 2 and stays there; URL, rows and label agree', async () => {
+    mockApi({
+      '/auth/me': me(SALES), ...common,
+      '/sales-contracts?page=1': page(Array.from({ length: 25 }, (_, i) => 30 - i)),
+      '/sales-contracts?page=2': page([5, 4, 3, 2, 1]),
+    });
+    renderAt('/sales-contracts');
+    await screen.findByRole('link', { name: 'SC-P-030' });
+    fireEvent.click(screen.getByRole('button', { name: /Tới trang tiếp theo|next page/i }));
+    expect(await screen.findByRole('link', { name: 'SC-P-005' })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50)); // the grid's debounced reset used to fire here
+    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?page=2');
+    expect(screen.queryByRole('link', { name: 'SC-P-030' })).toBeNull();
+    expect(screen.getByText(/^26–30 (trên|of) 30$/)).toBeTruthy();
+    const calls = fetched().filter((u) => u.startsWith('/sales-contracts?'));
+    expect(calls.at(-1)).toBe('/sales-contracts?page=2&pageSize=25'); // no request back to page 1 after page 2
+  });
+});
+
 describe('Sales contract detail', () => {
   it('shows breadcrumbs, a Back arrow to the list and the Hàng hóa tab with its count', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
     renderAt('/sales-contracts/4');
-    expect(await screen.findByRole('heading', { name: 'Hợp đồng bán SC-2026-000004' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'SC-2026-000004' })).toBeTruthy();
     const crumbs = screen.getByRole('navigation', { name: 'Vị trí trang' });
     expect(within(crumbs).getByRole('link', { name: 'Trang chủ' }).getAttribute('href')).toBe('/');
     expect(within(crumbs).getByRole('link', { name: 'Hợp đồng bán' }).getAttribute('href')).toMatch(/^\/sales-contracts/);
@@ -145,9 +167,10 @@ describe('Sales contract detail', () => {
   it('an ACTIVE contract has no header edit and no line add/edit/delete', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE'), ...common });
     renderAt('/sales-contracts/4');
-    await screen.findByRole('heading', { name: 'Hợp đồng bán SC-2026-000004' });
+    await screen.findByRole('heading', { name: 'SC-2026-000004' });
     for (const name of ['Sửa thông tin', 'Thêm hàng hóa', 'Sửa hàng hóa', 'Xóa hàng hóa', 'Chốt hợp đồng']) expect(screen.queryByRole('button', { name })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Hủy hợp đồng' })).toBeTruthy();
+    const bar = screen.getByRole('region', { name: 'Thao tác quyết định' });
+    expect(within(bar).getByRole('button', { name: 'Hủy hợp đồng' })).toBeTruthy(); // Hủy lives in the footer, not the header
   });
 
   it('lists the PRs of the contract by sales_contract_id with links, for PR.VIEW', async () => {
@@ -159,6 +182,89 @@ describe('Sales contract detail', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Đề nghị mua (PR)' }));
     expect((await screen.findByRole('link', { name: 'PR-2026-000007' })).getAttribute('href')).toBe('/purchase-requisitions/7');
     expect(fetched()).toContain('/purchase-requisitions?salesContractId=4');
+  });
+});
+
+describe('Sales contract design rules (PR #17)', () => {
+  it('every row has one ⋯ menu listing only the actions that can run now', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT'), row(5, 'ACTIVE'), row(6, 'CANCELED')], total: 3 }, ...common });
+    renderAt('/sales-contracts');
+    await screen.findByRole('link', { name: 'SC-2026-000005' });
+    for (const n of [4, 5, 6]) expect(screen.getByRole('button', { name: `Thao tác SC-2026-00000${n}` })).toBeTruthy();
+    expect(screen.getAllByText('13/11/2026')).toHaveLength(3); // dd/MM/yyyy, time in the tooltip
+
+    const menu = async (n: number) => {
+      fireEvent.click(screen.getByRole('button', { name: `Thao tác SC-2026-00000${n}` }));
+      const items = await screen.findAllByRole('menuitem');
+      const state = items.map((m) => m.textContent);
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+      return state;
+    };
+    expect(await menu(4)).toEqual(['Xem chi tiết', 'Sửa thông tin', 'Chốt hợp đồng', 'Hủy hợp đồng']);
+    expect(await menu(5)).toEqual(['Xem chi tiết', 'Hủy hợp đồng']); // ACTIVE: no edit, no activate
+    expect(await menu(6)).toEqual(['Xem chi tiết']); // CANCELED
+  });
+
+  it('a draft that cannot be activated yet (no lines / no responsible sales) has no "Chốt" in the row menu', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [{ ...row(4, 'DRAFT'), lineCount: 0 }, { ...row(5, 'DRAFT'), responsibleSalesUserId: null }], total: 2 }, ...common });
+    renderAt('/sales-contracts');
+    for (const n of [4, 5]) {
+      fireEvent.click(await screen.findByRole('button', { name: `Thao tác SC-2026-00000${n}` }));
+      expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Xem chi tiết', 'Sửa thông tin', 'Hủy hợp đồng']);
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    }
+  });
+
+  it('the footer holds Hủy (outlined, red) and Chốt (contained) side by side for a draft', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
+    renderAt('/sales-contracts/4');
+    const bar = await screen.findByRole('region', { name: 'Thao tác quyết định' });
+    expect(within(bar).getAllByRole('button').map((b) => b.textContent)).toEqual(['Hủy hợp đồng', 'Chốt hợp đồng']);
+    expect(within(bar).getByRole('button', { name: 'Hủy hợp đồng' }).className).toMatch(/MuiButton-outlined .*MuiButton-colorError/);
+    expect(screen.getAllByRole('button', { name: 'Hủy hợp đồng' })).toHaveLength(1); // not repeated in the header
+  });
+
+  it('"Xóa bộ lọc" is always shown, disabled without filters; clearing keeps sort and page size, goes to page 1; Back re-enables it', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 }, ...common });
+    function Back() { const nav = useNavigate(); return <button onClick={() => nav(-1)}>history-back</button>; }
+    wrap(<><Routes><Route path="/sales-contracts" element={<SalesContractsPage />} /></Routes><Where /><Back /></>,
+      '/sales-contracts?q=cust&status=DRAFT&customerId=8&sort=documentNumber&order=asc&pageSize=50&page=2');
+    const clear = await screen.findByRole('button', { name: 'Xóa bộ lọc' }) as HTMLButtonElement;
+    expect(clear.disabled).toBe(false);
+    expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('cust');
+    fireEvent.click(clear);
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?sort=documentNumber&order=asc&pageSize=50'));
+    expect(clear.disabled).toBe(true);
+    expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('');
+    await waitFor(() => expect(fetched().at(-1)).toContain('sort=documentNumber&order=asc&pageSize=50&page=1'));
+    await new Promise((r) => setTimeout(r, 500)); // past the search debounce: it must not bring the cleared filters back
+    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?sort=documentNumber&order=asc&pageSize=50');
+    fireEvent.click(screen.getByText('history-back'));
+    await waitFor(() => expect(clear.disabled).toBe(false));
+    expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('cust');
+    expect(screen.getByTestId('where').textContent).toContain('q=cust&status=DRAFT');
+  });
+
+  it('Chốt hợp đồng sits in the bottom bar and is disabled with the reason the server would give', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT', { lines: [] }), ...common });
+    renderAt('/sales-contracts/4');
+    const bar = await screen.findByRole('region', { name: 'Thao tác quyết định' });
+    expect((within(bar).getByRole('button', { name: 'Chốt hợp đồng' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(bar).getByText('Cần ít nhất một dòng hàng hóa để chốt.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Thêm hàng hóa' }).className).toContain('MuiButton-contained');
+  });
+
+  it('the responsible sales sees the PR tab without PR.VIEW; another sales does not', async () => {
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 1 }), '/purchase-requisitions?salesContractId=4': [] });
+    const { unmount } = renderAt('/sales-contracts/4');
+    expect(await screen.findByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeTruthy(); // me() has id 1
+    unmount();
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 2 }) });
+    renderAt('/sales-contracts/4');
+    await screen.findByRole('tab', { name: 'Hàng hóa (1)' });
+    expect(screen.queryByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeNull();
   });
 });
 

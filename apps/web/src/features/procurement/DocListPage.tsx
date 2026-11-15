@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Checkbox, FormControlLabel } from '@mui/material';
@@ -20,11 +21,14 @@ export function ReceiptStatusChip({ status }: { status: string }) {
 export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: number }) {
   const { t } = useTranslation();
   const me = useMe();
+  const navigate = useNavigate();
   const [openId, setOpenId] = useState<number | null>(initialId ?? null);
   const [creating, setCreating] = useState(false);
   const [mine, setMine] = useState(false);
-  const list = useQuery({ queryKey: [cfg.key, 'list', mine], queryFn: () => api<DocRow[]>(`/${cfg.path}?assignedToMe=${mine}`) });
-  if (openId) return <DocDetailView cfg={cfg} id={openId} onBack={() => setOpenId(null)} />;
+  // Opened through a narrower read scope (no list permission, ADR-0014): no list query; Back returns to where the user came from.
+  const listAllowed = Boolean(me.data?.permissions.includes(`${cfg.perm}.VIEW`));
+  const list = useQuery({ queryKey: [cfg.key, 'list', mine], queryFn: () => api<DocRow[]>(`/${cfg.path}?assignedToMe=${mine}`), enabled: listAllowed });
+  if (openId) return <DocDetailView cfg={cfg} id={openId} onBack={() => (listAllowed ? setOpenId(null) : navigate(-1))} />;
   const columns: GridColDef<DocRow>[] = [
     { field: 'documentNumber', headerName: t(`${cfg.key}.number`), width: 170 },
     { field: 'approvalStatus', headerName: t('common.status'), width: 150, renderCell: (p) => <ApprovalStatusChip status={p.value} /> },

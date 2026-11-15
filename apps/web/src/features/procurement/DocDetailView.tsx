@@ -64,7 +64,8 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
             ),
           },
           {
-            key: 'children', label: t(`${cfg.key}.tabChildren`), content: d.children.length
+            // Child documents need the page's own VIEW; a contract-scoped reader gets none from the API (ADR-0014).
+            key: 'children', label: t(`${cfg.key}.tabChildren`), hidden: !me.data.permissions.includes(`${cfg.perm}.VIEW`), content: d.children.length
               ? d.children.map((c) => (
                   <Stack key={c.id} direction="row" spacing={2} sx={{ alignItems: 'center' }}>
                     <Typography variant="body2" sx={{ minWidth: 170 }}>{c.documentNumber}</Typography><ApprovalStatusChip status={c.approvalStatus} />

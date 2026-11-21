@@ -23,6 +23,8 @@ describe('Sales contracts and procurement documents (integration)', () => {
   beforeAll(async () => {
     process.env.SEED_ROLE_USERS_PASSWORD = 'role-users-test';
     ({ app, ds } = await bootTestApp());
+    await ds.query(`INSERT INTO user_roles (user_id, role_id)
+      SELECT u.id, r.id FROM users u CROSS JOIN roles r WHERE u.username = $1 AND r.code = 'SALES'`, [process.env.SEED_ADMIN_USERNAME]);
     admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
     approver = await login(app, process.env.SEED_APPROVER_USERNAME!, process.env.SEED_APPROVER_PASSWORD!);
     approverId = (await get(approver, '/auth/me')).body.id;
@@ -45,6 +47,13 @@ describe('Sales contracts and procurement documents (integration)', () => {
   }
 
   async function approved(path: string, id: number) {
+    if (path === 'purchase-requisitions') {
+      await post(admin, `/${path}/${id}/submit`).expect(204);
+      for (const username of ['sales-head', 'purchaser']) {
+        await post(await login(app, username, 'role-users-test'), `/${path}/${id}/approve`).expect(204);
+      }
+      return;
+    }
     await post(admin, `/${path}/${id}/submit`, { approverId }).expect(204);
     await post(approver, `/${path}/${id}/approve`).expect(204);
   }
@@ -71,21 +80,90 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(sales, `/product-proposals/${proposal}/approve`, { note: 'PL-01' }).expect(204);
     const [line] = (await get(pm, `/sales-contracts/${sc}`).expect(200)).body.lines;
     expect(line.products[0]).toMatchObject({ status: 'APPROVED', decisionNote: 'PL-01', decidedByName: 'Nhân viên Sales' });
-    await post(sales, '/purchase-requisitions', { salesContractId: sc, lines: [] }).expect(403);
+    await post(sales, '/purchase-requisitions', { salesContractId: sc, lines: [] }).expect(400);
   });
 
   it('PR: list/detail, reject needs a reason, rejected PR can be canceled', async () => {
     const { sc, lineId } = await activeContract();
     const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 3 }] }).expect(201)).body.id;
     await post(admin, `/purchase-requisitions/${pr}/submit`, { approverId }).expect(204);
-    expect((await get(approver, '/purchase-requisitions?assignedToMe=true').expect(200)).body.map((r: { id: number }) => r.id)).toContain(pr);
-    await post(approver, `/purchase-requisitions/${pr}/reject`, {}).expect(400);
-    await post(approver, `/purchase-requisitions/${pr}/reject`, { reason: 'Sai số lượng' }).expect(204);
+    expect((await get(await login(app, 'sales-head', 'role-users-test'), '/purchase-requisitions?assignedToMe=true').expect(200)).body.map((r: { id: number }) => r.id)).toContain(pr);
+    await post(await login(app, 'sales-head', 'role-users-test'), `/purchase-requisitions/${pr}/reject`, {}).expect(400);
+    await post(await login(app, 'sales-head', 'role-users-test'), `/purchase-requisitions/${pr}/reject`, { reason: 'Sai số lượng' }).expect(204);
     const detail = (await get(admin, `/purchase-requisitions/${pr}`).expect(200)).body;
     expect(detail).toMatchObject({ approvalStatus: 'REJECTED', salesContractNumber: expect.stringMatching(/^SC-/) });
     expect(detail.lines[0]).toMatchObject({ partNumber: 'PN-P1', ref: 'Switch 24 port' });
     expect(detail.history.map((h: { action: string }) => h.action)).toEqual(['SUBMIT', 'REJECT']);
     await post(admin, `/purchase-requisitions/${pr}/cancel`).expect(204);
+  });
+
+  it('PR18: snapshots both assignments, recalls either step, blocks PO until receipt, and preserves rounds', async () => {
+    const { sc, lineId } = await activeContract();
+    const salesHead = await login(app, 'sales-head', 'role-users-test');
+    const receiver = await login(app, 'purchaser', 'role-users-test');
+    const detailUrl = '/purchase-requisitions';
+    const { id } = (await post(admin, detailUrl, { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 3 }] }).expect(201)).body;
+    const path = `${detailUrl}/${id}`;
+    const sourceLineId = (await get(admin, path)).body.lines[0].id;
+    const purchase = () => post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId, quantity: 1 }] });
+
+    await post(admin, `${path}/submit`).expect(204);
+    await post(approver, `${path}/approve`).expect(403);
+    await post(admin, `${path}/recall`, { reason: 'Sửa vòng 1' }).expect(204);
+    await post(admin, `${path}/submit`).expect(204);
+    await post(salesHead, `${path}/approve`).expect(204);
+    await purchase().expect(422);
+    await post(admin, `${path}/recall`, { reason: 'Sửa vòng 2' }).expect(204);
+    await post(admin, `${path}/submit`).expect(204);
+    await post(salesHead, `${path}/approve`).expect(204);
+    await post(receiver, `${path}/reject`, { reason: 'Sai nguồn hàng' }).expect(204);
+    await post(admin, `${path}/submit`).expect(204);
+    await post(salesHead, `${path}/approve`).expect(204);
+    await post(salesHead, `${path}/approve`).expect(403);
+    await post(receiver, `${path}/approve`).expect(204);
+    await purchase().expect(201);
+    await post(admin, `${path}/recall`, { reason: 'X' }).expect(409);
+
+    await post(receiver, `${path}/notes`, { body: 'Đã tiếp nhận' }).expect(204);
+    const detail = (await get(admin, path).expect(200)).body;
+    expect(detail.approvalStatus).toBe('DONE');
+    expect(detail.notes).toMatchObject([{ body: 'Đã tiếp nhận' }]);
+    expect(detail.nodes.filter((node: { invalidatedAt: string | null }) => node.invalidatedAt)).toHaveLength(4);
+    expect(detail.history.at(-1)).toMatchObject({ action: 'RECEIVE', round: 4, previousStatus: 'WAITING_FOR_RECEIPT', nextStatus: 'DONE' });
+    for (const actor of [salesHead, receiver]) {
+      const notifications = (await get(actor, '/pr-notifications').expect(200)).body;
+      expect(notifications).toEqual(expect.arrayContaining([
+        expect.objectContaining({ prId: id, action: 'RECALL', round: 1 }),
+        expect.objectContaining({ prId: id, action: 'RECALL', round: 2 }),
+      ]));
+    }
+  });
+
+  it('PR18: admin configures the PM route, and only the assigned PM can submit', async () => {
+    const { sc } = await activeContract();
+    const pm = await login(app, 'pm', 'role-users-test');
+    const pmHead = await login(app, 'pm-head', 'role-users-test');
+    const receiver = await login(app, 'purchaser', 'role-users-test');
+    const pmId = (await get(pm, '/auth/me')).body.id;
+    const approverId = (await get(pmHead, '/auth/me')).body.id;
+    const receiverId = (await get(receiver, '/auth/me')).body.id;
+    const requestBody = { salesContractId: sc, category: 'MATERIAL', lines: [{ productId, quantity: 1 }] };
+    await post(pm, '/purchase-requisitions', requestBody).expect(403);
+    await post(receiver, '/purchase-requisitions', requestBody).expect(403);
+    const pmPath = `/pr-workflow/contracts/${sc}/responsible-pm`;
+    await http().put(pmPath).set(as(pm)).send({ userId: pmId }).expect(403);
+    await http().put(pmPath).set(as(admin)).send({ userId: pmId }).expect(204);
+    const { id } = (await post(pm, '/purchase-requisitions', requestBody).expect(201)).body;
+    const path = `/purchase-requisitions/${id}`;
+
+    await ds.query("DELETE FROM pr_workflow_routes WHERE route = 'PM'");
+    expect((await post(pm, `${path}/submit`).expect(422)).body.code).toBe('PR_WORKFLOW_NOT_CONFIGURED');
+    await http().put('/pr-workflow/routes/PM').set(as(admin)).send({ approverId, receiverId, receiptRole: 'PURCHASING' }).expect(204);
+    await post(pm, `${path}/submit`).expect(204);
+    await post(receiver, `${path}/approve`).expect(403);
+    await post(pmHead, `${path}/approve`).expect(204);
+    await post(receiver, `${path}/approve`).expect(204);
+    expect((await get(pm, path).expect(200)).body.approvalStatus).toBe('DONE');
   });
 
   it('Approved PR/PO/GRR: recall or cancel only without non-canceled child documents (03 §6)', async () => {
@@ -98,7 +176,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     expect(avail).toBeDefined();
 
     const po = (await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: prLine, quantity: 5 }] }).expect(201)).body.id;
-    expect((await post(admin, `/purchase-requisitions/${pr}/recall`, { reason: 'Đổi nhà cung cấp' }).expect(409)).body.code).toBe('HAS_ACTIVE_CHILD_DOCUMENTS');
+    expect((await post(admin, `/purchase-requisitions/${pr}/cancel`, { reason: 'Đổi nhà cung cấp' }).expect(409)).body.code).toBe('HAS_ACTIVE_CHILD_DOCUMENTS');
     await approved('purchase-orders', po);
     expect((await get(admin, '/purchase-requisition-lines/available-for-po')).body.some((l: { id: number }) => l.id === prLine)).toBe(false);
 
@@ -119,8 +197,8 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(admin, `/purchase-orders/${po}/recall`, { reason: 'Sửa giá' }).expect(204);
     expect((await get(admin, `/purchase-orders/${po}`)).body.approvalStatus).toBe('DRAFT');
     await post(admin, `/purchase-orders/${po}/cancel`).expect(204);
-    await post(admin, `/purchase-requisitions/${pr}/recall`, { reason: 'Đổi nhà cung cấp' }).expect(204);
-    expect((await get(admin, `/purchase-requisitions/${pr}`)).body.history.map((h: { action: string }) => h.action)).toEqual(['SUBMIT', 'APPROVE', 'RECALL']);
+    await post(admin, `/purchase-requisitions/${pr}/cancel`, { reason: 'Đổi nhà cung cấp' }).expect(204);
+    expect((await get(admin, `/purchase-requisitions/${pr}`)).body.history.map((h: { action: string }) => h.action)).toEqual(['SUBMIT', 'APPROVE', 'RECEIVE', 'CANCEL']);
   });
 
   it('GRR list is warehouse-scoped; GRR approve/reject only by the assigned approver', async () => {

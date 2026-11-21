@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -8,6 +8,27 @@ import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../co
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { ProcurementService } from './procurement.service';
 
+class WorkflowRouteDto {
+  @ApiProperty() @IsInt() @IsPositive() approverId!: number;
+  @ApiProperty() @IsInt() @IsPositive() receiverId!: number;
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(50) receiptRole!: string;
+}
+class AssignPmDto {
+  @ApiProperty() @IsInt() @IsPositive() userId!: number;
+}
+class PrNoteDto {
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(4000) body!: string;
+}
+class PrDecisionDto {
+  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() version?: number;
+}
+class PrRejectDto extends ReasonDto {
+  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() version?: number;
+}
+class PrCancelDto extends OptionalReasonDto {
+  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() version?: number;
+}
+
 class PrLineDto {
   @ApiPropertyOptional({ description: "Existing line id when editing; omit for a new line" }) @IsOptional() @IsInt() id?: number;
   @ApiPropertyOptional({ nullable: true, description: 'Required for sales-goods PRs; optional for material PRs' }) @IsOptional() @IsInt() salesContractLineId?: number | null;
@@ -15,6 +36,7 @@ class PrLineDto {
   @ApiProperty() @IsPositive() quantity!: number;
 }
 class CreatePrDto {
+  @ApiPropertyOptional({ enum: ['SALES', 'PM'] }) @IsOptional() @IsIn(['SALES', 'PM']) route?: 'SALES' | 'PM';
   @ApiProperty() @IsInt() salesContractId!: number;
   @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], default: 'SALES_GOODS' }) @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
   @ApiPropertyOptional({ description: 'Purpose of use (materials; reference)' }) @IsOptional() @IsString() purpose?: string;
@@ -77,7 +99,7 @@ export class ProcurementController {
   @Post('purchase-requisitions')
   @RequirePermissions('PR.CREATE')
   createPr(@Req() req: AuthedRequest, @Body() dto: CreatePrDto) {
-    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose);
+    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose, dto.route);
   }
 
   @Patch('purchase-requisitions/:id')
@@ -112,10 +134,47 @@ export class ProcurementController {
     return this.ds.query(`SELECT id, purchase_requisition_line_id AS "purchaseRequisitionLineId", quantity FROM purchase_order_lines WHERE purchase_order_id = $1 ORDER BY id`, [id]);
   }
 
-  @Get('purchase-requisitions/:id/approvers')
-  @RequirePermissions('PR.CREATE')
-  prApprovers(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.approvers('PR', id);
+  @Put('pr-workflow/routes/:route')
+  @HttpCode(204)
+  @RequirePermissions('PR.CONFIGURE')
+  configureRoute(@Param('route') route: string, @Body() dto: WorkflowRouteDto) {
+    return this.svc.configurePrRoute(route, dto);
+  }
+
+  @Get('pr-workflow/routes')
+  @RequirePermissions('PR.CONFIGURE')
+  listRoutes() {
+    return this.svc.listPrRoutes();
+  }
+
+  @Get('pr-workflow/candidates')
+  @RequirePermissions('PR.CONFIGURE')
+  listCandidates() {
+    return this.svc.listPrAssignmentCandidates();
+  }
+
+  @Put('pr-workflow/contracts/:id/responsible-pm')
+  @HttpCode(204)
+  @RequirePermissions('PR.CONFIGURE')
+  assignPm(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignPmDto) {
+    return this.svc.assignResponsiblePm(id, dto.userId);
+  }
+
+  @Post('purchase-requisitions/:id/notes')
+  @HttpCode(204)
+  addNote(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrNoteDto) {
+    return this.svc.addPrNote(req.user, id, dto.body);
+  }
+
+  @Get('pr-notifications')
+  listNotifications(@Req() req: AuthedRequest) {
+    return this.svc.listPrNotifications(req.user.id);
+  }
+
+  @Patch('pr-notifications/:id/read')
+  @HttpCode(204)
+  readNotification(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.readPrNotification(req.user.id, id);
   }
 
   @Get('purchase-orders/:id/approvers')
@@ -127,15 +186,14 @@ export class ProcurementController {
   @Post('purchase-requisitions/:id/submit')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
-  submitPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: SubmitDto) {
-    return this.svc.submit('PR', id, req.user, dto.approverId);
+  submitPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.submit('PR', id, req.user);
   }
 
   @Post('purchase-requisitions/:id/approve')
   @HttpCode(204)
-  @RequirePermissions('PR.APPROVE')
-  approvePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.svc.approve('PR', id, req.user);
+  approvePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrDecisionDto) {
+    return this.svc.approve('PR', id, req.user, dto?.version);
   }
 
   @Post('purchase-orders/:id/submit')
@@ -154,23 +212,22 @@ export class ProcurementController {
 
   @Post('purchase-requisitions/:id/reject')
   @HttpCode(204)
-  @RequirePermissions('PR.APPROVE')
-  rejectPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: ReasonDto) {
-    return this.svc.decide('PR', 'reject', id, req.user, dto.reason);
+  rejectPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrRejectDto) {
+    return this.svc.decide('PR', 'reject', id, req.user, dto.reason, dto.version);
   }
 
   @Post('purchase-requisitions/:id/recall')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
-  recallPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: ReasonDto) {
-    return this.svc.decide('PR', 'recall', id, req.user, dto.reason);
+  recallPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrRejectDto) {
+    return this.svc.decide('PR', 'recall', id, req.user, dto.reason, dto.version);
   }
 
   @Post('purchase-requisitions/:id/cancel')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
-  cancelPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: OptionalReasonDto) {
-    return this.svc.decide('PR', 'cancel', id, req.user, dto.reason);
+  cancelPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrCancelDto) {
+    return this.svc.decide('PR', 'cancel', id, req.user, dto.reason, dto.version);
   }
 
   @Post('purchase-orders/:id/reject')

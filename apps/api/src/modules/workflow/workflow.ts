@@ -210,7 +210,7 @@ export const DOC_COLUMNS = `d.id, d.document_number AS "documentNumber", d.appro
 
 export function history(m: EntityManager, type: DocType, id: number) {
   return m.query(
-    `SELECT h.action, h.reason, h.created_at AS "createdAt", u.full_name AS "actorName"
+    `SELECT h.action, h.reason, h.approval_round AS round, h.previous_status AS "previousStatus", h.next_status AS "nextStatus", h.created_at AS "createdAt", u.full_name AS "actorName"
        FROM approval_histories h JOIN users u ON u.id = h.actor_id
       WHERE h.document_type = $1 AND h.document_id = $2 ORDER BY h.id`,
     [type, id],

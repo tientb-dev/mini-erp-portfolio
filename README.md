@@ -53,3 +53,18 @@ docs/                business requirements (01–05, MVP baseline)
 docs/architecture/   architecture, ADRs, open questions
 docker-compose.yml   PostgreSQL
 ```
+
+### Workflow Đề nghị mua hàng (PR #18)
+
+Xem [ADR-0015](docs/architecture/decisions/ADR-0015-purchase-requisition-workflow.md) để cấu hình luồng Sales, luồng PM và PM phụ trách từng hợp đồng. Đặt cấu hình luồng Sales trước khi chạy demo seed.
+
+Với database **development/test Compose cục bộ đã xác nhận** còn chứng từ từ phiên bản trước, dừng API đang ghi vào database rồi chạy script dưới đây **trước** migration PR #18. Ví dụ dùng tên database và user mặc định của Compose. Lệnh nối qua Unix socket bên trong container của dự án.
+
+```powershell
+Get-Content -Raw apps/api/src/database/scripts/reset-procurement-dev.sql |
+  docker compose exec -T postgres psql -U mini_erp -d mini_erp -v verified_local_dev=1
+pnpm migrate
+pnpm seed
+```
+
+Script xóa chứng từ PR, PO, GRR, GR, GIR, GI và dữ liệu tồn kho liên quan theo danh sách bảng tường minh. Hợp đồng bán, danh mục, người dùng, phân quyền, cấu hình và bộ đếm chứng từ được giữ lại. Với database mới, chạy trực tiếp migration và seed.

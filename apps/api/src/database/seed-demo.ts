@@ -41,18 +41,26 @@ async function main() {
     const customer = (await one(`SELECT id FROM customers WHERE code = 'KH-DEMO'`, [])).id;
     const supplier = (await one(`SELECT id FROM suppliers WHERE code = 'NCC-DEMO'`, [])).id;
 
-    const sc = await sales.create(creator, customer, creator.id, [
+    const assignment = (await proc.listPrRoutes()).find((route: { route: string }) => route.route === 'SALES');
+    if (!assignment) throw new Error('Configure the SALES PR workflow route before running the demo seed');
+    const salesUser = await identity.loadCurrentUser(await userId('sales'));
+    if (!salesUser) throw new Error('Seed the active demo Sales user first');
+    const prApprover = await identity.loadCurrentUser(assignment.approverId);
+    const prReceiver = await identity.loadCurrentUser(assignment.receiverId);
+    if (!prApprover || !prReceiver) throw new Error('The configured PR workflow users must be active');
+    const sc = await sales.create(creator, customer, salesUser.id, [
       { itemCode: 'RT-AX3000', itemName: 'Router Wi-Fi AX3000', unitOfMeasureId: pcs, quantity: 3 },
       { itemCode: 'CB-CAT6', itemName: 'Cáp mạng Cat6', unitOfMeasureId: pcs, quantity: 2 },
     ]);
     await sales.activate(sc.id);
     const scLines = await ds.query(`SELECT id FROM sales_contract_lines WHERE sales_contract_id = $1 ORDER BY id`, [sc.id]);
-    const pr = await proc.createPurchaseRequisition(creator, sc.id, [
+    const pr = await proc.createPurchaseRequisition(salesUser, sc.id, [
       { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
       { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
     ]);
-    await proc.submit('PR', pr.id, creator, approver.id);
-    await proc.approve('PR', pr.id, approver);
+    await proc.submit('PR', pr.id, salesUser);
+    await proc.approve('PR', pr.id, prApprover);
+    await proc.approve('PR', pr.id, prReceiver);
     const prLines = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [pr.id]);
     const po = await proc.createPurchaseOrder(creator, supplier, prLines.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));
     await proc.submit('PO', po.id, creator, approver.id);
@@ -68,12 +76,13 @@ async function main() {
     }
 
     // A second chain (PR → PO → GRR → GR APPROVED) puts stock + SNs in HCM for GIR → GI; the first GRR stays open for the GR UI.
-    const stockPr = await proc.createPurchaseRequisition(creator, sc.id, [
+    const stockPr = await proc.createPurchaseRequisition(salesUser, sc.id, [
       { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
       { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
     ]);
-    await proc.submit("PR", stockPr.id, creator, approver.id);
-    await proc.approve("PR", stockPr.id, approver);
+    await proc.submit('PR', stockPr.id, salesUser);
+    await proc.approve('PR', stockPr.id, prApprover);
+    await proc.approve('PR', stockPr.id, prReceiver);
     const spl = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [stockPr.id]);
     const stockPo = await proc.createPurchaseOrder(creator, supplier, spl.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));
     await proc.submit("PO", stockPo.id, creator, approver.id);

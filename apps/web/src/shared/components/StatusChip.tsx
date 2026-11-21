@@ -11,7 +11,9 @@ export function StatusChip({ label, tone }: { label: string; tone: StatusTone })
 export const approvalTone: Record<string, StatusTone> = {
   DRAFT: 'neutral',
   WAITING_FOR_APPROVE: 'pending',
+  WAITING_FOR_RECEIPT: 'pending',
   APPROVED: 'success',
+  DONE: 'success',
   REJECTED: 'danger',
   CANCELED: 'muted',
 };

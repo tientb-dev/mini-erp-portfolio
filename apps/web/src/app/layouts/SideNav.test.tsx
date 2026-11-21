@@ -17,7 +17,7 @@ describe('SideNav', () => {
     expect(group('Mua hàng').getAttribute('aria-expanded')).toBe('true');
     expect(screen.queryByRole('button', { name: 'Kho vận' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Hợp đồng bán' }).getAttribute('href')).toBe('/sales-contracts');
-    expect(screen.queryByRole('link', { name: 'Đơn đặt mua (PO)' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Đơn đặt hàng (PO)' })).toBeNull();
   });
 
   it('collapses each parent independently and remembers it across reloads', () => {
@@ -25,7 +25,7 @@ describe('SideNav', () => {
     const { unmount } = show(null, ['salesContracts', 'purchaseRequisitions']);
     fireEvent.click(group('Mua hàng'));
     expect(group('Mua hàng').getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByRole('link', { name: 'Đề nghị mua (PR)' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Đề nghị mua hàng (PR)' })).toBeNull();
     expect(group('Bán hàng').getAttribute('aria-expanded')).toBe('true');
     unmount();
     show(null, ['salesContracts', 'purchaseRequisitions']);
@@ -36,6 +36,6 @@ describe('SideNav', () => {
     localStorage.setItem('mini-erp.nav.collapsed', JSON.stringify(['nav.purchasing']));
     show('purchaseRequisitions', ['salesContracts', 'purchaseRequisitions']);
     expect(group('Mua hàng').getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('link', { name: 'Đề nghị mua (PR)' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Đề nghị mua hàng (PR)' }).getAttribute('aria-current')).toBe('page');
   });
 });

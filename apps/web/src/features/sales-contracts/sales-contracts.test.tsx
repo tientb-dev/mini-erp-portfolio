@@ -103,7 +103,7 @@ describe('Sales contract detail', () => {
     expect(within(crumbs).getByText('SC-2026-000004').getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: 'Quay lại danh sách' }).getAttribute('href')).toMatch(/^\/sales-contracts/);
     expect(screen.getByRole('tab', { name: 'Hàng hóa (1)', selected: true })).toBeTruthy();
-    expect(screen.queryByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeNull(); // no PR.VIEW
+    expect(screen.queryByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeNull(); // no PR.VIEW
   });
 
   it('adds a line from the UoM catalog; the version is sent', async () => {
@@ -179,7 +179,7 @@ describe('Sales contract detail', () => {
       '/purchase-requisitions?salesContractId=4': [{ id: 7, documentNumber: 'PR-2026-000007', approvalStatus: 'APPROVED', category: 'SALES_GOODS', createdAt: '2026-11-14T00:00:00Z', createdByName: 'PM' }],
     });
     renderAt('/sales-contracts/4');
-    fireEvent.click(await screen.findByRole('tab', { name: 'Đề nghị mua (PR)' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Đề nghị mua hàng (PR)' }));
     expect((await screen.findByRole('link', { name: 'PR-2026-000007' })).getAttribute('href')).toBe('/purchase-requisitions/7');
     expect(fetched()).toContain('/purchase-requisitions?salesContractId=4');
   });
@@ -259,12 +259,12 @@ describe('Sales contract design rules (PR #17)', () => {
   it('the responsible sales sees the PR tab without PR.VIEW; another sales does not', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 1 }), '/purchase-requisitions?salesContractId=4': [] });
     const { unmount } = renderAt('/sales-contracts/4');
-    expect(await screen.findByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeTruthy(); // me() has id 1
+    expect(await screen.findByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeTruthy(); // me() has id 1
     unmount();
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 2 }) });
     renderAt('/sales-contracts/4');
     await screen.findByRole('tab', { name: 'Hàng hóa (1)' });
-    expect(screen.queryByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeNull();
   });
 });
 

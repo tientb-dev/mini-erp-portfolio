@@ -12,6 +12,9 @@ export function HistoryList({ history }: { history: HistoryEntry[] }) {
       {history.map((h, i) => (
         <Field key={i} label={fmtDate(h.createdAt)}>
           {t(`doc.history.${h.action}`)}: {h.actorName}{h.reason ? `. ${h.reason}` : ''}
+          {h.previousStatus && h.nextStatus && <Typography variant="caption" sx={{ display: 'block' }}>
+            {t('pr.round', { round: h.round })} · {t(`status.${h.previousStatus}`)} → {t(`status.${h.nextStatus}`)}
+          </Typography>}
         </Field>
       ))}
     </>

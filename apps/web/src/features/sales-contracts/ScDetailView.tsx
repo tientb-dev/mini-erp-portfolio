@@ -29,7 +29,7 @@ function InfoItem({ label, value, detail, muted }: { label: string; value: strin
 type Dialog = LineAction | { kind: 'activate' | 'cancel' | 'header' };
 
 /**
- * HĐ detail: header always visible, tabs Hàng hóa (default) and Đề nghị mua. Every save (header, one line, status)
+ * HĐ detail: header always visible, tabs Hàng hóa (default) and Đề nghị mua hàng. Every save (header, one line, status)
  * is its own API call; there is no "save all". No History tab: the backend keeps no audit trail for HĐ yet.
  */
 export function ScDetailView({ id }: { id: number }) {

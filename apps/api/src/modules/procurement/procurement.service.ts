@@ -3,6 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
+import * as prWorkflow from './pr-workflow';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -50,7 +51,7 @@ export class ProcurementFacade {
     const rows: PrLineForIssue[] = await m.query(
       `SELECT l.id, l.purchase_requisition_id AS "purchaseRequisitionId", pr.document_number AS "prNumber", pr.sales_contract_id AS "salesContractId",
               pr.category, l.sales_contract_line_id AS "salesContractLineId", l.product_id AS "productId", l.quantity::float AS quantity,
-              pr.approval_status = 'APPROVED' AND NOT EXISTS (
+              pr.approval_status = 'DONE' AND NOT EXISTS (
                 SELECT 1 FROM purchase_requisition_lines x
                  WHERE x.purchase_requisition_id = pr.id
                    AND x.quantity <> COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
@@ -104,7 +105,7 @@ export class ProcurementFacade {
          JOIN purchase_requisition_lines l ON l.purchase_requisition_id = pr.id
          JOIN products p ON p.id = l.product_id
          JOIN units_of_measure u ON u.id = l.unit_of_measure_id
-        WHERE pr.sales_contract_id = $1 AND pr.approval_status = 'APPROVED'
+        WHERE pr.sales_contract_id = $1 AND pr.approval_status = 'DONE'
           AND NOT EXISTS (SELECT 1 FROM purchase_requisition_lines x WHERE x.purchase_requisition_id = pr.id
                             AND x.quantity <> COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
                                                          WHERE pol.purchase_requisition_line_id = x.id AND po.approval_status = 'APPROVED'), 0))
@@ -138,21 +139,22 @@ export class ProcurementFacade {
 
 /**
  * Upstream of GR (PR → PO). Minimal by design for the GR slice: main products only (no temporary
- * products/mapping yet), one-level approval, quantity limits re-checked at submit and approve.
+ * products/mapping yet), quantity limits re-checked at submit and approve.
  */
 @Injectable()
 export class ProcurementService {
   constructor(private readonly ds: DataSource) {}
 
   /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
-  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string) {
+  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute) {
     return this.ds.transaction(async (m) => {
+      const creatorRoute = await prWorkflow.creatorRoute(m, user, salesContractId, route);
       assertPrLines(category, lines);
       await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
       const number = await wf.nextDocumentNumber(m, 'PR');
       const [pr] = await m.query(
-        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [number, salesContractId, category, purpose?.trim() || null, user.id],
+        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by, creator_route) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute],
       );
       for (const l of lines) await this.writePrLine(m, pr.id, l);
       return { id: pr.id as number, documentNumber: number };
@@ -189,21 +191,25 @@ export class ProcurementService {
   /** Edit a DRAFT/REJECTED PR by its creator: lines (HĐ line, product → UoM, quantity); the HĐ stays the same. */
   updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[]) {
     return this.ds.transaction(async (m) => {
-      const [head] = await m.query(`SELECT sales_contract_id, category FROM purchase_requisitions WHERE id = $1`, [id]);
+      const [head] = await m.query(`SELECT created_by, sales_contract_id, category, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
       if (!head) throw new NotFoundException();
+      wf.assertCreator(head, user);
+      await prWorkflow.creatorRoute(m, user, head.sales_contract_id, head.creator_route);
       // The request is the full line set (omitted lines are deleted), so checking it covers the saved result. Category is fixed.
       assertPrLines(head.category, lines);
       // Lock order: HĐ lines → document (ARCHITECTURE §2.1a); the HĐ must still be ACTIVE.
       await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, scLineIds(lines));
-      const doc = await wf.lockDocument(m, 'PR', id);
+      const doc = await prWorkflow.lock(m, id);
       wf.assertEditable(doc, user, version);
       await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
       for (const l of lines) await this.writePrLine(m, id, l);
-      await wf.markEdited(m, 'PR', id, user.id);
+      await wf.setStatus(m, 'PR', doc, doc.approval_status);
+      await m.query(`INSERT INTO approval_histories (document_type, document_id, action, actor_id, previous_status, next_status, approval_round)
+        VALUES ('PR', $1, 'EDIT', $2, $3, $3, $4)`, [id, user.id, doc.approval_status, doc.approval_round]);
     });
   }
 
-  /** PO from lines of APPROVED PRs, one supplier; each PO line inherits the PR line UoM (T7). */
+  /** PO from lines of DONE PRs, one supplier; each PO line inherits the PR line UoM (T7). */
   createPurchaseOrder(user: CurrentUser, supplierId: number, lines: SourceLineInput[]) {
     wf.assertUniqueSourceLines(lines.map((l) => l.sourceLineId));
     return this.ds.transaction(async (m) => {
@@ -217,7 +223,7 @@ export class ProcurementService {
     });
   }
 
-  /** New line: the PR line must be on an APPROVED PR; UoM inherited. Existing line: only the quantity changes. */
+  /** New line: the PR line must be on a DONE PR; UoM inherited. Existing line: only the quantity changes. */
   private async writePoLine(m: EntityManager, poId: number, l: SourceLineInput) {
     if (l.id) {
       wf.assertLineUpdated(await m.query(
@@ -229,10 +235,10 @@ export class ProcurementService {
     const [prl] = await m.query(
       `SELECT prl.unit_of_measure_id FROM purchase_requisition_lines prl
          JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id
-        WHERE prl.id = $1 AND pr.approval_status = 'APPROVED' FOR SHARE OF pr`,
+        WHERE prl.id = $1 AND pr.approval_status = 'DONE' FOR SHARE OF pr`,
       [l.sourceLineId],
     );
-    if (!prl) throw new BusinessError('SOURCE_NOT_APPROVED', `PR line ${l.sourceLineId} is not on an APPROVED PR`);
+    if (!prl) throw new BusinessError('PR_SOURCE_NOT_DONE', `PR line ${l.sourceLineId} is not on a DONE PR`);
     await m.query(`INSERT INTO purchase_order_lines (purchase_order_id, purchase_requisition_line_id, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4)`, [
       poId, l.sourceLineId, prl.unit_of_measure_id, l.quantity,
     ]);
@@ -280,7 +286,7 @@ export class ProcurementService {
     });
   }
 
-  /** PO source re-check (03 §7): every referenced PR must still be APPROVED (PR headers locked for share). */
+  /** PO source re-check (03 §7): every referenced PR must still be DONE (PR headers locked for share). */
   private async checkPoSources(m: EntityManager, poId: number) {
     const prs: { document_number: string; approval_status: string }[] = await m.query(
       `SELECT document_number, approval_status FROM purchase_requisitions
@@ -289,20 +295,22 @@ export class ProcurementService {
         ORDER BY id FOR SHARE`,
       [poId],
     );
-    const bad = prs.find((p) => p.approval_status !== 'APPROVED');
-    if (bad) throw new BusinessError('SOURCE_NOT_APPROVED', `PR ${bad.document_number} is no longer APPROVED`);
+    const bad = prs.find((p) => p.approval_status !== 'DONE');
+    if (bad) throw new BusinessError('PR_SOURCE_NOT_DONE', `PR ${bad.document_number} is no longer DONE`);
   }
 
-  submit(type: 'PR' | 'PO', id: number, user: CurrentUser, approverId: number) {
+  submit(type: 'PR' | 'PO', id: number, user: CurrentUser, approverId?: number) {
     return this.ds.transaction(async (m) => {
+      if (type === 'PR') return prWorkflow.submit(m, id, user);
       const doc = await wf.lockDocument(m, type, id);
       if (type === 'PO') { await this.checkPoSources(m, id); await this.checkPoLimits(m, id, true); }
-      await wf.submit(m, type, doc, user, approverId);
+      await wf.submit(m, type, doc, user, approverId!);
     });
   }
 
-  approve(type: 'PR' | 'PO', id: number, user: CurrentUser) {
+  approve(type: 'PR' | 'PO', id: number, user: CurrentUser, version?: number) {
     return this.ds.transaction(async (m) => {
+      if (type === 'PR') return prWorkflow.decide(m, await prWorkflow.lock(m, id), user, 'approve', undefined, async () => false, version);
       const doc = await wf.lockDocument(m, type, id);
       if (type === 'PO') { await this.checkPoSources(m, id); await this.checkPoLimits(m, id, false); }
       await wf.approve(m, type, doc, user);
@@ -310,7 +318,7 @@ export class ProcurementService {
   }
 
   /** Reject / recall / cancel; an APPROVED PR (PO) needs no non-canceled PO (GRR) referencing it (03 §6). */
-  decide(type: 'PR' | 'PO', action: 'reject' | 'recall' | 'cancel', id: number, user: CurrentUser, reason?: string) {
+  decide(type: 'PR' | 'PO', action: 'reject' | 'recall' | 'cancel', id: number, user: CurrentUser, reason?: string, version?: number) {
     return this.ds.transaction(async (m) => {
       const doc = await wf.lockDocument(m, type, id);
       const childSql = type === 'PR'
@@ -319,7 +327,9 @@ export class ProcurementService {
             WHERE prl.purchase_requisition_id = $1 AND po.approval_status <> 'CANCELED' LIMIT 1`
         // shortcut: reads the Inbound table directly until PO lines carry the ADR-0003 aggregate maintained by Inbound.
         : `SELECT 1 FROM goods_receipt_requests WHERE purchase_order_id = $1 AND approval_status <> 'CANCELED' LIMIT 1`;
-      await wf.decide(m, type, doc, user, action, reason, async () => (await m.query(childSql, [id])).length > 0);
+      const hasChildren = async () => (await m.query(childSql, [id])).length > 0;
+      if (type === 'PR') return prWorkflow.decide(m, doc as Awaited<ReturnType<typeof prWorkflow.lock>>, user, action, reason, hasChildren, version);
+      await wf.decide(m, type, doc, user, action, reason, hasChildren);
     });
   }
 
@@ -337,25 +347,36 @@ export class ProcurementService {
 
   /** `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR/PO are not warehouse-scoped: the VIEW permission sees all. */
   async listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number) {
-    await this.assertPrReadScope(user, salesContractId);
+    const fullView = user.permissions.includes('PR.VIEW');
+    const scopedList = user.permissions.some(permission => ['PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE'].includes(permission));
+    if (!fullView && !scopedList) await this.assertPrReadScope(user, salesContractId);
+    if (!fullView && salesContractId !== undefined) {
+      const contract = await SalesContractFacade.sourceContract(this.ds.manager, salesContractId);
+      if (contract?.responsiblePmUserId !== user.id) await this.assertPrReadScope(user, salesContractId);
+    }
     return this.ds.query(
       `SELECT ${wf.DOC_COLUMNS}, d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
-        WHERE (NOT $2 OR (d.approval_status = 'WAITING_FOR_APPROVE' AND d.assigned_approver_id = $1))
+        WHERE (NOT $2 OR (d.approval_status IN ('WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT') AND d.assigned_approver_id = $1))
           AND ($3::int IS NULL OR d.sales_contract_id = $3)
+          AND ($4 OR s.responsible_sales_user_id = $1 OR s.responsible_pm_user_id = $1 OR d.created_by = $1
+            OR EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $1))
         ORDER BY d.id DESC`,
-      [user.id, assignedToMe, salesContractId ?? null],
+      [user.id, assignedToMe, salesContractId ?? null, fullView],
     );
   }
 
   async getPr(user: CurrentUser, id: number) {
     const [pr] = await this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", d.category, d.purpose, s.document_number AS "salesContractNumber", c.name AS "customerName"
+      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId", d.category, d.purpose, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
         WHERE d.id = $1`,
       [id],
     );
-    const scope = await this.assertPrReadScope(user, pr?.salesContractId);
+    const participant = pr && (pr.createdBy === user.id || (user.permissions.includes('PR.CREATE') && pr.responsiblePmUserId === user.id) || (await this.ds.query(
+      'SELECT 1 FROM pr_workflow_nodes WHERE pr_id = $1 AND assignee_id = $2 LIMIT 1', [id, user.id],
+    )).length > 0);
+    const scope = participant && !user.permissions.includes('PR.VIEW') ? 'contract' : await this.assertPrReadScope(user, pr?.salesContractId);
     if (!pr) throw new NotFoundException();
     const lines = await this.ds.query(
       `SELECT l.id, l.sales_contract_line_id AS "sourceLineId", l.product_id AS "productId", sl.item_name AS "ref", l.snapshot_code AS "partNumber", l.snapshot_name AS "productName", u.code AS uom, l.quantity,
@@ -375,10 +396,59 @@ export class ProcurementService {
       [id],
     );
     // The contract-scoped reader gets no PO numbers: PO.VIEW is not widened (PR #17).
-    return { ...pr, lines, children: scope === 'all' ? children : [], history: await wf.history(this.ds.manager, 'PR', id) };
+    return { ...pr, lines, children: scope === 'all' ? children : [], history: await wf.history(this.ds.manager, 'PR', id),
+      nodes: await this.ds.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",
+        a.full_name AS "assigneeName", u.full_name AS "actorName", n.acted_at AS "actedAt", n.invalidated_at AS "invalidatedAt"
+        FROM pr_workflow_nodes n JOIN users a ON a.id = n.assignee_id LEFT JOIN users u ON u.id = n.actor_id
+        WHERE n.pr_id = $1 ORDER BY n.round DESC, n.step`, [id]),
+      notes: await this.ds.query(`SELECT n.id, n.body, n.created_at AS "createdAt", u.full_name AS "authorName"
+        FROM pr_notes n JOIN users u ON u.id = n.author_id WHERE n.pr_id = $1 ORDER BY n.id`, [id]) };
   }
 
-  /** Lines of APPROVED PRs with quantity not yet covered by WAITING/APPROVED POs, for the PO form. */
+  configurePrRoute(route: string, dto: { approverId: number; receiverId: number; receiptRole: string }) {
+    if (route !== 'SALES' && route !== 'PM') throw new BusinessError('PR_ROUTE_INVALID', 'Use SALES or PM');
+    return this.ds.transaction(m => prWorkflow.configure(m, route, {
+      approver_id: dto.approverId, receiver_id: dto.receiverId, receipt_role: dto.receiptRole,
+    }));
+  }
+
+  listPrRoutes() {
+    return this.ds.query(`SELECT route, approver_id AS "approverId", receiver_id AS "receiverId", receipt_role AS "receiptRole"
+      FROM pr_workflow_routes ORDER BY route`);
+  }
+
+  listPrAssignmentCandidates() {
+    return this.ds.query(`SELECT DISTINCT u.id, u.full_name AS "fullName", u.username, r.code AS role, p.code AS permission
+      FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
+      JOIN role_permissions rp ON rp.role_id = r.id JOIN permissions p ON p.id = rp.permission_id
+      WHERE u.is_active AND (r.code = 'PM' AND p.code = 'PR.CREATE'
+        OR r.code IN ('SALES_HEAD', 'PM_HEAD') AND p.code = 'PR.APPROVE'
+        OR r.code <> 'ADMIN' AND p.code = 'PR.RECEIVE')
+      ORDER BY u.username, r.code, p.code`);
+  }
+
+  assignResponsiblePm(id: number, userId: number) {
+    return this.ds.transaction(m => SalesContractFacade.assignResponsiblePm(m, id, userId));
+  }
+
+  async addPrNote(user: CurrentUser, id: number, body: string) {
+    if (!body.trim()) throw new BusinessError('PR_NOTE_REQUIRED', 'Enter a note');
+    await this.getPr(user, id);
+    await this.ds.query('INSERT INTO pr_notes (pr_id, author_id, body) VALUES ($1, $2, $3)', [id, user.id, body.trim()]);
+  }
+
+  listPrNotifications(recipientId: number) {
+    return this.ds.query(`SELECT n.id, n.pr_id AS "prId", pr.document_number AS "documentNumber",
+      n.action, n.round, n.reason, n.created_at AS "createdAt", n.read_at AS "readAt"
+      FROM pr_notifications n JOIN purchase_requisitions pr ON pr.id = n.pr_id
+      WHERE n.recipient_id = $1 ORDER BY n.id DESC`, [recipientId]);
+  }
+
+  async readPrNotification(recipientId: number, id: number) {
+    await this.ds.query('UPDATE pr_notifications SET read_at = COALESCE(read_at, now()) WHERE id = $1 AND recipient_id = $2', [id, recipientId]);
+  }
+
+  /** Lines of DONE PRs with quantity not yet covered by WAITING/APPROVED POs, for the PO form. */
   prLinesAvailableForPo() {
     return this.ds.query(
       `SELECT * FROM (
@@ -390,7 +460,7 @@ export class ProcurementService {
            JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id
            JOIN sales_contracts s ON s.id = pr.sales_contract_id
            JOIN units_of_measure u ON u.id = l.unit_of_measure_id
-          WHERE pr.approval_status = 'APPROVED') x
+          WHERE pr.approval_status = 'DONE') x
         WHERE remaining > 0 ORDER BY id`,
     );
   }

@@ -4,7 +4,7 @@
 ## 1. Nguyên tắc
 - Ưu tiên workflow thông suốt; không phân quyền chi nhánh/phòng ban phức tạp.
 - **User → Role → Permission** kết hợp danh sách kho được phép (`user_warehouses`). Không có role khác nhau theo từng kho.
-- **Một cấp phê duyệt** là mặc định. **Ngoại lệ duy nhất:** GIR `AVAILABLE_STOCK` có hai bước duyệt tuần tự (người phụ trách nguồn hàng → Quản lý kho). Các chứng từ khác không chuyển sang hai cấp.
+- **Một cấp phê duyệt** là mặc định. **Ngoại lệ:** PR có bước phê duyệt và tiếp nhận (ADR-0015). GIR `AVAILABLE_STOCK` có hai bước duyệt tuần tự (người phụ trách nguồn hàng → Quản lý kho). PR dùng phân công theo luồng Sales/PM và theo vòng.
 - Người tạo không được tự duyệt.
 - Quyền duyệt theo loại chứng từ (permission); chứng từ kho còn giới hạn theo `user_warehouses`.
 - Người duyệt được phê duyệt/từ chối, không được sửa dữ liệu chứng từ.
@@ -47,7 +47,7 @@ Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệ
 ## 6. Thông báo trong ứng dụng
 - Gửi duyệt → người được giao duyệt của bước hiện tại (GIR `AVAILABLE_STOCK`: người phụ trách nguồn hàng, sau đó Quản lý kho).
 - Duyệt/Từ chối → người tạo (GIR: PM tạo GIR).
-- Thu hồi khi Chờ duyệt → không gửi thông báo mới.
+- Thu hồi khi Chờ duyệt → không gửi thông báo mới, ngoại trừ PR. Thu hồi PR ở cả hai trạng thái chờ thông báo người phê duyệt và người tiếp nhận của vòng đó (ADR-0015).
 - Thu hồi/Hủy chứng từ Đã duyệt → thông báo người duyệt trước đó kèm lý do.
 - Hủy Nháp/Bị từ chối → không thông báo.
 - Thông báo cũ không xóa khi chứng từ đổi trạng thái.

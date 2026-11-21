@@ -9,7 +9,7 @@ export const PERMISSIONS = [
   'INVENTORY.VIEW',
   'CUSTOMER.VIEW', 'CUSTOMER.CREATE', 'SUPPLIER.VIEW', 'SUPPLIER.CREATE',
   'SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CREATE', 'SALES_CONTRACT.PROPOSE_PRODUCT', 'SALES_CONTRACT.CONFIRM_PRODUCT',
-  'PR.VIEW', 'PR.CREATE', 'PR.APPROVE',
+  'PR.VIEW', 'PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE', 'PR.CONFIGURE',
   'PO.VIEW', 'PO.CREATE', 'PO.APPROVE',
   'GRR.VIEW', 'GRR.CREATE', 'GRR.APPROVE',
   'GR.VIEW', 'GR.CREATE', 'GR.DECLARE_DETAILS', 'GR.APPROVE',
@@ -25,15 +25,23 @@ const COMMON = ['PRODUCT.VIEW', 'WAREHOUSE.VIEW', 'SALES_CONTRACT.VIEW'];
 export const ROLES: Record<string, { name: string; username: string; fullName: string; permissions: string[] }> = {
   SALES: {
     name: 'Sales', username: 'sales', fullName: 'Nhân viên Sales',
-    permissions: [...COMMON, 'CUSTOMER.VIEW', 'CUSTOMER.CREATE', 'SALES_CONTRACT.CREATE', 'SALES_CONTRACT.CONFIRM_PRODUCT', 'GIR.VIEW', 'GIR.SALES_CONFIRM'],
+    permissions: [...COMMON, 'CUSTOMER.VIEW', 'CUSTOMER.CREATE', 'SALES_CONTRACT.CREATE', 'SALES_CONTRACT.CONFIRM_PRODUCT', 'GIR.VIEW', 'GIR.SALES_CONFIRM', 'PR.CREATE'],
   },
   PM: {
     name: 'PM', username: 'pm', fullName: 'Quản lý dự án (PM)',
-    permissions: [...COMMON, 'SALES_CONTRACT.PROPOSE_PRODUCT', 'GIR.VIEW', 'GIR.CREATE', 'INVENTORY.VIEW'],
+    permissions: [...COMMON, 'SALES_CONTRACT.PROPOSE_PRODUCT', 'GIR.VIEW', 'GIR.CREATE', 'INVENTORY.VIEW', 'PR.CREATE'],
   },
   PURCHASING: {
     name: 'Mua hàng', username: 'purchaser', fullName: 'Nhân viên mua hàng',
-    permissions: [...COMMON, 'SUPPLIER.VIEW', 'SUPPLIER.CREATE', 'PRODUCT.CREATE', 'PR.VIEW', 'PR.CREATE', 'PO.VIEW', 'PO.CREATE'],
+    permissions: [...COMMON, 'SUPPLIER.VIEW', 'SUPPLIER.CREATE', 'PRODUCT.CREATE', 'PR.VIEW', 'PR.RECEIVE', 'PO.VIEW', 'PO.CREATE'],
+  },
+  SALES_HEAD: {
+    name: 'Trưởng bộ phận Sales', username: 'sales-head', fullName: 'Trưởng bộ phận Sales',
+    permissions: [...COMMON, 'PR.APPROVE'],
+  },
+  PM_HEAD: {
+    name: 'Trưởng bộ phận PM', username: 'pm-head', fullName: 'Trưởng bộ phận PM',
+    permissions: [...COMMON, 'PR.APPROVE'],
   },
   WAREHOUSE_MANAGER: {
     name: 'Quản lý kho', username: 'warehouse', fullName: 'Quản lý kho HCM',
@@ -64,6 +72,8 @@ export async function seed(ds = dataSource): Promise<void> {
   await ds.query(`INSERT INTO warehouses (code, name) VALUES ('HCM', 'Kho HCM') ON CONFLICT (code) DO NOTHING`);
   await upsertUser(ds, env('SEED_ADMIN_USERNAME'), env('SEED_ADMIN_PASSWORD'), 'Administrator');
   await upsertUser(ds, env('SEED_APPROVER_USERNAME'), env('SEED_APPROVER_PASSWORD'), 'Quản lý kho');
+  await ds.query(`DELETE FROM role_permissions rp USING roles r, permissions p
+    WHERE rp.role_id = r.id AND rp.permission_id = p.id AND r.code = 'PURCHASING' AND p.code = 'PR.CREATE'`);
   for (const [code, r] of Object.entries(ROLES)) {
     await ds.query(`INSERT INTO roles (code, name) VALUES ($1, $2) ON CONFLICT (code) DO NOTHING`, [code, r.name]);
     await ds.query(`INSERT INTO role_permissions (role_id, permission_id)

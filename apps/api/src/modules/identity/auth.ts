@@ -18,6 +18,7 @@ export interface CurrentUser {
   username: string;
   fullName: string;
   permissions: string[];
+  roleCodes?: string[];
   warehouseIds: number[];
 }
 
@@ -40,7 +41,7 @@ export class IdentityService {
     });
     if (!user) return null;
     const permissions = [...new Set(user.roles.flatMap((r) => r.permissions.map((p) => p.code)))];
-    return { id: user.id, username: user.username, fullName: user.fullName, permissions, warehouseIds: user.warehouses.map((w) => w.id) };
+    return { id: user.id, username: user.username, fullName: user.fullName, roleCodes: user.roles.map((role) => role.code), permissions, warehouseIds: user.warehouses.map((w) => w.id) };
   }
 
   async checkCredentials(username: string, password: string): Promise<number | null> {

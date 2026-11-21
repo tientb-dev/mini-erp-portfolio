@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { me, mockApi, wrap } from '../../test/helpers/api';
-import { PurchaseOrdersPage } from '.';
+import { PurchaseOrdersPage, PurchaseRequisitionsPage } from '.';
+
+it('PR18: the assigned receiver can receive, and goods stay visible across tabs', async () => {
+  const pr = {
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_RECEIPT', version: 3,
+    createdBy: 2, createdByName: 'Sales', assignedApproverId: 1, assignedApproverName: 'Purchaser',
+    createdAt: '2026-11-13T00:00:00Z', category: 'SALES_GOODS', salesContractNumber: 'SC-5', customerName: 'Customer',
+    children: [], history: [], notes: [{ id: 1, body: 'Ghi chú đã lưu', authorName: 'Sales', createdAt: '2026-11-13T00:00:00Z' }],
+    lines: [{ id: 8, sourceLineId: 9, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
+  };
+  const posts = mockApi({ '/auth/me': me(['PR.RECEIVE']), '/purchase-requisitions/5': pr, '/purchase-requisitions': [pr] });
+  wrap(<PurchaseRequisitionsPage initialId={5} />);
+  expect(await screen.findByText('Chờ tiếp nhận')).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab', { name: 'Ghi chú' }));
+  expect(screen.getByText('Ghi chú đã lưu')).toBeTruthy();
+  expect(screen.getByRole('gridcell', { name: 'PN-5' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+  fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
+  await waitFor(() => expect(posts).toEqual([{ url: '/purchase-requisitions/5/approve', body: { version: 3 } }]));
+});
 
 describe('Purchase order form', () => {
   it('blocks quantities above what the PR line still allows', async () => {
@@ -12,13 +31,13 @@ describe('Purchase order form', () => {
       '/purchase-orders': [],
     });
     wrap(<PurchaseOrdersPage />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Tạo đơn đặt mua' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tạo đơn đặt hàng' }));
     fireEvent.mouseDown(await screen.findByRole('combobox', { name: /Nhà cung cấp/ }));
     fireEvent.click(await screen.findByRole('option', { name: 'S1: Supplier 1' }));
     const qty = await screen.findByLabelText('Số lượng');
     fireEvent.change(qty, { target: { value: '5' } });
     expect(screen.getByText('Tối đa 4')).toBeTruthy();
-    const submit = screen.getAllByRole('button', { name: 'Tạo đơn đặt mua' }).at(-1)!;
+    const submit = screen.getAllByRole('button', { name: 'Tạo đơn đặt hàng' }).at(-1)!;
     expect((submit as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(qty, { target: { value: '4' } });
     expect((submit as HTMLButtonElement).disabled).toBe(false);

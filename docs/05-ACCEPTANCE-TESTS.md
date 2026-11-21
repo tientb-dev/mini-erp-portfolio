@@ -2,6 +2,8 @@
 **Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
 
 ## A. HĐ / PR / PO
+
+**PR18 (ADR-0015).** Sales và PM chỉ tạo PR trên HĐ được phân công. Thiếu cấu hình thì lưu Nháp được và Gửi duyệt bị chặn. Xác nhận của người duyệt chuyển sang Chờ tiếp nhận, xác nhận của người tiếp nhận mới cho lập PO. Kiểm tra từ chối theo bước, thu hồi ở hai bước, lịch sử nhiều vòng, ghi chú và thông báo thu hồi.
 | ID | Tình huống | Kết quả mong đợi |
 |---|---|---|
 | A01 | Một HĐ `ACTIVE` tạo PR-1 và PR-2 | Cả hai PR cùng tham chiếu HĐ, mỗi PR chỉ một HĐ; dòng PR hàng bán tham chiếu dòng HĐ |

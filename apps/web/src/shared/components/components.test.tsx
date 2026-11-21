@@ -41,11 +41,11 @@ describe('DetailPageLayout', () => {
 
   it('renders "<title> <documentNumber>", status, notice, actions and content', () => {
     render(
-      <DetailPageLayout title="Đơn đặt mua" documentNumber="PO-2026-000001" status={<span>Chờ duyệt</span>} notice="Đang chờ A duyệt" actions={<Button>Duyệt</Button>}>
+      <DetailPageLayout title="Đơn đặt hàng" documentNumber="PO-2026-000001" status={<span>Chờ duyệt</span>} notice="Đang chờ A duyệt" actions={<Button>Duyệt</Button>}>
         <div>nội dung</div>
       </DetailPageLayout>,
     );
-    expect(screen.getByRole('heading', { name: 'Đơn đặt mua PO-2026-000001' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Đơn đặt hàng PO-2026-000001' })).toBeTruthy();
     expect(screen.getByText('Chờ duyệt')).toBeTruthy();
     expect(screen.getByText('Đang chờ A duyệt')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Duyệt' })).toBeTruthy();

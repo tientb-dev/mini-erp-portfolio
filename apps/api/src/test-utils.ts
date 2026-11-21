@@ -11,14 +11,24 @@ process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 export async function bootTestApp(): Promise<{ app: INestApplication; ds: DataSource }> {
   // Imported after DATABASE_URL points at the test database.
   const { AppModule } = await import('./app.module');
+  process.env.SEED_ROLE_USERS_PASSWORD = 'role-users-test';
   const { seed } = await import('./database/seed');
   const { dataSourceOptions } = await import('./database/data-source');
 
   const setup = new DataSource(dataSourceOptions());
   await setup.initialize();
+  const [{ database }] = await setup.query('SELECT current_database() AS database');
+  if (database !== 'mini_erp_test') {
+    await setup.destroy();
+    throw new Error('Integration fixtures require the dedicated mini_erp_test database');
+  }
   await setup.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await setup.runMigrations();
   await seed(setup);
+  await setup.query(`INSERT INTO pr_workflow_routes (route, approver_id, receiver_id, receipt_role)
+    SELECT routes.route, head.id, receiver.id, 'PURCHASING'
+    FROM (VALUES ('SALES', 'sales-head'), ('PM', 'pm-head')) routes(route, username)
+    JOIN users head ON head.username = routes.username CROSS JOIN users receiver WHERE receiver.username = 'purchaser'`);
   await setup.destroy();
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();

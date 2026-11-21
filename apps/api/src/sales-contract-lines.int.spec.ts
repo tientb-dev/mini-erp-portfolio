@@ -167,7 +167,7 @@ describe('Sales contract lines (integration)', () => {
     await post(sales, `/sales-contracts/${sc}/activate`).expect(204);
     const lineId = (await get(sales, `/sales-contracts/${sc}`)).body.lines[0].id;
     const [{ id: productId }] = await ds.query(`SELECT id FROM products WHERE part_number = 'PN-L1'`);
-    const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 3 }] }).expect(201)).body.id;
+    const pr = (await post(sales, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 3 }] }).expect(201)).body.id;
     expect((await get(admin, `/purchase-requisitions?salesContractId=${sc}`).expect(200)).body.map((r: { id: number }) => r.id)).toEqual([pr]);
     expect((await get(admin, '/purchase-requisitions').expect(200)).body.length).toBeGreaterThanOrEqual(1);
   });

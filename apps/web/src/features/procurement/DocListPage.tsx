@@ -26,7 +26,8 @@ export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: nu
   const [creating, setCreating] = useState(false);
   const [mine, setMine] = useState(false);
   // Opened through a narrower read scope (no list permission, ADR-0014): no list query; Back returns to where the user came from.
-  const listAllowed = Boolean(me.data?.permissions.includes(`${cfg.perm}.VIEW`));
+  const listAllowed = Boolean(me.data?.permissions.includes(`${cfg.perm}.VIEW`)
+    || (cfg.key === 'pr' && me.data?.permissions.some(permission => ['PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE'].includes(permission))));
   const list = useQuery({ queryKey: [cfg.key, 'list', mine], queryFn: () => api<DocRow[]>(`/${cfg.path}?assignedToMe=${mine}`), enabled: listAllowed });
   if (openId) return <DocDetailView cfg={cfg} id={openId} onBack={() => (listAllowed ? setOpenId(null) : navigate(-1))} />;
   const columns: GridColDef<DocRow>[] = [
@@ -37,7 +38,8 @@ export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: nu
     { field: 'assignedApproverName', headerName: t('gr.approver'), flex: 1, minWidth: 140 },
     { field: 'createdAt', headerName: t('gr.createdAt'), width: 170, valueFormatter: fmtDate },
   ];
-  const canCreate = me.data?.permissions.includes(`${cfg.perm}.CREATE`);
+  const canCreate = me.data?.permissions.includes(`${cfg.perm}.CREATE`)
+    && (cfg.key !== 'pr' || me.data.roleCodes?.some(role => role === 'SALES' || role === 'PM'));
   return (
     <>
       <ListPageLayout

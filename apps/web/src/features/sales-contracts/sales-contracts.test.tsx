@@ -25,21 +25,30 @@ const pick = async (label: RegExp | string, option: string) => {
 };
 
 describe('Sales contract list', () => {
-  it('searches, filters and pages on the server; the number is a real link; row click opens, action icons do not', async () => {
+  it('requests paginated search and filter results from the server', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 }, ...common });
     renderAt('/sales-contracts');
-    const link = await screen.findByRole('link', { name: 'SC-2026-000004' });
-    expect(link.getAttribute('href')).toBe('/sales-contracts/4');
+    await screen.findByRole('link', { name: 'SC-2026-000004' });
     expect(fetched()).toContain('/sales-contracts?page=1&pageSize=25');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Tìm kiếm' }), { target: { value: 'cust' } });
     await waitFor(() => expect(fetched()).toContain('/sales-contracts?q=cust&page=1&pageSize=25'));
     await pick('Trạng thái', 'Nháp');
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?q=cust&status=DRAFT'));
+    await waitFor(() => expect(fetched()).toContain('/sales-contracts?q=cust&status=DRAFT&page=1&pageSize=25'));
+  });
 
+  it('links the contract number and opens the row without navigating from the action menu', async () => {
+    mockApi({
+      '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 },
+      '/sales-contracts/4': detail('DRAFT'), ...common,
+    });
+    renderAt('/sales-contracts');
+    const link = await screen.findByRole('link', { name: 'SC-2026-000004' });
+    expect(link.getAttribute('href')).toBe('/sales-contracts/4');
     fireEvent.click(screen.getByRole('button', { name: 'Thao tác SC-2026-000004' }));
     expect(await screen.findByRole('menuitem', { name: 'Hủy hợp đồng' })).toBeTruthy();
-    expect(screen.getByTestId('where').textContent).toMatch(/^\/sales-contracts\?/); // the action did not open the row
+    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts');
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
     fireEvent.click(screen.getByText('Customer 1'));

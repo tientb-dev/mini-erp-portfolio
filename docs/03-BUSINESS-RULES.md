@@ -166,6 +166,7 @@
 - Người tạo không tự duyệt; người duyệt không sửa nội dung.
 - Từ chối và Thu hồi cần lý do; Nháp/Bị từ chối có thể Hủy; Chờ duyệt phải Thu hồi trước khi Hủy.
 - PR Hoàn tất chỉ được Hủy khi không có PO chưa Hủy tham chiếu, bắt buộc có lý do. Thu hồi PR chỉ được thực hiện khi Chờ duyệt hoặc Chờ tiếp nhận (ADR-0015).
+- Quyết định UAT cho các phase tiếp theo. Một người đủ điều kiện có thể thực hiện cả Phê duyệt và Tiếp nhận; creator không tự xử lý PR của mình. Phân công lại chỉ áp dụng bước đang chờ và giữ nguyên trạng thái/vòng. Action phải chỉ rõ version, vòng, bước và hành động, được xác thực trong transaction (ADR-0015).
 - PO Đã duyệt chỉ Thu hồi/Hủy khi không còn GRR chưa Hủy tham chiếu và đáp ứng quy tắc trạng thái (GIR không tham chiếu PO).
 - GRR Đã duyệt không Thu hồi/Hủy khi còn GR chưa Hủy.
 - GR Đã duyệt không Hủy trực tiếp; được Thu hồi theo điều kiện §2.2. GI Đã duyệt không Thu hồi/Hủy.

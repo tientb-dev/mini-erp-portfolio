@@ -166,6 +166,17 @@ export class ProcurementController {
     return this.svc.addPrNote(req.user, id, dto.body);
   }
 
+  @Get('purchase-requisitions/:id/notes')
+  listNotes(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number) {
+    return this.svc.readPrRecords(req.user, id, 'notes', before);
+  }
+
+  @Get('purchase-requisitions/:id/history')
+  listHistory(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number) {
+    return this.svc.readPrRecords(req.user, id, 'history', before);
+  }
   @Get('pr-notifications')
   listNotifications(@Req() req: AuthedRequest) {
     return this.svc.listPrNotifications(req.user.id);

@@ -198,7 +198,7 @@ describe('Document editing (integration)', () => {
     expect(d.lines).toHaveLength(1);
     await approved('purchase-requisitions', pr);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
-    expect(d.history.map((h: { action: string }) => h.action)).toEqual(['EDIT', 'SUBMIT', 'REJECT', 'EDIT', 'RESUBMIT', 'APPROVE', 'RECEIVE']);
+    expect(d.history.map((h: { action: string }) => h.action)).toEqual(['RECEIVE', 'APPROVE', 'RESUBMIT', 'EDIT', 'REJECT', 'SUBMIT', 'EDIT']);
     expect(d.documentNumber).toMatch(/^PR-\d{4}-\d{6}$/);
   });
 

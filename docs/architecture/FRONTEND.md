@@ -158,3 +158,15 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 - Bấm: xóa từ khóa và mọi điều kiện lọc trong một lần đổi URL (`push`), quay về trang 1, **giữ nguyên sort và cỡ trang**. Bảng dùng loading chuẩn ở trên, không giật.
 
 **Trạng thái áp dụng:** Hợp đồng bán (danh sách + chi tiết, kể cả `FilterToolbar`) đã áp dụng và kiểm chứng ở 1440×900, 1366×768, 768×1024, 390×844. Các màn PR, PO, GRR, PNK, PXK, kho, danh mục chuyển sang `fill`/`ScrollTable` ở PR sau, theo đúng quy chuẩn này.
+
+## Chuẩn UAT cho Đề nghị mua hàng
+
+- Header có mũi tên về danh sách, loại chứng từ, mã, tên và trạng thái. Footer sticky chỉ chứa action nghiệp vụ. Primary solid theo theme xanh, icon + text và ngoài cùng phải; secondary outlined; destructive outlined đỏ. Action theo dòng có thể icon-only kèm tooltip. Giữ Be Vietnam Pro và primary #1F5FC4.
+- Dialog dùng tiêu đề Xác nhận [hành động], nêu loại/mã chứng từ, hậu quả và lý do theo action. Nút Hủy bỏ outlined, nút xác nhận gọi tên hành động. Chặn gửi lặp khi đang xử lý. Duyệt PR chuyển sang Chờ tiếp nhận. Popup kết quả dùng check xanh tự đóng khoảng 3 giây hoặc X đỏ và nút Đã hiểu. Lỗi validation nằm inline và focus field lỗi đầu tiên.
+- Stepper dưới header. Check xanh cho bước hoàn tất, ba chấm xanh cho bước đang chờ, vòng xám rỗng cho bước tương lai và X đỏ đúng bước từ chối. Giữ check ở bước hoàn tất trước đó. Hiển thị vòng hiện tại, xem lý do trong card hoặc lịch sử.
+- Tabs theo thứ tự Thông tin chung, Người phê duyệt, Ghi chú, Lịch sử; grid nằm phía dưới tabs. Thông tin chung tập trung vào dữ liệu nghiệp vụ. Ba card responsive, một field người xử lý mỗi bước, Role dùng nhãn Vai trò. Xem lý do bằng dialog read-only. Nút Phân công lại nằm tại card đang chờ nếu đủ quyền.
+- Notes mới nhất trước và có tải thêm, composer phía trên trong chuẩn UI mục tiêu. Hiển thị tác giả, thời gian, wrap nội dung. History mới nhất trước, có thời gian, vòng, hành động, người thực hiện, trạng thái sau và chi tiết read-only.
+- Chuông phân biệt yêu cầu phê duyệt/tiếp nhận với sự kiện đã phê duyệt, từ chối, tiếp nhận, thu hồi hoặc phân công lại.
+- Cảnh báo dữ liệu chưa lưu khi rời trang, ưu tiên giữ search, filter và paging khi trở về danh sách. Layout toolbar dòng hàng thuộc PR #19; Import/Export/In theo mẫu thuộc backlog.
+
+Phase 1 triển khai dữ liệu và tải thêm cho Notes/History; áp dụng lại bố cục, dialog, stepper và các trạng thái hiển thị ở phase UI.

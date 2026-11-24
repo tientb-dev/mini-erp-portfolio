@@ -51,9 +51,9 @@ export async function configure(m: EntityManager, route: PrRoute, assignment: As
 }
 
 async function history(m: EntityManager, doc: PrHeader, action: string, userId: number, next: string, round: number, reason?: string) {
-  await m.query(`INSERT INTO approval_histories
-    (document_type, document_id, action, actor_id, reason, previous_status, next_status, approval_round)
-    VALUES ('PR', $1, $2, $3, $4, $5, $6, $7)`, [doc.id, action, userId, reason ?? null, doc.approval_status, next, round]);
+  await wf.record(m, 'PR', doc.id, action, userId, reason, {
+    previousStatus: doc.approval_status, nextStatus: next, round,
+  });
 }
 
 async function notify(m: EntityManager, id: number, recipients: number[], action: string, round: number, reason?: string) {

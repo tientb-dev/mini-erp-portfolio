@@ -58,13 +58,13 @@ docker-compose.yml   PostgreSQL
 
 Xem [ADR-0015](docs/architecture/decisions/ADR-0015-purchase-requisition-workflow.md) để cấu hình luồng Sales, luồng PM và PM phụ trách từng hợp đồng. Đặt cấu hình luồng Sales trước khi chạy demo seed.
 
-Với database **development/test Compose cục bộ đã xác nhận** còn chứng từ từ phiên bản trước, dừng API đang ghi vào database rồi chạy script dưới đây **trước** migration PR #18. Ví dụ dùng tên database và user mặc định của Compose. Lệnh nối qua Unix socket bên trong container của dự án.
+Database đã áp dụng workflow PR có thể chạy `pnpm migrate` và `pnpm seed` để nâng cấp Common Notes/History và đồng bộ permission. Migration bổ sung giữ dữ liệu hiện có. Migration workflow đầu tiên vẫn yêu cầu bảng PR rỗng, nên hãy dùng database mới nếu database development còn PR từ trước workflow.
+
+Khi cần xóa fixture PR, dừng tiến trình đang ghi và xác minh đích là **database test Compose cục bộ**. Lệnh nối qua Unix socket bên trong container của dự án.
 
 ```powershell
-Get-Content -Raw apps/api/src/database/scripts/reset-procurement-dev.sql |
-  docker compose exec -T postgres psql -U mini_erp -d mini_erp -v verified_local_dev=1
-pnpm migrate
-pnpm seed
+Get-Content -Raw apps/api/src/database/scripts/reset-pr-test.sql |
+  docker compose exec -T postgres psql -U mini_erp -d mini_erp_test -v verified_local_test=1
 ```
 
-Script xóa chứng từ PR, PO, GRR, GR, GIR, GI và dữ liệu tồn kho liên quan theo danh sách bảng tường minh. Hợp đồng bán, danh mục, người dùng, phân quyền, cấu hình và bộ đếm chứng từ được giữ lại. Với database mới, chạy trực tiếp migration và seed.
+Script chỉ xóa PR và dữ liệu workflow, thông báo, ghi chú, lịch sử của PR. Nếu PO hoặc GIR đang tham chiếu PR, script dừng và rollback toàn bộ.

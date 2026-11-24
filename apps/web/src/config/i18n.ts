@@ -14,6 +14,7 @@ const vi = {
     products: "Danh mục hàng hóa", warehouses: "Kho", goodsReceipts: "Phiếu nhập kho", goodsIssueRequests: "Đề nghị xuất kho", goodsIssues: "Phiếu xuất kho", inventory: "Tồn kho", inventoryLots: "Truy vết lô tồn kho",
   },
   common: {
+    loadMoreRecords: 'Tải thêm',
     cancel: 'Hủy bỏ', yes: 'Có', no: 'Không', status: 'Trạng thái', active: 'Đang dùng', inactive: 'Ngừng dùng',
     empty: 'Chưa có dữ liệu', error: 'Không thực hiện được: {{detail}}', loading: 'Đang tải…',
     close: 'Đóng', discardTitle: 'Bỏ thay đổi chưa lưu?', discardHint: 'Dữ liệu bạn vừa nhập sẽ không được lưu.', keepEditing: 'Tiếp tục sửa', discard: 'Bỏ thay đổi',
@@ -207,6 +208,7 @@ const en: typeof vi = {
     products: "Products", warehouses: "Warehouses", goodsReceipts: "Goods receipts", goodsIssueRequests: "Issue requests", goodsIssues: "Goods issues", inventory: "Inventory", inventoryLots: "Lot traceability",
   },
   common: {
+    loadMoreRecords: 'Load more',
     cancel: 'Cancel', yes: 'Yes', no: 'No', status: 'Status', active: 'Active', inactive: 'Inactive',
     empty: 'No data yet', error: 'Could not complete: {{detail}}', loading: 'Loading…',
     close: 'Close', discardTitle: 'Discard unsaved changes?', discardHint: 'What you entered will not be saved.', keepEditing: 'Keep editing', discard: 'Discard',

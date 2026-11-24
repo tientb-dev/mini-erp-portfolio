@@ -8,14 +8,23 @@ it('PR18: the assigned receiver can receive, and goods stay visible across tabs'
     id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_RECEIPT', version: 3,
     createdBy: 2, createdByName: 'Sales', assignedApproverId: 1, assignedApproverName: 'Purchaser',
     createdAt: '2026-11-13T00:00:00Z', category: 'SALES_GOODS', salesContractNumber: 'SC-5', customerName: 'Customer',
-    children: [], history: [], notes: [{ id: 1, body: 'Ghi chú đã lưu', authorName: 'Sales', createdAt: '2026-11-13T00:00:00Z' }],
+    children: [], history: [], notesCursor: 2,
+    notes: [{ id: 2, body: 'Ghi chú đã lưu', authorName: 'Sales', createdAt: '2026-11-13T00:00:00Z' }],
     lines: [{ id: 8, sourceLineId: 9, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
   };
-  const posts = mockApi({ '/auth/me': me(['PR.RECEIVE']), '/purchase-requisitions/5': pr, '/purchase-requisitions': [pr] });
+  const posts = mockApi({
+    '/auth/me': me(['PR.RECEIVE']), '/purchase-requisitions/5': pr, '/purchase-requisitions': [pr],
+    '/purchase-requisitions/5/notes?before=2': {
+      items: [{ id: 1, body: 'Ghi chú trước đó', authorName: 'Sales', createdAt: '2026-11-12T00:00:00Z' }], nextCursor: null,
+    },
+  });
   wrap(<PurchaseRequisitionsPage initialId={5} />);
   expect(await screen.findByText('Chờ tiếp nhận')).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'Ghi chú' }));
   expect(screen.getByText('Ghi chú đã lưu')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Tải thêm' }));
+  expect(await screen.findByText('Ghi chú trước đó')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Tải thêm' })).toBeNull();
   expect(screen.getByRole('gridcell', { name: 'PN-5' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
   fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);

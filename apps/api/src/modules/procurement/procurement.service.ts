@@ -4,6 +4,7 @@ import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
 import * as prWorkflow from './pr-workflow';
+import { documentPage, insertNote } from '../document-records/document-records';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -204,8 +205,9 @@ export class ProcurementService {
       await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
       for (const l of lines) await this.writePrLine(m, id, l);
       await wf.setStatus(m, 'PR', doc, doc.approval_status);
-      await m.query(`INSERT INTO approval_histories (document_type, document_id, action, actor_id, previous_status, next_status, approval_round)
-        VALUES ('PR', $1, 'EDIT', $2, $3, $3, $4)`, [id, user.id, doc.approval_status, doc.approval_round]);
+      await wf.record(m, 'PR', id, 'EDIT', user.id, undefined, {
+        previousStatus: doc.approval_status, nextStatus: doc.approval_status, round: doc.approval_round,
+      });
     });
   }
 
@@ -366,18 +368,28 @@ export class ProcurementService {
     );
   }
 
-  async getPr(user: CurrentUser, id: number) {
-    const [pr] = await this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId", d.category, d.purpose, s.document_number AS "salesContractNumber", c.name AS "customerName"
+  private async readablePr(m: EntityManager, user: CurrentUser, id: number, lock = false) {
+    const [pr] = await m.query(
+      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
+        s.responsible_sales_user_id AS "responsibleSalesUserId", d.category, d.purpose,
+        s.document_number AS "salesContractNumber", c.name AS "customerName",
+        EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $2) AS "wasAssigned"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
-        WHERE d.id = $1`,
-      [id],
+        WHERE d.id = $1 ${lock ? 'FOR SHARE OF d, s' : ''}`,
+      [id, user.id],
     );
-    const participant = pr && (pr.createdBy === user.id || (user.permissions.includes('PR.CREATE') && pr.responsiblePmUserId === user.id) || (await this.ds.query(
-      'SELECT 1 FROM pr_workflow_nodes WHERE pr_id = $1 AND assignee_id = $2 LIMIT 1', [id, user.id],
-    )).length > 0);
-    const scope = participant && !user.permissions.includes('PR.VIEW') ? 'contract' : await this.assertPrReadScope(user, pr?.salesContractId);
+    const fullView = user.permissions.includes('PR.VIEW');
+    const scoped = pr && (pr.createdBy === user.id || pr.wasAssigned
+      || (user.permissions.includes('PR.CREATE') && pr.responsiblePmUserId === user.id)
+      || (user.permissions.includes('SALES_CONTRACT.VIEW') && pr.responsibleSalesUserId === user.id));
+    if (!fullView && !scoped) throw new ForbiddenException('Missing permission: PR.VIEW');
     if (!pr) throw new NotFoundException();
+    const { responsibleSalesUserId, wasAssigned, ...header } = pr;
+    return { header, fullView };
+  }
+
+  async getPr(user: CurrentUser, id: number) {
+    const { header, fullView } = await this.readablePr(this.ds.manager, user, id);
     const lines = await this.ds.query(
       `SELECT l.id, l.sales_contract_line_id AS "sourceLineId", l.product_id AS "productId", sl.item_name AS "ref", l.snapshot_code AS "partNumber", l.snapshot_name AS "productName", u.code AS uom, l.quantity,
               COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
@@ -396,13 +408,16 @@ export class ProcurementService {
       [id],
     );
     // The contract-scoped reader gets no PO numbers: PO.VIEW is not widened (PR #17).
-    return { ...pr, lines, children: scope === 'all' ? children : [], history: await wf.history(this.ds.manager, 'PR', id),
+    const [notes, history] = await Promise.all([
+      documentPage(this.ds.manager, 'PR', id, 'notes'),
+      documentPage(this.ds.manager, 'PR', id, 'history'),
+    ]);
+    return { ...header, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
       nodes: await this.ds.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",
         a.full_name AS "assigneeName", u.full_name AS "actorName", n.acted_at AS "actedAt", n.invalidated_at AS "invalidatedAt"
         FROM pr_workflow_nodes n JOIN users a ON a.id = n.assignee_id LEFT JOIN users u ON u.id = n.actor_id
         WHERE n.pr_id = $1 ORDER BY n.round DESC, n.step`, [id]),
-      notes: await this.ds.query(`SELECT n.id, n.body, n.created_at AS "createdAt", u.full_name AS "authorName"
-        FROM pr_notes n JOIN users u ON u.id = n.author_id WHERE n.pr_id = $1 ORDER BY n.id`, [id]) };
+      notes: notes.items, notesCursor: notes.nextCursor };
   }
 
   configurePrRoute(route: string, dto: { approverId: number; receiverId: number; receiptRole: string }) {
@@ -433,8 +448,15 @@ export class ProcurementService {
 
   async addPrNote(user: CurrentUser, id: number, body: string) {
     if (!body.trim()) throw new BusinessError('PR_NOTE_REQUIRED', 'Enter a note');
-    await this.getPr(user, id);
-    await this.ds.query('INSERT INTO pr_notes (pr_id, author_id, body) VALUES ($1, $2, $3)', [id, user.id, body.trim()]);
+    await this.ds.transaction(async m => {
+      await this.readablePr(m, user, id, true);
+      await insertNote(m, 'PR', id, user.id, body.trim());
+    });
+  }
+
+  async readPrRecords(user: CurrentUser, id: number, kind: 'notes' | 'history', before?: number) {
+    await this.readablePr(this.ds.manager, user, id);
+    return documentPage(this.ds.manager, 'PR', id, kind, before);
   }
 
   listPrNotifications(recipientId: number) {

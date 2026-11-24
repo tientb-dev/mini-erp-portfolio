@@ -25,6 +25,10 @@
 Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư và bốn luồng GIR (ADR-0012) không thêm bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng. Người được giao bước 1 của GIR `AVAILABLE_STOCK` phải là người phụ trách nguồn hàng của GIR đó (kiểm tra ở mức dữ liệu như §3); mã quyền `GIR.SALES_CONFIRM`; hệ thống chỉ cho giao bước 1 cho Sales nguồn ghi trên GIR (CT7, IM30).
 
 ## 3. Người duyệt mặc định
+
+**Định hướng PR sau UAT (ADR-0015).** Organization độc lập với Authorization. Cây tổ chức không cấp hoặc kế thừa quyền. Quyền nghiệp vụ dựa trên permission và cấu hình eligibility, không hardcode tên Role. `PR.CONFIGURE` quản lý cấu hình, `PR.REASSIGN` cấp quyền phân công lại của Admin. Thu hồi eligibility có hiệu lực ngay. Phase 1 seed mã quyền; hành vi assignment và Reassign được triển khai ở các phase riêng.
+
+Quyền xem PR cho phép đọc và thêm ghi chú ở mọi trạng thái, kể cả Hoàn tất (ADR-0016).
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.
 - Người duyệt mặc định cấu hình theo role hoặc bước duyệt, không dùng một flag chung cho mọi nghiệp vụ.
 - Không có mặc định và có nhiều người hợp lệ → người tạo phải chọn.

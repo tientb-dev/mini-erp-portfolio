@@ -28,4 +28,13 @@ Cấu hình qua OpenAPI bằng người dùng có `PR.CONFIGURE` (seed cấp cho
 - `GET /pr-workflow/candidates` liệt kê người dùng hợp lệ theo role và permission.
 - Thiếu phân công vẫn lưu được Nháp. Gửi duyệt báo cấu hình cần bổ sung. Seed role không tự gán người phụ trách hay người duyệt. Demo seed dùng cấu hình Sales đã thiết lập.
 
-Migration schema yêu cầu bảng PR rỗng. Với dữ liệu cũ, dùng script reset trước migration trên môi trường Compose development/test đã xác nhận, theo README. Script giữ HĐ, dữ liệu danh mục, người dùng, phân quyền, cấu hình và bộ đếm chứng từ. Trạng thái và lịch sử chứng từ cũ thuộc phạm vi reset.
+Migration schema workflow đầu tiên yêu cầu bảng PR rỗng. Migration bổ sung của Phase 1 bảo toàn PR và lịch sử hiện có, theo [ADR-0016](ADR-0016-common-document-records.md). Script reset riêng chỉ dành cho PR test và từ chối xóa khi PO/GIR còn tham chiếu.
+
+## Quyết định UAT cho các phase tiếp theo
+
+- Admin cấu hình tập đủ điều kiện, creator chọn người khi Gửi duyệt. Kiểm tra eligibility hiện hành khi hành động. Thu hồi eligibility có hiệu lực ngay với cả người đã được phân công.
+- Một người có thể vừa phê duyệt vừa tiếp nhận nếu đủ điều kiện ở từng bước. Creator không được xử lý PR của mình.
+- `PR.CONFIGURE` quản lý cấu hình. `PR.REASSIGN` độc lập cho quyền phân công lại của Admin. Giữ các quyền của creator và người tiếp nhận hiện tại theo ma trận UAT.
+- Reassign chỉ tác động node đang chờ, có lý do, giữ nguyên trạng thái và vòng. Cập nhật assignment, hàng đợi, activity và thông báo cho người cũ/mới cùng transaction.
+- Action phải mang ý định tường minh, version, round và step. Backend kiểm tra lại dưới khóa trong transaction. Tổ chức, quyền và phân công đổi qua cấu hình. Role trong card dùng nhãn **Vai trò**.
+- Phase 1 bổ sung permission và lưu trữ chung. Admin vẫn dùng các endpoint cấu hình cặp người xử lý hiện tại cho đến phase Eligibility; API Reassign và kiểm soát ngữ cảnh action thuộc các phase sau.

@@ -7,6 +7,7 @@ import { api } from '../../services/api-client';
 import { ApprovalStatusChip, DataTable, DetailPageLayout, DetailTabs, Field } from '../../shared/components';
 import { DocumentWorkflowNodes, DocumentWorkflowStepper } from '../../shared/components/DocumentWorkflow';
 import { PrNotes } from './PrNotes';
+import { DocumentRecordList } from '../../shared/components/DocumentRecordList';
 import { fmtDate, num } from '../../shared/utils/format';
 import { useMe } from '../identity';
 import { DocAction, DocActionDialog, HistoryList } from '../workflow';
@@ -111,8 +112,11 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
               : <Typography variant="body2" color="text.secondary">{t(`${cfg.key}.noChildren`)}</Typography>,
           },
           { key: 'approvers', label: t('pr.approvers'), hidden: !isPr, content: <DocumentWorkflowNodes steps={steps} /> },
-          { key: 'notes', label: t('pr.notes'), hidden: !isPr, content: <PrNotes id={id} notes={d.notes ?? []} onSaved={() => void doc.refetch()} /> },
-          { key: 'history', label: t(isPr ? 'pr.history' : 'gr.tabApprovers'), content: <HistoryList history={d.history} /> },
+          { key: 'notes', label: t('pr.notes'), hidden: !isPr, content: <PrNotes id={id} notes={d.notes ?? []} nextCursor={d.notesCursor} onSaved={() => void doc.refetch()} /> },
+          { key: 'history', label: t(isPr ? 'pr.history' : 'gr.tabApprovers'), content: isPr
+            ? <DocumentRecordList key={`${id}-${d.version}`} path={`/${cfg.path}/${id}/history`} items={d.history}
+                nextCursor={d.historyCursor} render={history => <HistoryList history={history} />} />
+            : <HistoryList history={d.history} /> },
         ]} />
         {isPr && <DataTable rows={d.lines} columns={lineColumns} hideFooter />}
       </DetailPageLayout>

@@ -1,6 +1,8 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { CommonDocumentRecords1732492800000 } from './database/migrations/1732492800000-CommonDocumentRecords';
+import { appendActivity } from './modules/document-records/document-records';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
 
 /** HĐ lifecycle, product proposals, PR/PO/GRR workflow actions and role permissions, against real PostgreSQL. */
@@ -58,6 +60,73 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(approver, `/${path}/${id}/approve`).expect(204);
   }
 
+  it('Phase 1: migrates legacy PR notes and history without changing their identity', async () => {
+    const { sc, lineId } = await activeContract();
+    const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body;
+    const runner = ds.createQueryRunner();
+    await runner.startTransaction();
+    try {
+      const migration = new CommonDocumentRecords1732492800000();
+      await migration.down(runner);
+      await runner.query(`INSERT INTO pr_notes (id, pr_id, author_id, body, created_at)
+        VALUES (9, $1, $2, 'legacy note', '2026-11-01T00:00:00Z')`, [id, approverId]);
+      const history = await runner.query(`INSERT INTO approval_histories (document_type, document_id, action, actor_id)
+        VALUES ('PO', 1, 'APPROVE', $1) RETURNING id`, [approverId]);
+      await migration.up(runner);
+      const [note] = await runner.query('SELECT * FROM document_notes WHERE id = 9');
+      expect(note).toMatchObject({ target_type: 'PR', target_id: id, author_id: approverId, body: 'legacy note',
+        created_at: new Date('2026-11-01T00:00:00Z') });
+      expect(await runner.query('SELECT id FROM approval_histories WHERE id = $1', [history[0].id])).toEqual(history);
+      const [next] = await runner.query(`INSERT INTO document_notes (target_type, target_id, author_id, body)
+        VALUES ('PR', $1, $2, 'new note') RETURNING id`, [id, approverId]);
+      expect(next.id).toBeGreaterThan(9);
+    } finally {
+      await runner.rollbackTransaction();
+      await runner.release();
+    }
+  });
+
+  it('Phase 1: paginates PR records newest first and enforces the PR read scope', async () => {
+    const { sc, lineId } = await activeContract();
+    const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body;
+    const path = `/purchase-requisitions/${id}`;
+    const outsider = await login(app, 'sales', 'role-users-test');
+    const head = await login(app, 'sales-head', 'role-users-test');
+    await get(outsider, `${path}/notes`).expect(403);
+    await get(outsider, `${path}/history`).expect(403);
+    await post(outsider, `${path}/notes`, { body: 'outside scope' }).expect(403);
+    await get(admin, '/purchase-requisitions/999999/history').expect(404);
+    await get(admin, '/purchase-requisitions/999999/notes').expect(404);
+    await post(admin, '/purchase-requisitions/999999/notes', { body: 'missing' }).expect(404);
+    await approved('purchase-requisitions', id);
+    await post(head, `${path}/notes`, { body: 'done note' }).expect(204);
+    await ds.query(`INSERT INTO document_notes (target_type, target_id, author_id, body)
+      SELECT 'PR', $1, $2, 'note ' || n FROM generate_series(1, 25) n`, [id, approverId]);
+    await ds.query(`INSERT INTO document_notes (target_type, target_id, author_id, body)
+      VALUES ('PO', $1, $2, 'other target')`, [id, approverId]);
+    await expect(ds.query(`INSERT INTO document_notes (target_type, target_id, author_id, body)
+      VALUES ('UNKNOWN', $1, $2, 'unsupported target')`, [id, approverId])).rejects.toThrow(/check constraint/);
+    for (let i = 0; i < 23; i++) {
+      await appendActivity(ds.manager, 'PR', id, 'EDIT', approverId, 'fixture reason', { round: 1, metadata: { i } });
+    }
+    for (const kind of ['notes', 'history']) {
+      const first = (await get(head, `${path}/${kind}`).expect(200)).body;
+      if (kind === 'notes') await post(head, `${path}/notes`, { body: 'arrived after page one' }).expect(204);
+      else await appendActivity(ds.manager, 'PR', id, 'EDIT', approverId);
+      const second = (await get(head, `${path}/${kind}?before=${first.nextCursor}`).expect(200)).body;
+      expect(first.items).toHaveLength(25);
+      expect(second.items).toHaveLength(1);
+      expect(second.nextCursor).toBeNull();
+      expect(JSON.stringify([first.items, second.items])).not.toMatch(/other target|arrived after page one/);
+      const ids = [...first.items, ...second.items].map((item: { id: number }) => item.id);
+      expect(ids).toEqual([...new Set(ids)].sort((a, b) => b - a));
+      if (kind === 'history') expect(first.items[0]).toMatchObject({ reason: 'fixture reason', metadata: { i: 22 } });
+    }
+    await expect(ds.query(`UPDATE approval_histories SET reason = 'tampered' WHERE document_type = 'PR' AND document_id = $1`, [id])).rejects.toThrow('append-only');
+    await expect(ds.query(`DELETE FROM approval_histories WHERE document_type = 'PR' AND document_id = $1`, [id])).rejects.toThrow('append-only');
+    await expect(ds.query('TRUNCATE approval_histories')).rejects.toThrow('append-only');
+  });
+
   it('HĐ: unknown customer is rejected; detail returns lines; cancel blocked while a PR is not canceled (03 §9.1)', async () => {
     expect((await post(admin, '/sales-contracts', { customerId: 999999, lines: [{ itemCode: 'X', itemName: 'X', unitOfMeasureId: pcs, quantity: 1 }] })).body.code).toBe('CUSTOMER_NOT_FOUND');
     const { sc, lineId } = await activeContract();
@@ -93,7 +162,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     const detail = (await get(admin, `/purchase-requisitions/${pr}`).expect(200)).body;
     expect(detail).toMatchObject({ approvalStatus: 'REJECTED', salesContractNumber: expect.stringMatching(/^SC-/) });
     expect(detail.lines[0]).toMatchObject({ partNumber: 'PN-P1', ref: 'Switch 24 port' });
-    expect(detail.history.map((h: { action: string }) => h.action)).toEqual(['SUBMIT', 'REJECT']);
+    expect(detail.history.map((h: { action: string }) => h.action)).toEqual(['REJECT', 'SUBMIT']);
     await post(admin, `/purchase-requisitions/${pr}/cancel`).expect(204);
   });
 
@@ -129,7 +198,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     expect(detail.approvalStatus).toBe('DONE');
     expect(detail.notes).toMatchObject([{ body: 'Đã tiếp nhận' }]);
     expect(detail.nodes.filter((node: { invalidatedAt: string | null }) => node.invalidatedAt)).toHaveLength(4);
-    expect(detail.history.at(-1)).toMatchObject({ action: 'RECEIVE', round: 4, previousStatus: 'WAITING_FOR_RECEIPT', nextStatus: 'DONE' });
+    expect(detail.history[0]).toMatchObject({ action: 'RECEIVE', round: 4, previousStatus: 'WAITING_FOR_RECEIPT', nextStatus: 'DONE' });
     for (const actor of [salesHead, receiver]) {
       const notifications = (await get(actor, '/pr-notifications').expect(200)).body;
       expect(notifications).toEqual(expect.arrayContaining([
@@ -198,7 +267,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     expect((await get(admin, `/purchase-orders/${po}`)).body.approvalStatus).toBe('DRAFT');
     await post(admin, `/purchase-orders/${po}/cancel`).expect(204);
     await post(admin, `/purchase-requisitions/${pr}/cancel`, { reason: 'Đổi nhà cung cấp' }).expect(204);
-    expect((await get(admin, `/purchase-requisitions/${pr}`)).body.history.map((h: { action: string }) => h.action)).toEqual(['SUBMIT', 'APPROVE', 'RECEIVE', 'CANCEL']);
+    expect((await get(admin, `/purchase-requisitions/${pr}`)).body.history.map((h: { action: string }) => h.action)).toEqual(['CANCEL', 'RECEIVE', 'APPROVE', 'SUBMIT']);
   });
 
   it('GRR list is warehouse-scoped; GRR approve/reject only by the assigned approver', async () => {

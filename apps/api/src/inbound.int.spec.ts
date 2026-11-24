@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { ProcurementFacade } from './modules/procurement/procurement.service';
 import { RECONCILE_SQL } from './database/migrations/1732060800000-LotAllocations';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
+import { prContext, prSubmission } from './test-utils';
 
 /** HĐ → PR → PO → GRR → GR → Inventory, against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
 describe('Inbound chain and GR (integration)', () => {
@@ -41,10 +42,9 @@ describe('Inbound chain and GR (integration)', () => {
 
   async function approveDoc(path: string, id: number) {
     if (path === 'purchase-requisitions') {
-      await post(creator, `/${path}/${id}/submit`).expect(204);
-      for (const username of ['sales-head', 'purchaser']) {
-        await post(await login(app, username, 'role-users-test'), `/${path}/${id}/approve`).expect(204);
-      }
+      await post(creator, `/${path}/${id}/submit`, await prSubmission(ds, id)).expect(204);
+      await post(await login(app, 'sales-head', 'role-users-test'), `/${path}/${id}/approve`, await prContext(ds, id)).expect(204);
+      await post(await login(app, 'purchaser', 'role-users-test'), `/${path}/${id}/receive`, await prContext(ds, id)).expect(204);
       return;
     }
     await post(creator, `/${path}/${id}/submit`, { approverId }).expect(204);

@@ -38,8 +38,7 @@ export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: nu
     { field: 'assignedApproverName', headerName: t('gr.approver'), flex: 1, minWidth: 140 },
     { field: 'createdAt', headerName: t('gr.createdAt'), width: 170, valueFormatter: fmtDate },
   ];
-  const canCreate = me.data?.permissions.includes(`${cfg.perm}.CREATE`)
-    && (cfg.key !== 'pr' || me.data.roleCodes?.some(role => role === 'SALES' || role === 'PM'));
+  const canCreate = me.data?.permissions.includes(`${cfg.perm}.CREATE`);
   return (
     <>
       <ListPageLayout

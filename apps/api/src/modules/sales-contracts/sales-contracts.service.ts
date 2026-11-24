@@ -58,7 +58,8 @@ export class SalesContractFacade {
   /** Responsible sales of one contract (plain read, for read-only scope checks); undefined when the contract does not exist. */
   static async assignResponsiblePm(m: EntityManager, contractId: number, userId: number) {
     const [pm] = await m.query(`SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
-      JOIN roles r ON r.id = ur.role_id WHERE u.id = $1 AND u.is_active AND r.code = 'PM'`, [userId]);
+      JOIN role_permissions rp ON rp.role_id = ur.role_id JOIN permissions p ON p.id = rp.permission_id
+      WHERE u.id = $1 AND u.is_active AND p.code = 'PR.CREATE'`, [userId]);
     if (!pm) throw new BusinessError('PR_PM_NOT_ELIGIBLE', 'Select an active PM');
     const [, updated] = await m.query(`UPDATE sales_contracts SET responsible_pm_user_id = $2,
       version = version + 1, updated_at = now() WHERE id = $1`, [contractId, userId]);

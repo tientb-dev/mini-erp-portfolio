@@ -9,6 +9,7 @@ import { ProcurementFacade, ProcurementService } from './modules/procurement/pro
 import { SalesContractsService } from './modules/sales-contracts/sales-contracts.service';
 import { RECONCILE_SQL } from './database/migrations/1732060800000-LotAllocations';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
+import { prContext, prSubmission } from './test-utils';
 
 /** Product lock, HĐ line products, GIR, GI and completion against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
 describe('Outbound: GIR → GI (integration)', () => {
@@ -97,10 +98,11 @@ describe('Outbound: GIR → GI (integration)', () => {
       ...(cableQty ? [{ salesContractLineId: sc.cableLine, productId: cable, quantity: cableQty }] : []),
     ];
     const pr = await proc.createPurchaseRequisition(pmUser, sc.id, lines);
-    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
-      await proc.approve('PR', pr.id, (await app.get(IdentityService).loadCurrentUser(id))!);
+      await proc.actOnPr(pr.id, (await app.get(IdentityService).loadCurrentUser(id))!,
+        username === 'pm-head' ? 'approve' : 'receive', await prContext(ds, pr.id));
     }
     const prl = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1`, [pr.id]);
     const [{ id: sup }] = await ds.query(`INSERT INTO suppliers (code, name) VALUES ($1, 'S') RETURNING id`, [`S${Math.random()}`]);
@@ -133,10 +135,11 @@ describe('Outbound: GIR → GI (integration)', () => {
       ...(routerQty ? [{ salesContractLineId: hd(sc.routerLine), productId: router, quantity: routerQty }] : []),
       ...(cableQty ? [{ salesContractLineId: hd(sc.cableLine), productId: cable, quantity: cableQty }] : []),
     ], category);
-    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
-      await proc.approve('PR', pr.id, (await app.get(IdentityService).loadCurrentUser(id))!);
+      await proc.actOnPr(pr.id, (await app.get(IdentityService).loadCurrentUser(id))!,
+        username === 'pm-head' ? 'approve' : 'receive', await prContext(ds, pr.id));
     }
     const prl: { id: number; product_id: number; quantity: string }[] = await ds.query(
       `SELECT id, product_id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [pr.id]);
@@ -392,10 +395,11 @@ describe('Outbound: GIR → GI (integration)', () => {
     const sc = await contract(5, 5);
     const proc = app.get(ProcurementService);
     const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ productId: cable, quantity: 3 }], 'MATERIAL', 'Dự phòng bảo trì');
-    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
-      await proc.approve('PR', pr.id, (await app.get(IdentityService).loadCurrentUser(id))!);
+      await proc.actOnPr(pr.id, (await app.get(IdentityService).loadCurrentUser(id))!,
+        username === 'pm-head' ? 'approve' : 'receive', await prContext(ds, pr.id));
     }
     const [{ id: prLine }] = await ds.query(`SELECT id FROM purchase_requisition_lines WHERE purchase_requisition_id = $1`, [pr.id]);
     const body = { issueType: 'PURCHASE_REQUISITION', salesContractId: sc.id, warehouseId: hcm, lines: [{ purchaseRequisitionLineId: prLine, quantity: 1 }] };
@@ -728,10 +732,11 @@ describe('Outbound: GIR → GI (integration)', () => {
     const sc = await contract(10, 10);
     const proc = app.get(ProcurementService);
     const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 5 }]);
-    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
-      await proc.approve('PR', pr.id, (await app.get(IdentityService).loadCurrentUser(id))!);
+      await proc.actOnPr(pr.id, (await app.get(IdentityService).loadCurrentUser(id))!,
+        username === 'pm-head' ? 'approve' : 'receive', await prContext(ds, pr.id));
     }
     const [{ id: prLine }] = await ds.query(`SELECT id FROM purchase_requisition_lines WHERE purchase_requisition_id = $1`, [pr.id]);
     const [{ id: sup }] = await ds.query(`INSERT INTO suppliers (code, name) VALUES ($1, 'S') RETURNING id`, [`S${Math.random()}`]);
@@ -850,10 +855,11 @@ describe('Outbound: GIR → GI (integration)', () => {
   async function prOnPos(sc: Contract, qty: number, split: number[]) {
     const proc = app.get(ProcurementService);
     const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ salesContractLineId: sc.cableLine, productId: cable, quantity: qty }]);
-    await proc.submit('PR', pr.id, pmUser, salesId);
+    await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
-      await proc.approve('PR', pr.id, (await app.get(IdentityService).loadCurrentUser(id))!);
+      await proc.actOnPr(pr.id, (await app.get(IdentityService).loadCurrentUser(id))!,
+        username === 'pm-head' ? 'approve' : 'receive', await prContext(ds, pr.id));
     }
     const [{ id: prLine }] = await ds.query(`SELECT id FROM purchase_requisition_lines WHERE purchase_requisition_id = $1`, [pr.id]);
     const pos: { poId: number; poLine: number }[] = [];

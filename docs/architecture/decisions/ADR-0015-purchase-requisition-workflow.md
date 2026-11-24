@@ -7,8 +7,8 @@
 
 - `DRAFT → WAITING_FOR_APPROVE → WAITING_FOR_RECEIPT → DONE`. `APPROVED` là kết quả của bước. `REJECTED` cho phép sửa và gửi lại.
 - Sales hoặc PM có `PR.CREATE` chỉ tạo PR cho HĐ mà mình phụ trách. HĐ dùng trường Sales hiện có và thêm một PM tùy chọn. Nếu cùng phụ trách theo cả hai vai trò, người tạo chọn luồng.
-- Sales Head xử lý luồng Sales, PM Head xử lý luồng PM. Purchasing tiếp nhận ban đầu. Cấu hình nhận gồm role và người dùng, hỗ trợ chuyển bộ phận bằng cách cấu hình role có `PR.RECEIVE`.
-- Mỗi lần gửi, hệ thống xác thực người được giao còn hoạt động, đúng role, có permission và khác người tạo. Phân công và bộ phận được lưu theo vòng. Mỗi quyết định yêu cầu đúng bước, đúng người được phân công và quyền tương ứng. Sửa cấu hình có hiệu lực từ lần gửi tiếp theo.
+- Admin cấu hình tập người phê duyệt cho Sales và PM, cùng một tập người tiếp nhận. Tư cách ứng viên dựa trên thành viên tập và permission hiện hành trong RBAC. Tài khoản được gán theo hợp đồng với `PR.CREATE` có phạm vi tạo PR; tên role do cấu hình quyết định.
+- Người tạo có thể lưu lựa chọn ở Nháp hoặc chọn lại khi Gửi duyệt. Submit lưu snapshot người xử lý và tên vai trò cấp quyền theo vòng. Action xử lý kiểm tra lại assignment, tư cách ứng viên, tài khoản hoạt động và permission trong transaction. Thu hồi eligibility tác động ngay sau commit, giữ nguyên phân công và trạng thái PR.
 - Người tạo thu hồi ở hai trạng thái chờ, nhập lý do, quay về Nháp và vô hiệu hóa các bước của vòng đã thu hồi. Gửi lại mở vòng mới. Hai bước đều cho từ chối và bắt buộc lý do.
 - Người tạo được hủy Nháp hoặc Bị từ chối. Với PR Hoàn tất, hủy yêu cầu lý do và không còn PO chưa hủy. PR Hoàn tất không thể thu hồi.
 - PO chỉ lấy dòng PR Hoàn tất. GIR A/C giữ quy tắc `PO done` dựa trên tổng số lượng của PO đã duyệt cho từng dòng. GRR/GR tiếp tục kiểm tra trạng thái của chứng từ nguồn trực tiếp.
@@ -23,10 +23,11 @@
 
 Cấu hình qua OpenAPI bằng người dùng có `PR.CONFIGURE` (seed cấp cho ADMIN):
 
-- `PUT /pr-workflow/routes/SALES` và `PUT /pr-workflow/routes/PM` nhận `approverId`, `receiverId`, `receiptRole` (ban đầu là `PURCHASING`). `GET /pr-workflow/routes` xem lại cấu hình.
+- `PUT /pr-workflow/routes/{SALES|PM|RECEIPT}` nhận `{ "userIds": [...] }` và thay toàn bộ tập tương ứng. Danh sách rỗng thu hồi toàn bộ ứng viên của tập đó. `GET /pr-workflow/routes` trả thành viên theo tập.
 - `PUT /pr-workflow/contracts/:id/responsible-pm` nhận `userId` của một PM đang hoạt động.
-- `GET /pr-workflow/candidates` liệt kê người dùng hợp lệ theo role và permission.
-- Thiếu phân công vẫn lưu được Nháp. Gửi duyệt báo cấu hình cần bổ sung. Seed role không tự gán người phụ trách hay người duyệt. Demo seed dùng cấu hình Sales đã thiết lập.
+- `GET /pr-workflow/candidates` trả danh sách người có quyền cho Admin cấu hình từng tập. Creator có `PR.CREATE` dùng `GET /pr-workflow/creator-candidates?salesContractId=…&route=…` khi tạo hoặc `GET /purchase-requisitions/:id/candidates` khi sửa/gửi PR. Backend giới hạn theo hợp đồng/creator, trả người còn hoạt động và bỏ chính creator.
+- Gửi duyệt cần `approverId`, `receiverId` và ngữ cảnh `version`, `round`, `step`. `approve` xử lý bước `APPROVAL`, `receive` xử lý bước `RECEIPT`. Reject/Recall/Cancel cũng yêu cầu ngữ cảnh. Trạng thái Nháp/Bị từ chối dùng `CREATE`, Hoàn tất/Hủy dùng `CLOSED`. Khi ngữ cảnh cũ, API trả `409 STALE_WORKFLOW_CONTEXT`.
+- Migration Phase 2 chuyển approver cũ vào tập Sales/PM tương ứng và hợp nhất receiver cũ vào tập tiếp nhận chung. Snapshot cũ giữ nguyên. Không hỗ trợ downgrade làm mất dữ liệu từ tập nhiều người về một cặp. Demo seed dùng các tập Sales và Receipt đã cấu hình.
 
 Migration schema workflow đầu tiên yêu cầu bảng PR rỗng. Migration bổ sung của Phase 1 bảo toàn PR và lịch sử hiện có, theo [ADR-0016](ADR-0016-common-document-records.md). Script reset riêng chỉ dành cho PR test và từ chối xóa khi PO/GIR còn tham chiếu.
 
@@ -37,4 +38,4 @@ Migration schema workflow đầu tiên yêu cầu bảng PR rỗng. Migration b�
 - `PR.CONFIGURE` quản lý cấu hình. `PR.REASSIGN` độc lập cho quyền phân công lại của Admin. Giữ các quyền của creator và người tiếp nhận hiện tại theo ma trận UAT.
 - Reassign chỉ tác động node đang chờ, có lý do, giữ nguyên trạng thái và vòng. Cập nhật assignment, hàng đợi, activity và thông báo cho người cũ/mới cùng transaction.
 - Action phải mang ý định tường minh, version, round và step. Backend kiểm tra lại dưới khóa trong transaction. Tổ chức, quyền và phân công đổi qua cấu hình. Role trong card dùng nhãn **Vai trò**.
-- Phase 1 bổ sung permission và lưu trữ chung. Admin vẫn dùng các endpoint cấu hình cặp người xử lý hiện tại cho đến phase Eligibility; API Reassign và kiểm soát ngữ cảnh action thuộc các phase sau.
+- Phase 1 bổ sung permission và lưu trữ chung. Phase 2 triển khai Eligibility và kiểm soát ngữ cảnh action. API Reassign và mẫu thông báo mới thuộc Phase 3.

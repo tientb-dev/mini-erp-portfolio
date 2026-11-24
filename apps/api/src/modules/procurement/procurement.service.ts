@@ -4,6 +4,8 @@ import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
 import * as prWorkflow from './pr-workflow';
+import { configurePool, listCandidates, PR_POOLS, PrPool } from './pr-eligibility';
+import { ActionContext } from '../workflow/action-context';
 import { documentPage, insertNote } from '../document-records/document-records';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
@@ -20,6 +22,10 @@ export interface PrLineForIssue {
 }
 
 function assertPrLines(category: LineCategory, lines: PrLineInput[]) {
+  if (!lines.length) throw new BusinessError('PR_LINES_REQUIRED', 'Add at least one valid line');
+  if (lines.some(line => !Number.isInteger(line.productId) || line.productId <= 0 || !Number.isFinite(line.quantity) || line.quantity <= 0)) {
+    throw new BusinessError('PR_INVALID_LINE', 'Every entered line needs a valid product and positive quantity');
+  }
   if (category === 'SALES_GOODS' && lines.some((l) => !l.salesContractLineId)) {
     throw new BusinessError('SALES_CONTRACT_LINE_REQUIRED', 'Every sales-goods PR line must reference its HĐ line');
   }
@@ -147,15 +153,17 @@ export class ProcurementService {
   constructor(private readonly ds: DataSource) {}
 
   /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
-  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute) {
+  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute, selection: prWorkflow.PrSelection = {}) {
     return this.ds.transaction(async (m) => {
       const creatorRoute = await prWorkflow.creatorRoute(m, user, salesContractId, route);
       assertPrLines(category, lines);
       await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
+      await prWorkflow.validateSelection(m, creatorRoute, user.id, selection);
       const number = await wf.nextDocumentNumber(m, 'PR');
       const [pr] = await m.query(
-        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by, creator_route) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute],
+        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by, creator_route, draft_approver_id, draft_receiver_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute, selection.approverId ?? null, selection.receiverId ?? null],
       );
       for (const l of lines) await this.writePrLine(m, pr.id, l);
       return { id: pr.id as number, documentNumber: number };
@@ -190,7 +198,7 @@ export class ProcurementService {
   }
 
   /** Edit a DRAFT/REJECTED PR by its creator: lines (HĐ line, product → UoM, quantity); the HĐ stays the same. */
-  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[]) {
+  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection = {}) {
     return this.ds.transaction(async (m) => {
       const [head] = await m.query(`SELECT created_by, sales_contract_id, category, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
       if (!head) throw new NotFoundException();
@@ -202,9 +210,12 @@ export class ProcurementService {
       await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, scLineIds(lines));
       const doc = await prWorkflow.lock(m, id);
       wf.assertEditable(doc, user, version);
+      await prWorkflow.validateSelection(m, doc.creator_route, user.id, selection);
       await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
       for (const l of lines) await this.writePrLine(m, id, l);
-      await wf.setStatus(m, 'PR', doc, doc.approval_status);
+      await wf.setStatus(m, 'PR', doc, doc.approval_status,
+        ', draft_approver_id = CASE WHEN $3 THEN $4 ELSE draft_approver_id END, draft_receiver_id = CASE WHEN $5 THEN $6 ELSE draft_receiver_id END',
+        [selection.approverId !== undefined, selection.approverId ?? null, selection.receiverId !== undefined, selection.receiverId ?? null]);
       await wf.record(m, 'PR', id, 'EDIT', user.id, undefined, {
         previousStatus: doc.approval_status, nextStatus: doc.approval_status, round: doc.approval_round,
       });
@@ -301,18 +312,32 @@ export class ProcurementService {
     if (bad) throw new BusinessError('PR_SOURCE_NOT_DONE', `PR ${bad.document_number} is no longer DONE`);
   }
 
-  submit(type: 'PR' | 'PO', id: number, user: CurrentUser, approverId?: number) {
+  submitPr(id: number, user: CurrentUser, dto: prWorkflow.PrSubmission) {
+    return this.ds.transaction(m => prWorkflow.submit(m, id, user, dto));
+  }
+
+  actOnPr(id: number, user: CurrentUser, action: prWorkflow.PrAction, context: ActionContext, reason?: string) {
+    return this.ds.transaction(async m => {
+      const doc = await prWorkflow.lock(m, id);
+      const hasChildren = async () => (await m.query(
+        `SELECT 1 FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
+           JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
+          WHERE prl.purchase_requisition_id = $1 AND po.approval_status <> 'CANCELED' LIMIT 1`, [id],
+      )).length > 0;
+      await prWorkflow.decide(m, doc, user, action, reason, hasChildren, context);
+    });
+  }
+
+  submit(type: 'PO', id: number, user: CurrentUser, approverId: number) {
     return this.ds.transaction(async (m) => {
-      if (type === 'PR') return prWorkflow.submit(m, id, user);
       const doc = await wf.lockDocument(m, type, id);
       if (type === 'PO') { await this.checkPoSources(m, id); await this.checkPoLimits(m, id, true); }
       await wf.submit(m, type, doc, user, approverId!);
     });
   }
 
-  approve(type: 'PR' | 'PO', id: number, user: CurrentUser, version?: number) {
+  approve(type: 'PO', id: number, user: CurrentUser) {
     return this.ds.transaction(async (m) => {
-      if (type === 'PR') return prWorkflow.decide(m, await prWorkflow.lock(m, id), user, 'approve', undefined, async () => false, version);
       const doc = await wf.lockDocument(m, type, id);
       if (type === 'PO') { await this.checkPoSources(m, id); await this.checkPoLimits(m, id, false); }
       await wf.approve(m, type, doc, user);
@@ -320,17 +345,11 @@ export class ProcurementService {
   }
 
   /** Reject / recall / cancel; an APPROVED PR (PO) needs no non-canceled PO (GRR) referencing it (03 §6). */
-  decide(type: 'PR' | 'PO', action: 'reject' | 'recall' | 'cancel', id: number, user: CurrentUser, reason?: string, version?: number) {
+  decide(type: 'PO', action: 'reject' | 'recall' | 'cancel', id: number, user: CurrentUser, reason?: string) {
     return this.ds.transaction(async (m) => {
       const doc = await wf.lockDocument(m, type, id);
-      const childSql = type === 'PR'
-        ? `SELECT 1 FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
-             JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
-            WHERE prl.purchase_requisition_id = $1 AND po.approval_status <> 'CANCELED' LIMIT 1`
-        // shortcut: reads the Inbound table directly until PO lines carry the ADR-0003 aggregate maintained by Inbound.
-        : `SELECT 1 FROM goods_receipt_requests WHERE purchase_order_id = $1 AND approval_status <> 'CANCELED' LIMIT 1`;
+      const childSql = `SELECT 1 FROM goods_receipt_requests WHERE purchase_order_id = $1 AND approval_status <> 'CANCELED' LIMIT 1`;
       const hasChildren = async () => (await m.query(childSql, [id])).length > 0;
-      if (type === 'PR') return prWorkflow.decide(m, doc as Awaited<ReturnType<typeof prWorkflow.lock>>, user, action, reason, hasChildren, version);
       await wf.decide(m, type, doc, user, action, reason, hasChildren);
     });
   }
@@ -370,7 +389,8 @@ export class ProcurementService {
 
   private async readablePr(m: EntityManager, user: CurrentUser, id: number, lock = false) {
     const [pr] = await m.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
+      `SELECT ${wf.DOC_COLUMNS}, d.approval_round AS "approvalRound", d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
+        d.creator_route AS "creatorRoute", d.draft_approver_id AS "draftApproverId", d.draft_receiver_id AS "draftReceiverId",
         s.responsible_sales_user_id AS "responsibleSalesUserId", d.category, d.purpose,
         s.document_number AS "salesContractNumber", c.name AS "customerName",
         EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $2) AS "wasAssigned"
@@ -420,26 +440,32 @@ export class ProcurementService {
       notes: notes.items, notesCursor: notes.nextCursor };
   }
 
-  configurePrRoute(route: string, dto: { approverId: number; receiverId: number; receiptRole: string }) {
-    if (route !== 'SALES' && route !== 'PM') throw new BusinessError('PR_ROUTE_INVALID', 'Use SALES or PM');
-    return this.ds.transaction(m => prWorkflow.configure(m, route, {
-      approver_id: dto.approverId, receiver_id: dto.receiverId, receipt_role: dto.receiptRole,
-    }));
+  configurePrRoute(pool: PrPool, userIds: number[]) {
+    return this.ds.transaction(m => configurePool(m, pool, userIds));
   }
 
   listPrRoutes() {
-    return this.ds.query(`SELECT route, approver_id AS "approverId", receiver_id AS "receiverId", receipt_role AS "receiptRole"
-      FROM pr_workflow_routes ORDER BY route`);
+    return this.ds.query('SELECT pool, user_id AS "userId" FROM pr_candidate_pool_members ORDER BY pool, user_id');
   }
 
   listPrAssignmentCandidates() {
-    return this.ds.query(`SELECT DISTINCT u.id, u.full_name AS "fullName", u.username, r.code AS role, p.code AS permission
-      FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-      JOIN role_permissions rp ON rp.role_id = r.id JOIN permissions p ON p.id = rp.permission_id
-      WHERE u.is_active AND (r.code = 'PM' AND p.code = 'PR.CREATE'
-        OR r.code IN ('SALES_HEAD', 'PM_HEAD') AND p.code = 'PR.APPROVE'
-        OR r.code <> 'ADMIN' AND p.code = 'PR.RECEIVE')
-      ORDER BY u.username, r.code, p.code`);
+    return Promise.all(PR_POOLS.map(async pool => ({ pool, users: await listCandidates(this.ds.manager, pool, null, false) })));
+  }
+
+  async listPrCandidates(id: number, user: CurrentUser) {
+    const [doc] = await this.ds.query('SELECT * FROM purchase_requisitions WHERE id = $1 AND created_by = $2', [id, user.id]);
+    if (!doc) throw new ForbiddenException('The PR is outside your creation scope');
+    wf.assertStatus(doc, ['DRAFT', 'REJECTED']);
+    return this.listCreatorCandidates(user, doc.sales_contract_id, doc.creator_route);
+  }
+
+  async listCreatorCandidates(user: CurrentUser, contractId: number, requestedRoute?: prWorkflow.PrRoute) {
+    const route = await prWorkflow.creatorRoute(this.ds.manager, user, contractId, requestedRoute);
+    const [approvers, receivers] = await Promise.all([
+      listCandidates(this.ds.manager, route, user.id),
+      listCandidates(this.ds.manager, 'RECEIPT', user.id),
+    ]);
+    return { approvers, receivers };
   }
 
   assignResponsiblePm(id: number, userId: number) {

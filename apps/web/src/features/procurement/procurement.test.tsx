@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { me, mockApi, wrap } from '../../test/helpers/api';
 import { PurchaseOrdersPage, PurchaseRequisitionsPage } from '.';
 
 it('PR18: the assigned receiver can receive, and goods stay visible across tabs', async () => {
   const pr = {
-    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_RECEIPT', version: 3,
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_RECEIPT', version: 3, approvalRound: 1,
     createdBy: 2, createdByName: 'Sales', assignedApproverId: 1, assignedApproverName: 'Purchaser',
     createdAt: '2026-11-13T00:00:00Z', category: 'SALES_GOODS', salesContractNumber: 'SC-5', customerName: 'Customer',
     children: [], history: [], notesCursor: 2,
@@ -28,7 +29,39 @@ it('PR18: the assigned receiver can receive, and goods stay visible across tabs'
   expect(screen.getByRole('gridcell', { name: 'PN-5' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
   fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
-  await waitFor(() => expect(posts).toEqual([{ url: '/purchase-requisitions/5/approve', body: { version: 3 } }]));
+  await waitFor(() => expect(posts).toEqual([{ url: '/purchase-requisitions/5/receive', body: { version: 3, round: 1, step: 'RECEIPT' } }]));
+});
+
+it('keeps the submit context and selected candidates from the open dialog when detail refreshes', async () => {
+  const pr = {
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    createdBy: 1, createdByName: 'Sales', assignedApproverId: null, salesContractNumber: 'SC-5',
+    createdAt: '2026-11-13T00:00:00Z', category: 'MATERIAL', children: [], history: [], notes: [], lines: [],
+  };
+  const candidate = { id: 2, username: 'candidate', fullName: 'Candidate' };
+  const posts = mockApi({
+    '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
+    '/purchase-requisitions/5/candidates': { approvers: [candidate], receivers: [candidate] },
+  });
+  function TestPage() {
+    const client = useQueryClient();
+    return <>
+      <button onClick={() => client.setQueryData(['pr', 5], { ...pr, version: 3 })}>Refresh fixture</button>
+      <PurchaseRequisitionsPage initialId={5} />
+    </>;
+  }
+  wrap(<TestPage />);
+  const refresh = screen.getByRole('button', { name: 'Refresh fixture' });
+  fireEvent.click(await screen.findByRole('button', { name: 'Gửi duyệt' }));
+  for (const label of [/Người duyệt/, /Người tiếp nhận/]) {
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: label }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Candidate (candidate)' }));
+  }
+  fireEvent.click(refresh);
+  fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
+  await waitFor(() => expect(posts).toEqual([{
+    url: '/purchase-requisitions/5/submit', body: { version: 2, round: 0, step: 'CREATE', approverId: 2, receiverId: 2 },
+  }]));
 });
 
 describe('Purchase order form', () => {

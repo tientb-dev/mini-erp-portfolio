@@ -56,7 +56,7 @@ docker-compose.yml   PostgreSQL
 
 ### Workflow Đề nghị mua hàng (PR #18)
 
-Xem [ADR-0015](docs/architecture/decisions/ADR-0015-purchase-requisition-workflow.md) để cấu hình luồng Sales, luồng PM và PM phụ trách từng hợp đồng. Đặt cấu hình luồng Sales trước khi chạy demo seed.
+Xem [ADR-0015](docs/architecture/decisions/ADR-0015-purchase-requisition-workflow.md) để cấu hình tập ứng viên Sales, PM, Receipt và PM phụ trách từng hợp đồng. Đặt cấu hình tập Sales và Receipt trước khi chạy demo seed.
 
 Database đã áp dụng workflow PR có thể chạy `pnpm migrate` và `pnpm seed` để nâng cấp Common Notes/History và đồng bộ permission. Migration bổ sung giữ dữ liệu hiện có. Migration workflow đầu tiên vẫn yêu cầu bảng PR rỗng, nên hãy dùng database mới nếu database development còn PR từ trước workflow.
 

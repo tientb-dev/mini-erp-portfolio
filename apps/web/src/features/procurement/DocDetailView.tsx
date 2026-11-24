@@ -10,6 +10,7 @@ import { PrNotes } from './PrNotes';
 import { DocumentRecordList } from '../../shared/components/DocumentRecordList';
 import { fmtDate, num } from '../../shared/utils/format';
 import { useMe } from '../identity';
+import type { WorkflowActionContext } from "../workflow/types";
 import { DocAction, DocActionDialog, HistoryList } from '../workflow';
 import { DocConfig, DocDetail, DocLine } from './types';
 
@@ -17,7 +18,7 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
   const { t } = useTranslation();
   const qc = useQueryClient();
   const me = useMe();
-  const [action, setAction] = useState<DocAction | null>(null);
+  const [action, setAction] = useState<{ action: DocAction; context?: WorkflowActionContext; completed: boolean } | null>(null);
   const [editing, setEditing] = useState(false);
   const doc = useQuery({ queryKey: [cfg.key, id], queryFn: () => api<DocDetail>(`/${cfg.path}/${id}`) });
   if (!doc.data || !me.data) return <DetailPageLayout title={t(`${cfg.key}.title`)} loading error={doc.error ?? me.error} />;
@@ -31,6 +32,9 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
     && me.data.permissions.includes(receiving ? 'PR.RECEIVE' : `${cfg.perm}.APPROVE`);
   const canManage = isCreator && me.data.permissions.includes(`${cfg.perm}.CREATE`);
   const completed = status === (isPr ? 'DONE' : 'APPROVED');
+  const openAction = (action: DocAction) => setAction({ action, completed, context: isPr ? {
+    version: d.version, round: d.approvalRound ?? 0, step: receiving ? 'RECEIPT' : waiting ? 'APPROVAL' : editable ? 'CREATE' : 'CLOSED',
+  } : undefined });
   const activeStep = completed ? 3 : receiving ? 2 : waiting ? 1 : 0;
   const latestRound = d.nodes?.[0]?.round;
   const steps = ['CREATE', 'APPROVAL', 'RECEIPT'].map((key, index) => {
@@ -63,12 +67,12 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
   const actions = (
     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1, justifyContent: 'flex-end' }}>
       <Button onClick={onBack}>{t('gr.back')}</Button>
-      {canManage && (editable || completed) && <Button onClick={() => setAction('cancel')}>{t('doc.cancel')}</Button>}
-      {canManage && (waiting || (!isPr && completed)) && <Button onClick={() => setAction('recall')}>{t('doc.recall')}</Button>}
+      {canManage && (editable || completed) && <Button onClick={() => openAction('cancel')}>{t('doc.cancel')}</Button>}
+      {canManage && (waiting || (!isPr && completed)) && <Button onClick={() => openAction('recall')}>{t('doc.recall')}</Button>}
       {canManage && editable && <Button onClick={() => setEditing(true)}>{t('doc.edit')}</Button>}
-      {canManage && editable && <Button variant="contained" onClick={() => setAction('submit')}>{t('doc.submit')}</Button>}
-      {isApprover && <Button color="error" onClick={() => setAction('reject')}>{t('doc.reject')}</Button>}
-      {isApprover && <Button variant="contained" onClick={() => setAction('approve')}>{t(receiving ? 'pr.receive' : 'doc.approve')}</Button>}
+      {canManage && editable && <Button variant="contained" onClick={() => openAction('submit')}>{t('doc.submit')}</Button>}
+      {isApprover && <Button color="error" onClick={() => openAction('reject')}>{t('doc.reject')}</Button>}
+      {isApprover && <Button variant="contained" onClick={() => openAction(receiving ? 'receive' : 'approve')}>{t(receiving ? 'pr.receive' : 'doc.approve')}</Button>}
     </Stack>
   );
   return (
@@ -122,8 +126,8 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
       </DetailPageLayout>
       {editing && <cfg.Create edit={d} onClose={() => setEditing(false)} onCreated={() => { setEditing(false); void qc.invalidateQueries({ queryKey: [cfg.key] }); }} />}
       {action && (
-        <DocActionDialog basePath={`/${cfg.path}/${id}`} action={action} approversPath={isPr ? undefined : `/${cfg.path}/${id}/approvers`} approved={completed} receive={receiving && action === 'approve'}
-          version={isPr && action !== 'submit' ? d.version : undefined}
+        <DocActionDialog basePath={`/${cfg.path}/${id}`} action={action.action} approversPath={isPr ? undefined : `/${cfg.path}/${id}/approvers`} approved={action.completed} context={action.context}
+          draftCandidates={isPr ? { approverId: d.draftApproverId, receiverId: d.draftReceiverId } : undefined}
           onClose={() => setAction(null)}
           onDone={() => { setAction(null); void qc.invalidateQueries({ queryKey: [cfg.key] }); }} />
       )}

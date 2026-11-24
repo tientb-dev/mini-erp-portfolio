@@ -41,13 +41,21 @@ async function main() {
     const customer = (await one(`SELECT id FROM customers WHERE code = 'KH-DEMO'`, [])).id;
     const supplier = (await one(`SELECT id FROM suppliers WHERE code = 'NCC-DEMO'`, [])).id;
 
-    const assignment = (await proc.listPrRoutes()).find((route: { route: string }) => route.route === 'SALES');
-    if (!assignment) throw new Error('Configure the SALES PR workflow route before running the demo seed');
     const salesUser = await identity.loadCurrentUser(await userId('sales'));
     if (!salesUser) throw new Error('Seed the active demo Sales user first');
-    const prApprover = await identity.loadCurrentUser(assignment.approverId);
-    const prReceiver = await identity.loadCurrentUser(assignment.receiverId);
-    if (!prApprover || !prReceiver) throw new Error('The configured PR workflow users must be active');
+    async function processPr(id: number) {
+      const { approvers, receivers } = await proc.listPrCandidates(id, salesUser!);
+      if (!approvers.length || !receivers.length) throw new Error('Configure the SALES and RECEIPT candidate pools before running demo seed');
+      const getContext = async (step: 'CREATE' | 'APPROVAL' | 'RECEIPT') => {
+        const pr = await proc.getPr(salesUser!, id);
+        return { version: pr.version, round: pr.approvalRound, step };
+      };
+      const approverId = approvers[0].id;
+      const receiverId = receivers[0].id;
+      await proc.submitPr(id, salesUser!, { ...await getContext('CREATE'), approverId, receiverId });
+      await proc.actOnPr(id, (await identity.loadCurrentUser(approverId))!, 'approve', await getContext('APPROVAL'));
+      await proc.actOnPr(id, (await identity.loadCurrentUser(receiverId))!, 'receive', await getContext('RECEIPT'));
+    }
     const sc = await sales.create(creator, customer, salesUser.id, [
       { itemCode: 'RT-AX3000', itemName: 'Router Wi-Fi AX3000', unitOfMeasureId: pcs, quantity: 3 },
       { itemCode: 'CB-CAT6', itemName: 'Cáp mạng Cat6', unitOfMeasureId: pcs, quantity: 2 },
@@ -58,9 +66,7 @@ async function main() {
       { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
       { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
     ]);
-    await proc.submit('PR', pr.id, salesUser);
-    await proc.approve('PR', pr.id, prApprover);
-    await proc.approve('PR', pr.id, prReceiver);
+    await processPr(pr.id);
     const prLines = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [pr.id]);
     const po = await proc.createPurchaseOrder(creator, supplier, prLines.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));
     await proc.submit('PO', po.id, creator, approver.id);
@@ -80,9 +86,7 @@ async function main() {
       { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
       { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
     ]);
-    await proc.submit('PR', stockPr.id, salesUser);
-    await proc.approve('PR', stockPr.id, prApprover);
-    await proc.approve('PR', stockPr.id, prReceiver);
+    await processPr(stockPr.id);
     const spl = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [stockPr.id]);
     const stockPo = await proc.createPurchaseOrder(creator, supplier, spl.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));
     await proc.submit("PO", stockPo.id, creator, approver.id);

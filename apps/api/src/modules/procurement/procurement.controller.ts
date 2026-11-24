@@ -1,17 +1,17 @@
-import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { ProcurementService } from './procurement.service';
+import { PR_POOLS, PrPool, PrRoute } from './pr-eligibility';
+import { WORKFLOW_STEPS, WorkflowStep } from '../workflow/action-context';
 
 class WorkflowRouteDto {
-  @ApiProperty() @IsInt() @IsPositive() approverId!: number;
-  @ApiProperty() @IsInt() @IsPositive() receiverId!: number;
-  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(50) receiptRole!: string;
+  @ApiProperty({ type: [Number] }) @IsArray() @ArrayUnique() @IsInt({ each: true }) @IsPositive({ each: true }) userIds!: number[];
 }
 class AssignPmDto {
   @ApiProperty() @IsInt() @IsPositive() userId!: number;
@@ -20,13 +20,22 @@ class PrNoteDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(4000) body!: string;
 }
 class PrDecisionDto {
-  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() version?: number;
+  @ApiProperty() @IsInt() @IsPositive() version!: number;
+  @ApiProperty() @IsInt() @Min(0) round!: number;
+  @ApiProperty({ enum: WORKFLOW_STEPS }) @IsIn(WORKFLOW_STEPS) step!: WorkflowStep;
 }
-class PrRejectDto extends ReasonDto {
-  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() version?: number;
+class PrSubmitDto extends PrDecisionDto {
+  @ApiProperty() @IsInt() @IsPositive() approverId!: number;
+  @ApiProperty() @IsInt() @IsPositive() receiverId!: number;
 }
-class PrCancelDto extends OptionalReasonDto {
-  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() version?: number;
+class PrRejectDto extends PrDecisionDto {
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
+}
+class PrCancelDto extends PrDecisionDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() reason?: string;
+}
+class PrPoolParams {
+  @ApiProperty({ enum: PR_POOLS }) @IsIn(PR_POOLS) route!: PrPool;
 }
 
 class PrLineDto {
@@ -35,7 +44,11 @@ class PrLineDto {
   @ApiProperty() @IsInt() productId!: number;
   @ApiProperty() @IsPositive() quantity!: number;
 }
-class CreatePrDto {
+class PrDraftSelection {
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() approverId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() receiverId?: number | null;
+}
+class CreatePrDto extends PrDraftSelection {
   @ApiPropertyOptional({ enum: ['SALES', 'PM'] }) @IsOptional() @IsIn(['SALES', 'PM']) route?: 'SALES' | 'PM';
   @ApiProperty() @IsInt() salesContractId!: number;
   @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], default: 'SALES_GOODS' }) @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
@@ -47,7 +60,7 @@ class CreatePoDto {
   @ApiProperty({ type: [SourceLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => SourceLineDto) lines!: SourceLineDto[];
 }
 
-class UpdatePrDto {
+class UpdatePrDto extends PrDraftSelection {
   @ApiProperty() @IsInt() version!: number;
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
 }
@@ -99,14 +112,14 @@ export class ProcurementController {
   @Post('purchase-requisitions')
   @RequirePermissions('PR.CREATE')
   createPr(@Req() req: AuthedRequest, @Body() dto: CreatePrDto) {
-    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose, dto.route);
+    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose, dto.route, dto);
   }
 
   @Patch('purchase-requisitions/:id')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
   updatePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePrDto) {
-    return this.svc.updatePurchaseRequisition(req.user, id, dto.version, dto.lines);
+    return this.svc.updatePurchaseRequisition(req.user, id, dto.version, dto.lines, dto);
   }
 
   @Get('purchase-requisitions/:id/lines')
@@ -137,8 +150,8 @@ export class ProcurementController {
   @Put('pr-workflow/routes/:route')
   @HttpCode(204)
   @RequirePermissions('PR.CONFIGURE')
-  configureRoute(@Param('route') route: string, @Body() dto: WorkflowRouteDto) {
-    return this.svc.configurePrRoute(route, dto);
+  configureRoute(@Param() params: PrPoolParams, @Body() dto: WorkflowRouteDto) {
+    return this.svc.configurePrRoute(params.route, dto.userIds);
   }
 
   @Get('pr-workflow/routes')
@@ -151,6 +164,13 @@ export class ProcurementController {
   @RequirePermissions('PR.CONFIGURE')
   listCandidates() {
     return this.svc.listPrAssignmentCandidates();
+  }
+
+  @Get('pr-workflow/creator-candidates')
+  @RequirePermissions('PR.CREATE')
+  creatorCandidates(@Req() req: AuthedRequest, @Query('salesContractId', ParseIntPipe) contractId: number,
+    @Query('route', new ParseEnumPipe({ SALES: 'SALES', PM: 'PM' }, { optional: true })) route?: PrRoute) {
+    return this.svc.listCreatorCandidates(req.user, contractId, route);
   }
 
   @Put('pr-workflow/contracts/:id/responsible-pm')
@@ -197,14 +217,26 @@ export class ProcurementController {
   @Post('purchase-requisitions/:id/submit')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
-  submitPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.svc.submit('PR', id, req.user);
+  submitPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrSubmitDto) {
+    return this.svc.submitPr(id, req.user, dto);
+  }
+
+  @Get('purchase-requisitions/:id/candidates')
+  @RequirePermissions('PR.CREATE')
+  listPrCandidates(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.listPrCandidates(id, req.user);
   }
 
   @Post('purchase-requisitions/:id/approve')
   @HttpCode(204)
   approvePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrDecisionDto) {
-    return this.svc.approve('PR', id, req.user, dto?.version);
+    return this.svc.actOnPr(id, req.user, 'approve', dto);
+  }
+
+  @Post('purchase-requisitions/:id/receive')
+  @HttpCode(204)
+  receivePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrDecisionDto) {
+    return this.svc.actOnPr(id, req.user, 'receive', dto);
   }
 
   @Post('purchase-orders/:id/submit')
@@ -224,21 +256,21 @@ export class ProcurementController {
   @Post('purchase-requisitions/:id/reject')
   @HttpCode(204)
   rejectPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrRejectDto) {
-    return this.svc.decide('PR', 'reject', id, req.user, dto.reason, dto.version);
+    return this.svc.actOnPr(id, req.user, 'reject', dto, dto.reason);
   }
 
   @Post('purchase-requisitions/:id/recall')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
   recallPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrRejectDto) {
-    return this.svc.decide('PR', 'recall', id, req.user, dto.reason, dto.version);
+    return this.svc.actOnPr(id, req.user, 'recall', dto, dto.reason);
   }
 
   @Post('purchase-requisitions/:id/cancel')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
   cancelPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrCancelDto) {
-    return this.svc.decide('PR', 'cancel', id, req.user, dto.reason, dto.version);
+    return this.svc.actOnPr(id, req.user, 'cancel', dto, dto.reason);
   }
 
   @Post('purchase-orders/:id/reject')

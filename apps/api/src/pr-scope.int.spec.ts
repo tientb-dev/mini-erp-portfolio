@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
+import { prContext } from './test-utils';
 
 /** PR #17 / ADR-0014: without PR.VIEW, the responsible sales of a contract may read (only read) that contract's PRs. */
 describe('PR read scope for the responsible sales (integration)', () => {
@@ -69,7 +70,7 @@ describe('PR read scope for the responsible sales (integration)', () => {
     const line = ownDetail.lines[0];
     await post(sales, '/purchase-requisitions', { salesContractId: other.sc, lines: [{ productId: line.productId, quantity: 1 }], category: 'MATERIAL' }).expect(403);
     await patch(sales, `/purchase-requisitions/${other.pr}`, { version: 1, lines: [{ productId: line.productId, salesContractLineId: line.sourceLineId, quantity: 1 }] }).expect(403);
-    await post(sales, `/purchase-requisitions/${own.pr}/approve`).expect(403);
+    await post(sales, `/purchase-requisitions/${own.pr}/approve`, await prContext(ds, own.pr)).expect(409);
     await get(sales, `/purchase-requisitions/${own.pr}/lines`).expect(403);
     await get(sales, '/purchase-orders').expect(403);
   });

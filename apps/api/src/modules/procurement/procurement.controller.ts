@@ -31,6 +31,9 @@ class PrSubmitDto extends PrDecisionDto {
 class PrRejectDto extends PrDecisionDto {
   @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
+class PrReassignDto extends PrRejectDto {
+  @ApiProperty() @IsInt() @IsPositive() assigneeId!: number;
+}
 class PrCancelDto extends PrDecisionDto {
   @ApiPropertyOptional() @IsOptional() @IsString() reason?: string;
 }
@@ -225,6 +228,17 @@ export class ProcurementController {
   @RequirePermissions('PR.CREATE')
   listPrCandidates(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.svc.listPrCandidates(id, req.user);
+  }
+
+  @Get('purchase-requisitions/:id/reassignment-candidates')
+  reassignmentCandidates(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.prReassignmentCandidates(id, req.user);
+  }
+
+  @Post('purchase-requisitions/:id/reassign')
+  @HttpCode(204)
+  reassignPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrReassignDto) {
+    return this.svc.reassignPr(id, req.user, dto);
   }
 
   @Post('purchase-requisitions/:id/approve')

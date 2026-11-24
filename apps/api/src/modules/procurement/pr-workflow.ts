@@ -5,11 +5,12 @@ import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from '../sales-contracts/sales-contracts.service';
 import { ActionContext, assertActionContext, WorkflowStep } from '../workflow/action-context';
 import * as wf from '../workflow/workflow';
-import { currentGrant, eligible, PrRoute } from './pr-eligibility';
+import { currentGrant, eligible, listCandidates, PrRoute } from './pr-eligibility';
+import { assignPrTask, notifyPr, PrPendingStep, resolvePrTasks } from './pr-notifications';
 
 export type { PrRoute } from './pr-eligibility';
 export type PrAction = 'approve' | 'receive' | 'reject' | 'recall' | 'cancel';
-type PrHeader = wf.DocHeader & { sales_contract_id: number; creator_route: PrRoute; approval_round: number };
+export type PrHeader = wf.DocHeader & { sales_contract_id: number; creator_route: PrRoute; approval_round: number };
 const pending = ['WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT'];
 export type PrSubmission = ActionContext & { approverId: number; receiverId: number };
 export interface PrSelection { approverId?: number | null; receiverId?: number | null }
@@ -54,11 +55,6 @@ async function history(m: EntityManager, doc: PrHeader, action: string, userId: 
   });
 }
 
-async function notify(m: EntityManager, id: number, recipients: number[], action: string, round: number, reason?: string) {
-  await m.query(`INSERT INTO pr_notifications (pr_id, recipient_id, action, round, reason)
-    SELECT $1, id, $3, $4, $5 FROM unnest($2::int[]) AS recipients(id) GROUP BY id`, [id, recipients, action, round, reason ?? null]);
-}
-
 export async function submit(m: EntityManager, id: number, user: CurrentUser, dto: PrSubmission) {
   const [source] = await m.query('SELECT sales_contract_id FROM purchase_requisitions WHERE id = $1', [id]);
   if (source) await SalesContractFacade.sourceContract(m, source.sales_contract_id);
@@ -82,7 +78,7 @@ export async function submit(m: EntityManager, id: number, user: CurrentUser, dt
     ', assigned_approver_id = $3, approval_round = $4, draft_approver_id = $3, draft_receiver_id = $5',
     [dto.approverId, round, dto.receiverId]);
   await history(m, doc, round === 1 ? 'SUBMIT' : 'RESUBMIT', user.id, 'WAITING_FOR_APPROVE', round);
-  await notify(m, id, [dto.approverId], 'SUBMIT', round);
+  await assignPrTask(m, id, dto.approverId, round, 'APPROVAL');
 }
 
 export async function decide(m: EntityManager, doc: PrHeader, user: CurrentUser, action: PrAction, reason: string | undefined,
@@ -104,7 +100,10 @@ export async function decide(m: EntityManager, doc: PrHeader, user: CurrentUser,
       const nodes: { assignee_id: number }[] = await m.query(
         'SELECT assignee_id FROM pr_workflow_nodes WHERE pr_id = $1 AND round = $2', [doc.id, round]);
       await m.query('UPDATE pr_workflow_nodes SET invalidated_at = now() WHERE pr_id = $1 AND round = $2', [doc.id, round]);
-      await notify(m, doc.id, nodes.map(node => node.assignee_id), action.toUpperCase(), round, reason);
+      await resolvePrTasks(m, doc.id, round);
+      const recipients = action === 'recall' ? [doc.assigned_approver_id].filter((id): id is number => id !== null)
+        : nodes.map(node => node.assignee_id);
+      await notifyPr(m, doc.id, recipients, action.toUpperCase(), round, reason);
     }
     await wf.setStatus(m, 'PR', doc, next, ', assigned_approver_id = NULL');
     await history(m, doc, action.toUpperCase(), user.id, next, round, reason);
@@ -125,7 +124,61 @@ export async function decide(m: EntityManager, doc: PrHeader, user: CurrentUser,
   await wf.setStatus(m, 'PR', doc, next, ', assigned_approver_id = $3', [receiver]);
   const event = action === 'reject' ? 'REJECT' : step === 'RECEIPT' ? 'RECEIVE' : 'APPROVE';
   await history(m, doc, event, user.id, next, round, reason);
-  await notify(m, doc.id, receiver ? [doc.created_by, receiver] : [doc.created_by], event, round, reason);
+  await resolvePrTasks(m, doc.id, round);
+  await notifyPr(m, doc.id, [doc.created_by], event, round, reason);
+  if (receiver) await assignPrTask(m, doc.id, receiver, round, 'RECEIPT');
+}
+
+export async function canReassign(m: EntityManager, doc: Pick<PrHeader, 'created_by' | 'approval_status' | 'assigned_approver_id'>,
+  user: CurrentUser, checkLive: boolean) {
+  if (!pending.includes(doc.approval_status) || !doc.assigned_approver_id) return false;
+  const step = currentStep(doc.approval_status);
+  const owns = doc.created_by === user.id;
+  const mayAdminister = user.permissions.includes('PR.REASSIGN');
+  if (owns && (checkLive ? (await currentGrant(m, user.id, 'PR.CREATE')).length : user.permissions.includes('PR.CREATE'))) return true;
+  if (mayAdminister && (!checkLive || (await currentGrant(m, user.id, 'PR.REASSIGN')).length)) return true;
+  if (step !== 'RECEIPT' || doc.assigned_approver_id !== user.id) return false;
+  return checkLive ? Boolean(await eligible(m, 'RECEIPT', user.id, doc.created_by))
+    : (await listCandidates(m, 'RECEIPT', doc.created_by)).some(candidate => candidate.id === user.id);
+}
+
+async function pendingNode(m: EntityManager, doc: PrHeader, user: CurrentUser) {
+  wf.assertStatus(doc, pending);
+  if (!(await canReassign(m, doc, user, true))) throw new ForbiddenException('You cannot reassign this PR step');
+  const step = currentStep(doc.approval_status) as PrPendingStep;
+  const [node]: { assignee_id: number; fullName: string }[] = await m.query(
+    `SELECT n.assignee_id, u.full_name AS "fullName" FROM pr_workflow_nodes n JOIN users u ON u.id = n.assignee_id
+     WHERE n.pr_id = $1 AND n.round = $2 AND n.step = $3 AND n.result IS NULL AND n.invalidated_at IS NULL
+       AND n.assignee_id = $4`, [doc.id, doc.approval_round, step, doc.assigned_approver_id],
+  );
+  if (!node) throw new wf.BusinessError('INVALID_STATUS', 'There is no active assignment', HttpStatus.CONFLICT);
+  return { node, step, pool: step === 'APPROVAL' ? doc.creator_route : 'RECEIPT' as const };
+}
+
+export async function reassignmentCandidates(m: EntityManager, doc: PrHeader, user: CurrentUser) {
+  const { node, pool } = await pendingNode(m, doc, user);
+  const candidates = await listCandidates(m, pool, doc.created_by);
+  return { current: { id: node.assignee_id, fullName: node.fullName }, candidates: candidates.filter(c => c.id !== node.assignee_id) };
+}
+
+export async function reassign(m: EntityManager, doc: PrHeader, user: CurrentUser, dto: ActionContext & { assigneeId: number; reason: string }) {
+  assertActionContext(doc, doc.approval_round, currentStep(doc.approval_status), dto);
+  const { node, step, pool } = await pendingNode(m, doc, user);
+  const reason = dto.reason.trim();
+  if (!reason) throw new wf.BusinessError('REASON_REQUIRED', 'A reason is required');
+  if (node.assignee_id === dto.assigneeId) throw new wf.BusinessError('PR_SAME_ASSIGNEE', 'Select a different assignee');
+  const next = await eligible(m, pool, dto.assigneeId, doc.created_by);
+  if (!next) throw new wf.BusinessError('PR_CANDIDATE_NOT_ELIGIBLE', 'Choose an eligible replacement');
+  await m.query(`UPDATE pr_workflow_nodes SET assignee_id = $4, department = $5 WHERE pr_id = $1 AND round = $2 AND step = $3`,
+    [doc.id, doc.approval_round, step, dto.assigneeId, next.role]);
+  await wf.setStatus(m, 'PR', doc, doc.approval_status, ', assigned_approver_id = $3', [dto.assigneeId]);
+  await wf.record(m, 'PR', doc.id, 'REASSIGN', user.id, reason, {
+    previousStatus: doc.approval_status, nextStatus: doc.approval_status, round: doc.approval_round,
+    metadata: { step, from: { id: node.assignee_id, fullName: node.fullName }, to: { id: dto.assigneeId, fullName: next.fullName } },
+  });
+  await resolvePrTasks(m, doc.id, doc.approval_round);
+  await notifyPr(m, doc.id, [node.assignee_id], 'REASSIGNED_AWAY', doc.approval_round, reason);
+  await assignPrTask(m, doc.id, dto.assigneeId, doc.approval_round, step);
 }
 
 export function lock(m: EntityManager, id: number) {

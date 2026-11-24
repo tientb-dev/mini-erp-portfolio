@@ -13,7 +13,7 @@ export interface PrNode {
   step: 'APPROVAL' | 'RECEIPT'; round: number; department: string; result: 'APPROVED' | 'REJECTED' | null;
   assigneeName: string; actorName: string | null; actedAt: string | null; invalidatedAt: string | null;
 }
-export interface DocDetail extends DocRow { lines: DocLine[]; children: { id: number; documentNumber: string; approvalStatus: string }[]; history: HistoryEntry[]; approvalRound?: number; historyCursor?: number | null; nodes?: PrNode[]; notes?: PrNote[]; notesCursor?: number | null; draftApproverId?: number | null; draftReceiverId?: number | null }
+export interface DocDetail extends DocRow { lines: DocLine[]; children: { id: number; documentNumber: string; approvalStatus: string }[]; history: HistoryEntry[]; approvalRound?: number; historyCursor?: number | null; nodes?: PrNode[]; notes?: PrNote[]; notesCursor?: number | null; draftApproverId?: number | null; draftReceiverId?: number | null; canReassign?: boolean }
 /** `edit` set = the same form edits that DRAFT/REJECTED document (PATCH); source document fields stay fixed. */
 export interface CreateProps { onClose: () => void; onCreated: (id: number) => void; edit?: DocDetail }
 

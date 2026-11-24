@@ -328,6 +328,24 @@ export class ProcurementService {
     });
   }
 
+  reassignPr(id: number, user: CurrentUser, dto: ActionContext & { assigneeId: number; reason: string }) {
+    return this.ds.transaction(async m => {
+      await this.readablePr(m, user, id);
+      const doc = await prWorkflow.lock(m, id);
+      await this.readablePr(m, user, id);
+      await prWorkflow.reassign(m, doc, user, dto);
+    });
+  }
+
+  prReassignmentCandidates(id: number, user: CurrentUser) {
+    return this.ds.transaction(async m => {
+      await this.readablePr(m, user, id);
+      const doc = await prWorkflow.lock(m, id);
+      await this.readablePr(m, user, id);
+      return prWorkflow.reassignmentCandidates(m, doc, user);
+    });
+  }
+
   submit(type: 'PO', id: number, user: CurrentUser, approverId: number) {
     return this.ds.transaction(async (m) => {
       const doc = await wf.lockDocument(m, type, id);
@@ -432,7 +450,10 @@ export class ProcurementService {
       documentPage(this.ds.manager, 'PR', id, 'notes'),
       documentPage(this.ds.manager, 'PR', id, 'history'),
     ]);
-    return { ...header, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
+    const canReassign = await prWorkflow.canReassign(this.ds.manager, {
+      approval_status: header.approvalStatus, assigned_approver_id: header.assignedApproverId, created_by: header.createdBy,
+    }, user, false);
+    return { ...header, canReassign, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
       nodes: await this.ds.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",
         a.full_name AS "assigneeName", u.full_name AS "actorName", n.acted_at AS "actedAt", n.invalidated_at AS "invalidatedAt"
         FROM pr_workflow_nodes n JOIN users a ON a.id = n.assignee_id LEFT JOIN users u ON u.id = n.actor_id
@@ -487,7 +508,8 @@ export class ProcurementService {
 
   listPrNotifications(recipientId: number) {
     return this.ds.query(`SELECT n.id, n.pr_id AS "prId", pr.document_number AS "documentNumber",
-      n.action, n.round, n.reason, n.created_at AS "createdAt", n.read_at AS "readAt"
+      n.action, n.round, n.reason, n.created_at AS "createdAt", n.read_at AS "readAt",
+      n.task_step AS "taskStep", n.resolved_at AS "resolvedAt"
       FROM pr_notifications n JOIN purchase_requisitions pr ON pr.id = n.pr_id
       WHERE n.recipient_id = $1 ORDER BY n.id DESC`, [recipientId]);
   }

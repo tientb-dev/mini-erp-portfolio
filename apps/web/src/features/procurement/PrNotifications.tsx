@@ -14,6 +14,8 @@ interface Notification {
   createdAt: string;
   reason: string | null;
   readAt: string | null;
+  taskStep: string | null;
+  resolvedAt: string | null;
 }
 
 export function PrNotifications({ userId, openPr }: { userId: number; openPr: (id: number) => void }) {
@@ -29,7 +31,7 @@ export function PrNotifications({ userId, openPr }: { userId: number; openPr: (i
     onSuccess: () => void client.invalidateQueries({ queryKey: key }),
   });
   const notifications = query.data ?? [];
-  const unread = notifications.filter(n => !n.readAt).length;
+  const unread = notifications.filter(n => !n.readAt && !n.resolvedAt).length;
 
   return (
     <>
@@ -42,9 +44,9 @@ export function PrNotifications({ userId, openPr }: { userId: number; openPr: (i
         {!notifications.length && !query.isError && <MenuItem disabled>{t('pr.noNotifications')}</MenuItem>}
         {notifications.map(n => (
           <MenuItem key={n.id} onClick={() => { setAnchor(null); read.mutate(n.id); openPr(n.prId); }}>
-            <ListItemText primary={`${n.documentNumber} · ${t(`doc.history.${n.action}`)}`}
-              secondary={[fmtDate(n.createdAt), n.reason].filter(Boolean).join(' · ')}
-              slotProps={{ primary: { sx: { fontWeight: n.readAt ? 'normal' : 600 } } }} />
+            <ListItemText primary={`${n.documentNumber} · ${t(`pr.notificationAction.${n.action}`, { defaultValue: n.action })}`}
+              secondary={[n.taskStep ? t(n.resolvedAt ? 'pr.taskResolved' : 'pr.taskOpen') : undefined, fmtDate(n.createdAt), n.reason].filter(Boolean).join(' · ')}
+              slotProps={{ primary: { sx: { fontWeight: n.readAt || n.resolvedAt ? 'normal' : 600 } } }} />
           </MenuItem>
         ))}
       </Menu>

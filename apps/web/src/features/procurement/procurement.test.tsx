@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { me, mockApi, wrap } from '../../test/helpers/api';
-import { PurchaseOrdersPage, PurchaseRequisitionsPage } from '.';
+import { PrNotifications, PurchaseOrdersPage, PurchaseRequisitionsPage } from '.';
 
 it('PR18: the assigned receiver can receive, and goods stay visible across tabs', async () => {
   const pr = {
@@ -62,6 +62,51 @@ it('keeps the submit context and selected candidates from the open dialog when d
   await waitFor(() => expect(posts).toEqual([{
     url: '/purchase-requisitions/5/submit', body: { version: 2, round: 0, step: 'CREATE', approverId: 2, receiverId: 2 },
   }]));
+});
+
+it('shows Reassign only on the pending card and requires a replacement and a reason', async () => {
+  const pr = {
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_APPROVE', version: 2, approvalRound: 1,
+    createdBy: 1, createdByName: 'Sales', assignedApproverId: 2, assignedApproverName: 'Original',
+    createdAt: '2026-11-13T00:00:00Z', category: 'MATERIAL', children: [], history: [], notes: [], lines: [],
+    canReassign: true, nodes: [{ step: 'APPROVAL', round: 1, assigneeName: 'Original' }],
+  };
+  const posts = mockApi({
+    '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
+    '/purchase-requisitions/5/reassignment-candidates': { candidates: [{ id: 3, fullName: 'New Assignee', username: 'new' }] },
+  });
+  wrap(<PurchaseRequisitionsPage initialId={5} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Người phê duyệt' }));
+  const button = screen.getByRole('button', { name: 'Phân công lại' });
+  expect(button.closest('section')).toBeNull(); // footer is a section
+  fireEvent.click(button);
+  const dialog = within(await screen.findByRole('dialog'));
+  const current = dialog.getByRole('textbox', { name: 'Người xử lý hiện tại' }) as HTMLInputElement;
+  expect([current.value, current.readOnly]).toEqual(['Original', true]);
+  const confirm = dialog.getByRole('button', { name: 'Phân công lại' }) as HTMLButtonElement;
+  expect(confirm.disabled).toBe(true);
+  fireEvent.mouseDown(dialog.getByRole('combobox', { name: /Người xử lý mới/ }));
+  fireEvent.click(await screen.findByRole('option', { name: 'New Assignee (new)' }));
+  expect(confirm.disabled).toBe(true);
+  fireEvent.change(dialog.getByRole('textbox', { name: /Lý do/ }), { target: { value: 'Bàn giao' } });
+  fireEvent.click(confirm);
+  await waitFor(() => expect(posts).toEqual([{
+    url: '/purchase-requisitions/5/reassign', body: { version: 2, round: 1, step: 'APPROVAL', assigneeId: 3, reason: 'Bàn giao' },
+  }]));
+});
+
+it('distinguishes an open receipt task from a closed approval task and an approval event', async () => {
+  const common = { prId: 5, documentNumber: 'PR-005', createdAt: '2026-11-13T00:00:00Z', readAt: null };
+  mockApi({ '/pr-notifications': [
+    { ...common, id: 3, action: 'REQUEST_RECEIPT', taskStep: 'RECEIPT', resolvedAt: null },
+    { ...common, id: 2, action: 'APPROVE', taskStep: null, resolvedAt: null },
+    { ...common, id: 1, action: 'REQUEST_APPROVAL', taskStep: 'APPROVAL', resolvedAt: common.createdAt },
+  ] });
+  wrap(<PrNotifications userId={1} openPr={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Thông báo' }));
+  expect(await screen.findByText('PR-005 · Yêu cầu bạn tiếp nhận')).toBeTruthy();
+  expect(screen.getByText('PR-005 · Đã phê duyệt, đang chờ tiếp nhận')).toBeTruthy();
+  expect(screen.getByText(/Công việc đã kết thúc/)).toBeTruthy();
 });
 
 describe('Purchase order form', () => {

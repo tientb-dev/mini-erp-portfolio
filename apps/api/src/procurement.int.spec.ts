@@ -199,12 +199,10 @@ describe('Sales contracts and procurement documents (integration)', () => {
     expect(detail.notes).toMatchObject([{ body: 'Đã tiếp nhận' }]);
     expect(detail.nodes.filter((node: { invalidatedAt: string | null }) => node.invalidatedAt)).toHaveLength(4);
     expect(detail.history[0]).toMatchObject({ action: 'RECEIVE', round: 4, previousStatus: 'WAITING_FOR_RECEIPT', nextStatus: 'DONE' });
-    for (const actor of [salesHead, receiver]) {
+    for (const [actor, round] of [[salesHead, 1], [receiver, 2]] as const) {
       const notifications = (await get(actor, '/pr-notifications').expect(200)).body;
-      expect(notifications).toEqual(expect.arrayContaining([
-        expect.objectContaining({ prId: id, action: 'RECALL', round: 1 }),
-        expect.objectContaining({ prId: id, action: 'RECALL', round: 2 }),
-      ]));
+      expect(notifications.filter((n: { prId: number; action: string }) => n.prId === id && n.action === 'RECALL'))
+        .toEqual([expect.objectContaining({ round })]);
     }
   });
 
@@ -328,6 +326,155 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await ds.query('DELETE FROM purchase_requisition_lines WHERE purchase_requisition_id = $1', [id]);
     const response = await post(admin, `/purchase-requisitions/${id}/submit`, await prSubmission(ds, id)).expect(422);
     expect(response.body.code).toBe('PR_LINES_REQUIRED');
+  });
+
+  it('Phase 3: enforces the reassignment matrix and preserves the current round and document scope', async () => {
+    const { sc, lineId } = await activeContract();
+    const head = await login(app, 'sales-head', 'role-users-test');
+    const replacement = await login(app, 'pm-head', 'role-users-test');
+    const receiver = await login(app, 'purchaser', 'role-users-test');
+    const headId = (await get(head, '/auth/me')).body.id;
+    const replacementId = (await get(replacement, '/auth/me')).body.id;
+    const receiverId = (await get(receiver, '/auth/me')).body.id;
+    const creatorId = (await get(admin, '/auth/me')).body.id;
+    const configure = (pool: string, userIds: number[]) => http().put(`/pr-workflow/routes/${pool}`).set(as(admin)).send({ userIds }).expect(204);
+    await configure('SALES', [headId, replacementId]);
+    await configure('RECEIPT', [receiverId, approverId]);
+    try {
+      const { id } = (await post(admin, '/purchase-requisitions', {
+        salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }],
+      }).expect(201)).body;
+      const path = `/purchase-requisitions/${id}`;
+      const reassign = async (actor: string, assigneeId: number, reason = 'Handover') =>
+        post(actor, `${path}/reassign`, { ...await prContext(ds, id), assigneeId, reason });
+      expect((await reassign(admin, replacementId)).status).toBe(409);
+      await post(admin, `${path}/submit`, await prSubmission(ds, id)).expect(204);
+      expect((await reassign(head, replacementId)).status).toBe(403);
+      await get(head, `${path}/reassignment-candidates`).expect(403);
+      expect((await reassign(receiver, replacementId)).status).toBe(403);
+      const options = (await get(admin, `${path}/reassignment-candidates`).expect(200)).body;
+      expect(options.current.id).toBe(headId);
+      expect(options.candidates.map((user: { id: number }) => user.id)).toEqual([replacementId]);
+      expect((await reassign(admin, headId)).body.code).toBe('PR_SAME_ASSIGNEE');
+      expect((await reassign(admin, creatorId)).body.code).toBe('PR_CANDIDATE_NOT_ELIGIBLE');
+      expect((await reassign(admin, receiverId)).body.code).toBe('PR_CANDIDATE_NOT_ELIGIBLE');
+      expect((await reassign(admin, replacementId, '  ')).body.code).toBe('REASON_REQUIRED');
+      const approval = await prContext(ds, id);
+      for (const stale of [{ version: 1 }, { round: 0 }, { step: 'RECEIPT' }]) {
+        expect((await post(admin, `${path}/reassign`, { ...approval, ...stale, assigneeId: replacementId, reason: 'Handover' })
+          .expect(409)).body.code).toBe('STALE_WORKFLOW_CONTEXT');
+      }
+      expect((await reassign(admin, replacementId)).status).toBe(204);
+      const detail = (await get(admin, path)).body;
+      expect(detail).toMatchObject({ approvalStatus: 'WAITING_FOR_APPROVE', approvalRound: 1, version: approval.version + 1,
+        assignedApproverId: replacementId, history: expect.arrayContaining([expect.objectContaining({
+          action: 'REASSIGN', actorId: creatorId, previousStatus: 'WAITING_FOR_APPROVE', nextStatus: 'WAITING_FOR_APPROVE',
+          reason: 'Handover', round: 1, createdAt: expect.any(String),
+          metadata: { step: 'APPROVAL', from: { id: headId, fullName: expect.any(String) }, to: { id: replacementId, fullName: expect.any(String) } },
+        })]) });
+      await get(head, path).expect(403);
+      await post(head, `${path}/notes`, { body: 'No longer in scope' }).expect(403);
+      await post(head, `${path}/approve`, await prContext(ds, id)).expect(403);
+      const notifications = async (actor: string) => (await get(actor, '/pr-notifications')).body.filter((n: { prId: number }) => n.prId === id);
+      expect(await notifications(head)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: 'REQUEST_APPROVAL', resolvedAt: expect.any(String) }),
+        expect.objectContaining({ action: 'REASSIGNED_AWAY', reason: 'Handover', taskStep: null }),
+      ]));
+      expect(await notifications(replacement)).toEqual([expect.objectContaining({ action: 'REQUEST_APPROVAL', resolvedAt: null })]);
+      const oldTask = (await notifications(head)).find((n: { action: string }) => n.action === 'REQUEST_APPROVAL');
+      await http().patch(`/pr-notifications/${oldTask.id}/read`).set(as(head)).expect(204);
+      await get(head, path).expect(403);
+
+      // PR.CONFIGURE alone does not grant reassignment. The same actor with PR.REASSIGN and PR.VIEW can reassign.
+      await ds.query(`DELETE FROM role_permissions rp USING roles r, permissions p
+        WHERE rp.role_id = r.id AND rp.permission_id = p.id AND r.code = 'ADMIN' AND p.code = 'PR.REASSIGN'`);
+      try {
+        expect((await reassign(approver, headId)).status).toBe(403);
+      } finally {
+        await ds.query(`INSERT INTO role_permissions (role_id, permission_id)
+          SELECT r.id, p.id FROM roles r CROSS JOIN permissions p WHERE r.code = 'ADMIN' AND p.code = 'PR.REASSIGN'`);
+      }
+      expect((await reassign(approver, headId)).status).toBe(204);
+      await post(head, `${path}/approve`, await prContext(ds, id)).expect(204);
+      expect(await notifications(admin)).toEqual([expect.objectContaining({ action: 'APPROVE', taskStep: null })]);
+      expect(await notifications(receiver)).toEqual([expect.objectContaining({ action: 'REQUEST_RECEIPT', taskStep: 'RECEIPT', resolvedAt: null })]);
+      await configure('RECEIPT', [approverId]);
+      expect((await reassign(receiver, approverId)).status).toBe(403);
+      expect((await get(admin, path)).body.assignedApproverId).toBe(receiverId);
+      await configure('RECEIPT', [receiverId, approverId]);
+      expect((await reassign(receiver, approverId)).status).toBe(204);
+      await post(receiver, `${path}/receive`, await prContext(ds, id)).expect(403);
+      expect((await reassign(admin, receiverId)).status).toBe(204);
+      expect((await get(admin, path)).body).toMatchObject({ approvalStatus: 'WAITING_FOR_RECEIPT', approvalRound: 1 });
+      await post(receiver, `${path}/receive`, await prContext(ds, id)).expect(204);
+      expect((await reassign(admin, approverId)).status).toBe(409);
+      expect(await notifications(admin)).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'RECEIVE', taskStep: null })]));
+      const rejected = (await post(admin, '/purchase-requisitions', { salesContractId: sc,
+        lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body.id as number;
+      await post(admin, `/purchase-requisitions/${rejected}/submit`, await prSubmission(ds, rejected)).expect(204);
+      await post(head, `/purchase-requisitions/${rejected}/reject`, { ...await prContext(ds, rejected), reason: 'Rejected fixture' }).expect(204);
+      await post(admin, `/purchase-requisitions/${rejected}/reassign`, {
+        ...await prContext(ds, rejected), assigneeId: replacementId, reason: 'Handover',
+      }).expect(409);
+    } finally {
+      await configure('SALES', [headId]);
+      await configure('RECEIPT', [receiverId]);
+    }
+  });
+
+  it('Phase 3: reassignment rolls back on notification failure and serializes with either decision step', async () => {
+    const { sc, lineId } = await activeContract();
+    const head = await login(app, 'sales-head', 'role-users-test');
+    const receiver = await login(app, 'purchaser', 'role-users-test');
+    const headId = (await get(head, '/auth/me')).body.id;
+    const receiverId = (await get(receiver, '/auth/me')).body.id;
+    const configure = (pool: string, userIds: number[]) => http().put(`/pr-workflow/routes/${pool}`).set(as(admin)).send({ userIds }).expect(204);
+    await configure('SALES', [headId, approverId]);
+    await configure('RECEIPT', [receiverId, approverId]);
+    try {
+      for (const action of ['approve', 'receive'] as const) {
+        const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc,
+          lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body;
+        const path = `/purchase-requisitions/${id}`;
+        await post(admin, `${path}/submit`, await prSubmission(ds, id)).expect(204);
+        if (action === 'receive') await post(head, `${path}/approve`, await prContext(ds, id)).expect(204);
+        const context = await prContext(ds, id);
+        const request = { ...context, assigneeId: approverId, reason: 'Concurrent fixture' };
+        const notifications = () => ds.query('SELECT * FROM pr_notifications WHERE pr_id = $1 ORDER BY id', [id]);
+        if (action === 'approve') {
+          await ds.query(`CREATE FUNCTION fail_pr_reassign_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'reassign notification fixture failure'; END $$;
+            CREATE TRIGGER fail_pr_reassign_fixture BEFORE INSERT ON pr_notifications
+            FOR EACH ROW WHEN (NEW.action = 'REASSIGNED_AWAY') EXECUTE FUNCTION fail_pr_reassign_fixture()`);
+          try {
+            const beforeNotes = await notifications();
+            const before = (await get(admin, path)).body;
+            await post(admin, `${path}/reassign`, request).expect(500);
+            expect((await get(admin, path)).body).toEqual(before);
+            expect(await notifications()).toEqual(beforeNotes);
+          } finally {
+            await ds.query('DROP TRIGGER fail_pr_reassign_fixture ON pr_notifications; DROP FUNCTION fail_pr_reassign_fixture()');
+          }
+        }
+        const [transfer, decision] = await Promise.all([
+          post(admin, `${path}/reassign`, request), post(action === 'approve' ? head : receiver, `${path}/${action}`, context),
+        ]);
+        expect([transfer.status, decision.status].sort()).toEqual([204, 409]);
+        const detail = (await get(admin, path)).body;
+        expect(detail).toMatchObject({ version: context.version + 1, approvalRound: context.round,
+          approvalStatus: transfer.status === 204
+            ? (action === 'approve' ? 'WAITING_FOR_APPROVE' : 'WAITING_FOR_RECEIPT')
+            : (action === 'approve' ? 'WAITING_FOR_RECEIPT' : 'DONE') });
+        await post(admin, `${path}/reassign`, request).expect(409);
+        const tasks = (await notifications()).filter((n: { task_step: string | null; resolved_at: Date | null }) => n.task_step && !n.resolved_at);
+        if (transfer.status === 204) expect(tasks).toEqual([expect.objectContaining({ recipient_id: approverId })]);
+        else if (action === 'approve') expect(tasks).toEqual([expect.objectContaining({ recipient_id: receiverId, task_step: 'RECEIPT' })]);
+        else expect(tasks).toEqual([]);
+      }
+    } finally {
+      await configure('SALES', [headId]);
+      await configure('RECEIPT', [receiverId]);
+    }
   });
 
   it('Approved PR/PO/GRR: recall or cancel only without non-canceled child documents (03 §6)', async () => {

@@ -18,7 +18,7 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
   const { t } = useTranslation();
   const qc = useQueryClient();
   const me = useMe();
-  const [action, setAction] = useState<{ action: DocAction; context?: WorkflowActionContext; completed: boolean } | null>(null);
+  const [action, setAction] = useState<{ action: DocAction; context?: WorkflowActionContext; completed: boolean; assignee?: string | null } | null>(null);
   const [editing, setEditing] = useState(false);
   const doc = useQuery({ queryKey: [cfg.key, id], queryFn: () => api<DocDetail>(`/${cfg.path}/${id}`) });
   if (!doc.data || !me.data) return <DetailPageLayout title={t(`${cfg.key}.title`)} loading error={doc.error ?? me.error} />;
@@ -32,7 +32,7 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
     && me.data.permissions.includes(receiving ? 'PR.RECEIVE' : `${cfg.perm}.APPROVE`);
   const canManage = isCreator && me.data.permissions.includes(`${cfg.perm}.CREATE`);
   const completed = status === (isPr ? 'DONE' : 'APPROVED');
-  const openAction = (action: DocAction) => setAction({ action, completed, context: isPr ? {
+  const openAction = (action: DocAction) => setAction({ action, completed, assignee: d.assignedApproverName, context: isPr ? {
     version: d.version, round: d.approvalRound ?? 0, step: receiving ? 'RECEIPT' : waiting ? 'APPROVAL' : editable ? 'CREATE' : 'CLOSED',
   } : undefined });
   const activeStep = completed ? 3 : receiving ? 2 : waiting ? 1 : 0;
@@ -48,6 +48,9 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
           <Field label={t('pr.department')}>{node?.department ?? '—'}</Field>
           <Field label={t('pr.assignee')}>{node?.assigneeName ?? '—'}</Field>
           <Field label={t('pr.actor')}>{node?.actorName ?? '—'}{node?.actedAt ? ` · ${fmtDate(node.actedAt)}` : ''}</Field>
+          {isPr && d.canReassign && waiting && index === activeStep && (
+            <Button onClick={() => openAction('reassign')} variant="outlined">{t('doc.reassign')}</Button>
+          )}
         </>
       ),
     };
@@ -127,9 +130,14 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
       {editing && <cfg.Create edit={d} onClose={() => setEditing(false)} onCreated={() => { setEditing(false); void qc.invalidateQueries({ queryKey: [cfg.key] }); }} />}
       {action && (
         <DocActionDialog basePath={`/${cfg.path}/${id}`} action={action.action} approversPath={isPr ? undefined : `/${cfg.path}/${id}/approvers`} approved={action.completed} context={action.context}
+          currentAssignee={action.assignee}
           draftCandidates={isPr ? { approverId: d.draftApproverId, receiverId: d.draftReceiverId } : undefined}
           onClose={() => setAction(null)}
-          onDone={() => { setAction(null); void qc.invalidateQueries({ queryKey: [cfg.key] }); }} />
+          onDone={() => {
+            setAction(null);
+            void qc.invalidateQueries({ queryKey: [cfg.key] });
+            if (isPr) void qc.invalidateQueries({ queryKey: ['pr-notifications'] });
+          }} />
       )}
     </>
   );

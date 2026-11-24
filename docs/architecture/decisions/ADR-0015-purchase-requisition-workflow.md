@@ -17,7 +17,8 @@
 
 - `PR.VIEW` giữ phạm vi xem đầy đủ. Người có quyền tạo, duyệt hoặc tiếp nhận được mở danh sách giới hạn theo vai trò trong chứng từ hoặc HĐ. Quyền chỉ xem của Sales phụ trách HĐ theo ADR-0014 vẫn áp dụng. API con `/:id/lines` vẫn yêu cầu `PR.VIEW`.
 - Ghi chú lưu nội dung, người gửi và thời điểm. Xem lịch sử theo quyền xem PR. Lịch sử ghi vòng, hành động, trạng thái trước và sau, người thao tác và lý do. Kết quả bước đã hết hiệu lực vẫn lưu trong vòng cũ.
-- Thông báo trong ứng dụng được ghi cùng transaction đổi trạng thái. Thu hồi thông báo cho cả người duyệt và người tiếp nhận của vòng đó. Đọc/chưa đọc độc lập với trạng thái PR.
+- Thông báo trong ứng dụng được ghi cùng transaction workflow. Submit/Resubmit giao việc phê duyệt. Approve báo kết quả cho creator và giao việc tiếp nhận. Receive và Reject báo kết quả cho creator, Reject kèm lý do. Recall đóng công việc và thông báo cho người đang được phân công bước hiện tại.
+- Task thông báo có bước xử lý và thời điểm kết thúc, độc lập với đã đọc/chưa đọc. Mỗi PR có tối đa một task đang mở. Quyết định/Recall/Reassign đóng task cũ trong transaction; chuyển bước hoặc Reassign giao task mới. Chuông giữ sự kiện và task đã đóng để tra cứu, badge chỉ tính thông báo chưa đọc còn hiệu lực.
 
 ## Cấu hình và triển khai
 
@@ -28,6 +29,8 @@ Cấu hình qua OpenAPI bằng người dùng có `PR.CONFIGURE` (seed cấp cho
 - `GET /pr-workflow/candidates` trả danh sách người có quyền cho Admin cấu hình từng tập. Creator có `PR.CREATE` dùng `GET /pr-workflow/creator-candidates?salesContractId=…&route=…` khi tạo hoặc `GET /purchase-requisitions/:id/candidates` khi sửa/gửi PR. Backend giới hạn theo hợp đồng/creator, trả người còn hoạt động và bỏ chính creator.
 - Gửi duyệt cần `approverId`, `receiverId` và ngữ cảnh `version`, `round`, `step`. `approve` xử lý bước `APPROVAL`, `receive` xử lý bước `RECEIPT`. Reject/Recall/Cancel cũng yêu cầu ngữ cảnh. Trạng thái Nháp/Bị từ chối dùng `CREATE`, Hoàn tất/Hủy dùng `CLOSED`. Khi ngữ cảnh cũ, API trả `409 STALE_WORKFLOW_CONTEXT`.
 - Migration Phase 2 chuyển approver cũ vào tập Sales/PM tương ứng và hợp nhất receiver cũ vào tập tiếp nhận chung. Snapshot cũ giữ nguyên. Không hỗ trợ downgrade làm mất dữ liệu từ tập nhiều người về một cặp. Demo seed dùng các tập Sales và Receipt đã cấu hình.
+- Phase 3 thêm `GET /purchase-requisitions/:id/reassignment-candidates` và `POST /purchase-requisitions/:id/reassign`. Body Reassign gồm `version`, `round`, `step`, `assigneeId`, `reason`. Danh sách người thay thế loại creator và người hiện tại. `PR.REASSIGN` dùng cùng phạm vi đọc PR hiện có, không tự mở rộng phạm vi chứng từ.
+- Migration thông báo chuyển các bản ghi giao việc cũ thành task đúng bước và giữ tối đa task mới nhất khớp người xử lý/bước/vòng hiện tại. Bản ghi cũ được giữ lại.
 
 Migration schema workflow đầu tiên yêu cầu bảng PR rỗng. Migration bổ sung của Phase 1 bảo toàn PR và lịch sử hiện có, theo [ADR-0016](ADR-0016-common-document-records.md). Script reset riêng chỉ dành cho PR test và từ chối xóa khi PO/GIR còn tham chiếu.
 
@@ -38,4 +41,4 @@ Migration schema workflow đầu tiên yêu cầu bảng PR rỗng. Migration b�
 - `PR.CONFIGURE` quản lý cấu hình. `PR.REASSIGN` độc lập cho quyền phân công lại của Admin. Giữ các quyền của creator và người tiếp nhận hiện tại theo ma trận UAT.
 - Reassign chỉ tác động node đang chờ, có lý do, giữ nguyên trạng thái và vòng. Cập nhật assignment, hàng đợi, activity và thông báo cho người cũ/mới cùng transaction.
 - Action phải mang ý định tường minh, version, round và step. Backend kiểm tra lại dưới khóa trong transaction. Tổ chức, quyền và phân công đổi qua cấu hình. Role trong card dùng nhãn **Vai trò**.
-- Phase 1 bổ sung permission và lưu trữ chung. Phase 2 triển khai Eligibility và kiểm soát ngữ cảnh action. API Reassign và mẫu thông báo mới thuộc Phase 3.
+- Phase 1 bổ sung permission và lưu trữ chung. Phase 2 triển khai Eligibility và kiểm soát ngữ cảnh action. Phase 3 triển khai Reassign và thông báo theo loại công việc/sự kiện.

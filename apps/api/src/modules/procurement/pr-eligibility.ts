@@ -18,8 +18,8 @@ export function lockPool(m: EntityManager, pool: PrPool, exclusive: boolean) {
   return m.query(`SELECT ${lock}(hashtext('pr-candidate-pool'), hashtext($1))`, [pool]);
 }
 
-export function currentGrant(m: EntityManager, id: number, permission: string): Promise<{ role: string }[]> {
-  return m.query(`SELECT r.name AS role FROM users u JOIN user_roles ur ON ur.user_id = u.id
+export function currentGrant(m: EntityManager, id: number, permission: string): Promise<{ role: string; fullName: string }[]> {
+  return m.query(`SELECT r.name AS role, u.full_name AS "fullName" FROM users u JOIN user_roles ur ON ur.user_id = u.id
     JOIN roles r ON r.id = ur.role_id JOIN role_permissions rp ON rp.role_id = r.id
     JOIN permissions p ON p.id = rp.permission_id
     WHERE u.id = $1 AND u.is_active AND p.code = $2

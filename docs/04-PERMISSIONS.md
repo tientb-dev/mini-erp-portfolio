@@ -26,7 +26,7 @@ Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệ
 
 ## 3. Người duyệt mặc định
 
-**Định hướng PR sau UAT (ADR-0015).** Organization độc lập với Authorization. Cây tổ chức không cấp hoặc kế thừa quyền. Quyền nghiệp vụ dựa trên permission và cấu hình eligibility, không hardcode tên Role. `PR.CONFIGURE` quản lý cấu hình, `PR.REASSIGN` cấp quyền phân công lại của Admin. Thu hồi eligibility có hiệu lực ngay. Phase 1 seed mã quyền; hành vi assignment và Reassign được triển khai ở các phase riêng.
+**PR sau UAT (ADR-0015).** Organization độc lập với Authorization. Cây tổ chức không cấp hoặc kế thừa quyền. Quyền nghiệp vụ dựa trên permission và cấu hình eligibility, không hardcode tên Role. `PR.CONFIGURE` quản lý cấu hình. `PR.REASSIGN` cho phép phân công lại PR trong phạm vi đọc được cấp. Creator có `PR.CREATE` được đổi bước hiện tại trên PR của mình. Người tiếp nhận hiện tại còn đủ eligibility được chuyển giao bước tiếp nhận. Vai trò người phê duyệt không tự cấp quyền chuyển giao. Thu hồi eligibility có hiệu lực ngay.
 
 Quyền xem PR cho phép đọc và thêm ghi chú ở mọi trạng thái, kể cả Hoàn tất (ADR-0016).
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.
@@ -51,7 +51,8 @@ Quyền xem PR cho phép đọc và thêm ghi chú ở mọi trạng thái, kể
 ## 6. Thông báo trong ứng dụng
 - Gửi duyệt → người được giao duyệt của bước hiện tại (GIR `AVAILABLE_STOCK`: người phụ trách nguồn hàng, sau đó Quản lý kho).
 - Duyệt/Từ chối → người tạo (GIR: PM tạo GIR).
-- Thu hồi khi Chờ duyệt → không gửi thông báo mới, ngoại trừ PR. Thu hồi PR ở cả hai trạng thái chờ thông báo người phê duyệt và người tiếp nhận của vòng đó (ADR-0015).
+- Thu hồi khi Chờ duyệt → không gửi thông báo mới, ngoại trừ PR. Thu hồi PR đóng task và thông báo người được phân công ở bước đang chờ (ADR-0015).
+- Phân công lại PR đóng task cũ, gửi sự kiện chuyển giao cho người cũ và giao task cho người mới. Quyền xem/ghi chú của người cũ được đánh giá theo phạm vi đọc hiện hành.
 - Thu hồi/Hủy chứng từ Đã duyệt → thông báo người duyệt trước đó kèm lý do.
 - Hủy Nháp/Bị từ chối → không thông báo.
 - Thông báo cũ không xóa khi chứng từ đổi trạng thái.

@@ -10,17 +10,25 @@ import { DocAction, Person, WorkflowActionContext } from './types';
  * Confirmation dialog for workflow actions on `${basePath}/${action}`. Submit picks the assigned approver
  * (preselected when exactly one is eligible, P4); reject/recall need a reason; complete takes an optional reason.
  */
-export function DocActionDialog({ basePath, action, onClose, onDone, approversPath, approved, sourceConfirm, context, draftCandidates }: {
+export function DocActionDialog({ basePath, action, onClose, onDone, approversPath, approved, sourceConfirm, context, draftCandidates, currentAssignee }: {
   basePath: string; action: DocAction; onClose: () => void; onDone: () => void; approversPath?: string;
   /** Cancel of an APPROVED document needs a reason (03 §6, 04 §6). */ approved?: boolean;
   /** Step 1 of an available-stock GIR: the source Sales confirms (same API call as approve, labelled "Xác nhận"). */ sourceConfirm?: boolean;
   context?: WorkflowActionContext;
   draftCandidates?: { approverId?: number | null; receiverId?: number | null };
+  currentAssignee?: string | null;
 }) {
   const { t } = useTranslation();
   const [reason, setReason] = useState('');
   const [approverId, setApproverId] = useState(String(draftCandidates?.approverId ?? ''));
   const [receiverId, setReceiverId] = useState(String(draftCandidates?.receiverId ?? ''));
+  const [replacementId, setReplacementId] = useState('');
+  const reassign = action === 'reassign';
+  const replacements = useQuery({
+    queryKey: ['pr-reassignment-candidates', basePath, context?.version],
+    queryFn: () => api<{ candidates: Person[] }>(`${basePath}/reassignment-candidates`),
+    enabled: reassign,
+  });
   const selectPrCandidates = action === 'submit' && Boolean(context);
   const candidates = useQuery({
     queryKey: ['pr-candidates', basePath],
@@ -38,7 +46,7 @@ export function DocActionDialog({ basePath, action, onClose, onDone, approversPa
     enabled: selectApprover,
   });
   const chosen = approverId || (approvers.data?.length === 1 ? String(approvers.data[0].id) : '');
-  const needsReason = action === 'reject' || action === 'recall' || (action === 'cancel' && Boolean(approved));
+  const needsReason = reassign || action === 'reject' || action === 'recall' || (action === 'cancel' && Boolean(approved));
   const run = useMutation({
     mutationFn: () => api(`${basePath}/${action}`, {
       method: 'POST',
@@ -46,6 +54,7 @@ export function DocActionDialog({ basePath, action, onClose, onDone, approversPa
         ...context,
         approverId: selectPrCandidates ? Number(approverId) : selectApprover ? Number(chosen) : undefined,
         receiverId: selectPrCandidates ? Number(receiverId) : undefined,
+        assigneeId: reassign ? Number(replacementId) : undefined,
         reason: needsReason || action === 'complete' ? reason || undefined : undefined,
       }),
     }),
@@ -55,10 +64,20 @@ export function DocActionDialog({ basePath, action, onClose, onDone, approversPa
   const receive = action === 'receive';
   const validCandidates = candidates.data?.approvers.some(person => person.id === Number(approverId))
     && candidates.data?.receivers.some(person => person.id === Number(receiverId));
+  const validReplacement = replacements.data?.candidates.some(person => person.id === Number(replacementId));
   return (
-    <FormDialog title={sourceConfirm ? t('gir.confirmTitle') : receive ? t('pr.receive') : t(`doc.confirm.${action}`)} submitLabel={sourceConfirm ? t('gir.confirm') : receive ? t('pr.receive') : t(`doc.${action}`)} error={run.error ?? approvers.error ?? candidates.error} pending={run.isPending}
-      canSubmit={!stale && (selectPrCandidates ? Boolean(validCandidates) : selectApprover ? Boolean(chosen) : !needsReason || Boolean(reason.trim()))} onSubmit={() => run.mutate()} onClose={onClose}>
+    <FormDialog title={sourceConfirm ? t('gir.confirmTitle') : receive ? t('pr.receive') : t(`doc.confirm.${action}`)} submitLabel={sourceConfirm ? t('gir.confirm') : receive ? t('pr.receive') : t(`doc.${action}`)} error={run.error ?? approvers.error ?? candidates.error ?? replacements.error} pending={run.isPending}
+      canSubmit={!stale && (!needsReason || Boolean(reason.trim())) && (!reassign || Boolean(validReplacement))
+        && (!selectPrCandidates || Boolean(validCandidates)) && (!selectApprover || Boolean(chosen))} onSubmit={() => run.mutate()} onClose={onClose}>
       {stale && <Button onClick={onDone}>{t('pr.reload')}</Button>}
+      {reassign && <>
+        <TextField label={t('pr.currentAssignee')} value={currentAssignee ?? ''} slotProps={{ input: { readOnly: true } }} />
+        <TextField select label={t('pr.replacement')} value={validReplacement ? replacementId : ''}
+          onChange={e => setReplacementId(e.target.value)} required
+          helperText={replacements.data?.candidates.length === 0 ? t('pr.emptyPool') : undefined}>
+          {replacements.data?.candidates.map(person => <MenuItem key={person.id} value={person.id}>{person.fullName} ({person.username})</MenuItem>)}
+        </TextField>
+      </>}
       {selectPrCandidates && <>
         <TextField select label={t('gr.approver')} value={candidates.data?.approvers.some(person => person.id === Number(approverId)) ? approverId : ''} onChange={e => setApproverId(e.target.value)} required
           helperText={candidates.data?.approvers.length === 0 ? t('pr.emptyPool') : undefined}>

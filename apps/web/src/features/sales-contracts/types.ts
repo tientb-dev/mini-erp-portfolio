@@ -9,7 +9,10 @@ export interface Proposal {
   proposedByName: string; decidedByName: string | null; decidedAt: string | null;
 }
 /** UoM comes from the catalog relation (`uomName`/`uomCode` = units_of_measure name/code). */
-export interface ScLine { id: number; itemCode: string; itemName: string; unitOfMeasureId: number; uomName: string; uomCode: string; quantity: string; products: Proposal[] }
+export interface ScLine {
+  productId?: number | null;
+  temporaryProductId?: number | null;
+  itemDescription?: string | null; id: number; itemCode: string; itemName: string; unitOfMeasureId: number; uomName: string; uomCode: string; quantity: string; products: Proposal[] }
 export interface ScDetail extends Omit<ScRow, 'lineCount'> {
   customerCode: string; createdBy: number; lines: ScLine[]; updatedAt: string | null; updatedByName: string | null;
 }

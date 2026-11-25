@@ -26,6 +26,7 @@ export async function bootTestApp(): Promise<{ app: INestApplication; ds: DataSo
   await setup.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await setup.runMigrations();
   await seed(setup);
+  await setup.query(`INSERT INTO brands (code, name) VALUES ('TEST', 'Test brand')`);
   await setup.query(`INSERT INTO pr_candidate_pool_members (pool, user_id)
     SELECT fixture.pool, u.id FROM (VALUES ('SALES','sales-head'), ('PM','pm-head'), ('RECEIPT','purchaser')) fixture(pool, username)
     JOIN users u ON u.username = fixture.username`);

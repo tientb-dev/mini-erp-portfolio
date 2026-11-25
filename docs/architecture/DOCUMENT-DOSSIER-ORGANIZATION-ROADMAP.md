@@ -4,7 +4,7 @@ Hai module dưới đây là thiết kế roadmap. Phase 1 của PR #18 chỉ c�
 
 ## Common Document Dossier
 
-PR #18 Phase 4.1 hiển thị trạng thái Chưa có hồ sơ trong Common Document Page. PR #19 triển khai nghiệp vụ Common Document Dossier trong tab này, cùng quyền quản lý hồ sơ riêng.
+PR #18 Phase 4.1 hiển thị trạng thái Chưa có hồ sơ trong Common Document Page. PR #19 Phase 4 triển khai Common Document Dossier trong tab này. Xem DEC-19-06 trong [ADR-0017](decisions/ADR-0017-pr-business-completion.md) cho quyền xem/tải, vòng đời file và giới hạn dung lượng.
 
 - Master Data định nghĩa loại hồ sơ theo loại chứng từ. Danh mục được chụp snapshot khi lưu chứng từ lần đầu.
 - Mỗi loại hồ sơ có checkbox bản giấy độc lập với file điện tử và tối đa một file.

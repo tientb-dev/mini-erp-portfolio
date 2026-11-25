@@ -1,7 +1,7 @@
 import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { Repository } from 'typeorm';
 import { CodeNameDto } from "../../common/dto";
 import { RequirePermissions } from '../identity/auth';
@@ -12,11 +12,12 @@ class CreateProductDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(100) partNumber!: string;
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(300) name!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
+  @ApiProperty() @IsInt() @Min(1) brandId!: number;
   @ApiProperty() @IsInt() unitOfMeasureId!: number;
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() isSerialTracked?: boolean;
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() isActive?: boolean;
 }
-class UpdateProductDto extends PartialType(CreateProductDto) {}
+class UpdateProductDto extends PartialType(CreateProductDto, { skipNullProperties: false }) {}
 
 class CreateWarehouseDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(50) code!: string;

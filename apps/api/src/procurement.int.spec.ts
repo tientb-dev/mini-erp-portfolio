@@ -34,7 +34,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     approverId = (await get(approver, '/auth/me')).body.id;
     [{ id: hcmId }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
     const [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
-    productId = (await post(admin, '/products', { partNumber: 'PN-P1', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    productId = (await post(admin, '/products', { brandId: 1, partNumber: 'PN-P1', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
     customerId = (await post(admin, '/customers', { code: 'C1', name: 'Customer 1' }).expect(201)).body.id;
     supplierId = (await post(admin, '/suppliers', { code: 'S1', name: 'Supplier 1' }).expect(201)).body.id;
   });

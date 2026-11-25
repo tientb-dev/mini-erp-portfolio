@@ -115,7 +115,7 @@ describe('Sales contract detail', () => {
     expect(screen.queryByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeNull(); // no PR.VIEW
   });
 
-  it('adds a line from the UoM catalog; the version is sent', async () => {
+  it('adds a free-entry line with a catalog UoM and sends the version', async () => {
     const posts = mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
     renderAt('/sales-contracts/4');
     fireEvent.click(await screen.findByRole('button', { name: 'Thêm hàng hóa' }));
@@ -125,7 +125,7 @@ describe('Sales contract detail', () => {
     await pick(/Đơn vị tính/, 'Hộp (BOX)');
     fireEvent.change(within(dialog).getByLabelText(/Số lượng/), { target: { value: '3' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu hàng hóa' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts/4/lines', body: { itemCode: 'RT', itemName: 'Router', unitOfMeasureId: 2, quantity: 3, version: 2 } }]));
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts/4/lines', body: { itemCode: 'RT', itemName: 'Router', productId: null, temporaryProductId: null, itemDescription: null, unitOfMeasureId: 2, quantity: 3, version: 2 } }]));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
@@ -137,7 +137,7 @@ describe('Sales contract detail', () => {
     expect((qty as HTMLInputElement).value).toBe('10');
     fireEvent.change(qty, { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contract-lines/12', body: { itemCode: 'SW', itemName: 'Switch', unitOfMeasureId: 1, quantity: 12, version: 2 } }]));
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contract-lines/12', body: { itemCode: 'SW', itemName: 'Switch', productId: null, temporaryProductId: null, itemDescription: null, unitOfMeasureId: 1, quantity: 12, version: 2 } }]));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     fireEvent.click(screen.getByRole('button', { name: 'Xóa hàng hóa' }));

@@ -31,15 +31,18 @@ async function main() {
 
     const [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
     const [{ id: hcm }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
-    await ds.query(`INSERT INTO products (part_number, name, unit_of_measure_id, is_serial_tracked) VALUES
-      ('RT-AX3000', 'Router Wi-Fi AX3000', $1, true), ('CB-CAT6-305', 'Cáp mạng Cat6 (thùng 305m)', $1, false)
-      ON CONFLICT (part_number) DO NOTHING`, [pcs]);
+    await ds.query(`INSERT INTO brands (code, name) VALUES ('DEMO', 'Demo brand') ON CONFLICT (code) DO NOTHING`);
+    const brand = (await one(`SELECT id FROM brands WHERE code = 'DEMO'`, [])).id;
+    await ds.query(`INSERT INTO products (part_number, name, unit_of_measure_id, is_serial_tracked, brand_id) VALUES
+      ('RT-AX3000', 'Router Wi-Fi AX3000', $1, true, $2), ('CB-CAT6-305', 'Cáp mạng Cat6 (thùng 305m)', $1, false, $2)
+      ON CONFLICT (part_number) DO NOTHING`, [pcs, brand]);
     const router = (await one(`SELECT id FROM products WHERE part_number = 'RT-AX3000'`, [])).id;
     const cable = (await one(`SELECT id FROM products WHERE part_number = 'CB-CAT6-305'`, [])).id;
     await ds.query(`INSERT INTO customers (code, name) VALUES ('KH-DEMO', 'Công ty Demo') ON CONFLICT (code) DO NOTHING`);
     await ds.query(`INSERT INTO suppliers (code, name) VALUES ('NCC-DEMO', 'Nhà cung cấp Demo') ON CONFLICT (code) DO NOTHING`);
     const customer = (await one(`SELECT id FROM customers WHERE code = 'KH-DEMO'`, [])).id;
     const supplier = (await one(`SELECT id FROM suppliers WHERE code = 'NCC-DEMO'`, [])).id;
+    await ds.query(`INSERT INTO brand_suppliers (brand_id, supplier_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [brand, supplier]);
 
     const salesUser = await identity.loadCurrentUser(await userId('sales'));
     if (!salesUser) throw new Error('Seed the active demo Sales user first');

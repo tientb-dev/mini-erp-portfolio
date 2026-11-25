@@ -10,46 +10,32 @@
 | A02 | PO gom dòng từ hai PR khác HĐ nhưng cùng nhà cung cấp | Cho phép; từng dòng giữ nguồn PR |
 | A03 | PO chứa dòng từ hai nhà cung cấp | Không cho phép |
 | A04 | Tổng PO Chờ duyệt + Đã duyệt vượt lượng dòng PR | Chặn Gửi duyệt |
-| A05 | PR dùng hai dòng cùng PN (vd. hai dòng HĐ khác nhau cùng Product, hoặc một dòng hàng bán và một dòng vật tư) | Cho phép, hai dòng là hai nhu cầu riêng; mỗi dòng giữ `sales_contract_line_id` riêng (rỗng với dòng vật tư) |
+| A05 | PR lặp mã chính hoặc mã tạm, kể cả cùng NCC | Cảnh báo mềm; lưu thành các dòng độc lập |
 | A06 | PR Đã duyệt có PO chưa Hủy | Chặn Thu hồi/Hủy PR |
 | A07 | Dòng PR chọn mã tạm, không chọn UoM | Không lưu được dòng |
 | A08 | Dòng PR chọn mã chính | UoM lấy từ `products`; snapshot mã/tên/mô tả/UoM được lưu |
-| A09 | Mapping mã tạm → mã chính tại PO | `purchase_requisition_lines.product_id` được ghi; mọi PO/GRR (kể cả đã duyệt) tham chiếu dòng PR đó hiển thị mã chính; snapshot ban đầu giữ nguyên |
-| A10 | Mapping lần hai trên dòng PR đã có mã chính (mã tạm đã map hoặc mã chính từ đầu) | Chặn |
-| A11 | Hai người mapping đồng thời cùng dòng PR | Chỉ một thành công; người còn lại nhận lỗi |
-| A12 | Mapping sang mã chính có UoM khác UoM snapshot dòng PR | Chặn — `MAPPING_UOM_MISMATCH`; `product_id`, UoM, số lượng không đổi |
 | A13 | GRR Nháp còn dòng mã tạm | Lưu Nháp được; Gửi duyệt bị chặn — `GRR_LINE_NOT_MAPPED` |
 | A14 | GRR có dòng UoM khác UoM hiện hành của mã chính | Gửi duyệt bị chặn — `GRR_LINE_UOM_MISMATCH` (backend, từng dòng) |
 | A15 | Như A14, người dùng đã sửa số lượng | Vẫn bị chặn — không quy đổi UoM trong MVP |
 | A16 | Đổi `is_serial_tracked` của PN từng có trên GRR/GR/GIR/GI ở bất kỳ trạng thái nào (kể cả `DRAFT`, `CANCELED`) | Chặn |
 | A17 | Tạo mã chính mới không chỉ định cờ SN | `is_serial_tracked = true` |
-| A18 | Mapping trên PO hoặc GRR ở `WAITING_FOR_APPROVE`/`APPROVED`/`REJECTED`/`CANCELED` | Chặn — `DOCUMENT_NOT_DRAFT` |
-| A19 | Mapping trên PO/GRR `DRAFT` bởi người không có quyền sửa chứng từ đó | Chặn |
-| A20 | Hai dòng PR cùng mã tạm; mapping dòng thứ nhất | Chỉ dòng thứ nhất có mã chính; dòng thứ hai vẫn là mã tạm; mã tạm vẫn chọn được cho PR mới |
-| A21 | Mapping dòng PR làm đổi mã hàng hiển thị trên PO đã `APPROVED` | Cho phép (ngoại lệ có chủ đích); số lượng, UoM và nội dung đã duyệt không đổi |
-| A22 | Dòng HĐ lưu mã/tên hàng chưa chuẩn hóa (không chọn mã chính) | Cho phép (thay thế quy tắc T3 cũ) |
+| A22 | HĐ chứa đồng thời mã chính, mã tạm và hàng nhập tự do | Lưu snapshot, tối đa một FK danh mục mỗi dòng, không sinh Master Data từ hàng nhập tự do. Có thể lặp mã, cảnh báo mềm |
 | A28a | Dòng PR hàng bán tham chiếu `sales_contract_line_id` của HĐ `ACTIVE` | Bắt buộc với dòng hàng bán; snapshot yêu cầu ban đầu được lưu |
-| A32 | Tạo PR từ màn hình HĐ `ACTIVE` có 3 dòng | Form PR được copy đủ 3 dòng và thông tin liên quan; người dùng sửa trước khi lưu; mỗi dòng PR giữ đúng `sales_contract_line_id` gốc |
-| A33 | Trong cùng một PR hàng bán, thêm dòng thứ hai cho cùng một dòng HĐ (chia hoặc trùng) | Không cho phép |
-| A33a | HĐ có hai dòng cùng Product; tạo PR từ HĐ | Hai dòng PR riêng, mỗi dòng giữ `sales_contract_line_id` của mình; không gộp |
+| A32 | PR chọn hàng mã chính hoặc mã tạm từ danh mục | Không giới hạn theo HĐ; chỉ gợi ý liên kết nếu đúng một dòng HĐ cùng định danh và loại danh mục |
+| A33 | Hai dòng PR hàng bán tham chiếu cùng dòng HĐ | Cho phép; hai dòng PR có ID độc lập |
+| A33a | HĐ có nhiều dòng cùng định danh danh mục hoặc dòng nhập tự do | Người tạo PR chọn dòng HĐ thủ công |
 | A33b | PR-1 và PR-2 cùng tham chiếu một dòng HĐ | Cho phép |
 | A33d | Trong cùng một PO, hai dòng PO tham chiếu cùng một dòng PR (tạo hoặc sửa) | Không cho phép — `DUPLICATE_SOURCE_LINE`; dữ liệu đã lưu không đổi |
 | A33e | PO-1 và PO-2 cùng tham chiếu một dòng PR, tổng ≤ số lượng dòng PR | Cho phép |
 | A33c | PR trộn dòng hàng bán và dòng vật tư | Không cho phép trong MVP |
 | A34 | Dòng PR hàng bán tham chiếu dòng HĐ thuộc HĐ khác HĐ của PR | Không cho phép |
 | A35 | Tạo PR vật tư tại màn hình PR: chọn HĐ `ACTIVE` rồi chọn vật tư, không chọn dòng HĐ | Cho phép; dòng PR phân loại vật tư, `sales_contract_line_id` rỗng; PR gắn HĐ |
-| A35a | PR vật tư dùng mã tạm | Cho phép; GRR liên quan không Gửi duyệt được khi chưa mapping (như A13) |
-| A36 | PR vật tư chọn Product trùng Product đã được Sales xác nhận cho một dòng HĐ | Dòng PR vẫn không có `sales_contract_line_id`; hệ thống không tự gán dòng HĐ |
+| A35a | PR hoàn tất có cả mã chính và mã tạm | PR #19 cho phép lập PO từ dòng mã chính; dòng mã tạm bị chặn với lý do rõ ràng |
+| A36 | Product mua trùng Product đã xác nhận được phép giao nhưng không trùng định danh đã chọn của dòng HĐ | Không gợi ý mapping từ Product được phép giao |
 | A37 | PR vật tư chọn HĐ `DRAFT` hoặc `CANCELED` | Không cho phép |
 | A23 | Tạo dòng PO từ dòng PR | Dòng PO lưu UoM = UoM snapshot dòng PR; dòng GRR tạo từ dòng PO lưu UoM = UoM dòng PO |
-| A24 | Mapping thành công (cùng UoM) | UoM và số lượng của PR, mọi PO (kể cả `APPROVED`) và GRR không đổi |
-| A25 | Dòng PR có hai dòng PO (một `APPROVED`); mapping từ GRR `DRAFT` sang mã chính khác UoM của một trong hai dòng PO | Chặn toàn bộ — `MAPPING_UOM_MISMATCH` |
-| A26 | Mapping đồng thời với tạo dòng PO mới từ cùng dòng PR | Hai thao tác tuần tự; không có dòng PO nào có UoM khác mã chính sau khi mapping thành công |
-| A27 | Mapping trên PO/GRR không ở `DRAFT` | Chặn — `DOCUMENT_NOT_DRAFT` |
 | A28 | Đổi UoM mã chính đã xuất hiện trên PR/PO/GRR/GR/HĐ/GIR/GI (kể cả chứng từ `DRAFT` hoặc `CANCELED`) | Chặn — `PRODUCT_UOM_LOCKED` |
-| A29 | Đổi UoM mã chính chưa xuất hiện trên chứng từ nào (chỉ có dòng PR mã tạm chưa mapping tới nó) | Cho phép |
-| A30 | Đổi UoM mã chính sau khi một dòng PR mã tạm đã mapping sang nó | Chặn — `PRODUCT_UOM_LOCKED` |
-| A31 | Mapping sang mã chính đồng thời với sửa UoM của mã chính đó | Chỉ một thao tác thành công; không tồn tại trạng thái mapping thành công với UoM khác dòng PR/PO |
+| A29 | Đổi UoM mã chính chưa từng xuất hiện trên chứng từ | Cho phép |
 
 ## B. GRR / GR
 | ID | Tình huống | Kết quả mong đợi |

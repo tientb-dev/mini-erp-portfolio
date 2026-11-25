@@ -6,10 +6,10 @@
 ## Quyết định
 - HĐ có `status`: `DRAFT`, `ACTIVE`, `CANCELED` — **không** dùng `approval_status`, không workflow duyệt. Sales tạo/sửa/chốt; chỉ HĐ `ACTIVE` được PR/GIR tham chiếu.
 - HĐ `ACTIVE` khóa nội dung; HĐ đã được PR/GIR tham chiếu khóa khách hàng, PN, UoM, số lượng, điều khoản liên quan.
-- Dòng HĐ có ID riêng (`sales_contract_lines.id`) và lưu nguyên thông tin hàng hóa khách ký; không bắt buộc `product_id`.
+- Dòng HĐ có ID riêng (`sales_contract_lines.id`), snapshot hàng hóa và tối đa một tham chiếu danh mục. SC-LINE-INPUT-001 cho phép mã chính, mã tạm hoặc nhập tự do.
 - Liên kết **dòng HĐ ↔ nhiều Product** được phép giao (tên bảng chốt ở ERD): PM đề xuất kèm lý do; Sales xác nhận/từ chối; lưu người xác nhận, thời điểm, ghi chú/số phụ lục.
-- Hai trách nhiệm tách biệt: mapping dòng PR → Product (ADR-0008, chuẩn hóa hàng mua) và xác nhận Product cho dòng HĐ (hàng được phép giao).
-- ~~Dòng PR và dòng GIR tham chiếu `sales_contract_line_id`.~~ Sửa đổi bởi ADR-0012: chỉ dòng hàng bán tham chiếu `sales_contract_line_id`; dòng vật tư chỉ gắn HĐ ở cấp chứng từ.
+- Liên kết nhu cầu trên PR, xác định mã chính thực nhận ở GRR và xác nhận Product được phép giao là các trách nhiệm độc lập.
+- Liên kết PR theo DEC-19-02. GIR theo các liên kết nguồn và hạn mức tại ADR-0012.
 
 ## Ranh giới module
 - Sales Contracts sở hữu HĐ, dòng HĐ và liên kết Product được phép giao. Procurement và Outbound phụ thuộc Sales Contracts qua facade (đúng đồ thị ADR-0002).

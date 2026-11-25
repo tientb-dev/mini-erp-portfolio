@@ -18,6 +18,7 @@ export class Warehouse {
 
 @Entity('products')
 export class Product {
+  @Column({ name: 'brand_id', type: 'int' }) brandId!: number;
   @PrimaryGeneratedColumn() id!: number;
   @Column({ name: 'part_number', unique: true }) partNumber!: string;
   @Column() name!: string;

@@ -38,8 +38,8 @@ describe('Document editing (integration)', () => {
     [{ id: hcmId }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
     const [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
     const [{ id: box }] = await ds.query(`INSERT INTO units_of_measure (code, name) VALUES ('BOX', 'Hộp') RETURNING id`);
-    p1 = (await post(admin, '/products', { partNumber: 'PN-E1', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
-    p2 = (await post(admin, '/products', { partNumber: 'PN-E2', name: 'Cable', unitOfMeasureId: box, isSerialTracked: false }).expect(201)).body.id;
+    p1 = (await post(admin, '/products', { brandId: 1, partNumber: 'PN-E1', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    p2 = (await post(admin, '/products', { brandId: 1, partNumber: 'PN-E2', name: 'Cable', unitOfMeasureId: box, isSerialTracked: false }).expect(201)).body.id;
     customerId = (await post(admin, '/customers', { code: 'EC1', name: 'Customer 1' }).expect(201)).body.id;
     customer2 = (await post(admin, '/customers', { code: 'EC2', name: 'Customer 2' }).expect(201)).body.id;
     supplierId = (await post(admin, '/suppliers', { code: 'ES1', name: 'Supplier 1' }).expect(201)).body.id;

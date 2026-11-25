@@ -30,7 +30,7 @@ Giữ nguyên thuật ngữ: HĐ, PR, PO, GRR, GR, GIR (`SALES_CONTRACT` / `AVAI
 - Các module chỉ giao tiếp qua facade service được export. Không bao giờ import repository hoặc service nội bộ của module khác.
 - Procurement không được import Inbound; Inbound cập nhật số tổng hợp trên dòng PO qua facade Procurement (ADR-0003). Inventory không bao giờ import Inbound/Outbound.
 - Inventory theo mô hình bốn bảng (ADR-0004): chỉ GR/GI Đã duyệt sinh biến động; GI Chờ duyệt chỉ giữ chỗ; GR Chờ duyệt không giữ chỗ SN; Thu hồi GR Đã duyệt hoàn tác Inventory theo 03 §2.2.
-- Danh mục hàng hóa: `temporary_products` (mã tạm) tách khỏi `products` (mã chính); mapping mã tạm → mã chính một lần qua `purchase_requisition_lines.product_id` (ADR-0008). Mã "Chờ duyệt" là `WAITING_FOR_APPROVE`.
+- Danh mục hàng hóa: `temporary_products` (mã tạm) tách khỏi `products` (mã chính); mã chính thực tế được xác định trước Gửi duyệt GRR, giữ nguyên mã hàng trên chứng từ nguồn (ADR-0008, DEC-19-03). Mã "Chờ duyệt" là `WAITING_FOR_APPROVE`.
 - Phân quyền: User → Role → Permission `FUNCTION.ACTION` + phạm vi kho; business rules kiểm tra riêng (ADR-0006).
 - TypeORM: transaction tường minh, `pessimistic_write` trên dòng giới hạn, `@VersionColumn` cho chứng từ đang sửa, migration commit trong repo, không `synchronize: true` (ARCHITECTURE §1.1).
 - Quy tắc nghiệp vụ nằm trong `domain/` / application service — không đặt trong controller hay React component.

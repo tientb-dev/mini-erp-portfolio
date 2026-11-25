@@ -49,6 +49,7 @@ export class InboundService {
   /** GRR from one APPROVED PO and one warehouse; lines inherit PO line UoM (T7). */
   createGrr(user: CurrentUser, purchaseOrderId: number, warehouseId: number, lines: { sourceLineId: number; quantity: number }[]) {
     wf.assertWarehouse(user, warehouseId);
+    wf.assertUniqueSourceLines(lines.map(line => line.sourceLineId));
     return this.ds.transaction(async (m) => {
       const [po] = await m.query(`SELECT approval_status FROM purchase_orders WHERE id = $1 FOR SHARE`, [purchaseOrderId]);
       if (!po) throw new NotFoundException('PO not found');
@@ -96,6 +97,7 @@ export class InboundService {
       const doc = await wf.lockDocument(m, "GRR", id);
       wf.assertWarehouse(user, doc.warehouse_id!);
       wf.assertEditable(doc, user, version);
+      wf.assertUniqueSourceLines(lines.map(line => line.sourceLineId));
       const [{ purchase_order_id: poId }] = await m.query(`SELECT purchase_order_id FROM goods_receipt_requests WHERE id = $1`, [id]);
       await this.checkGrrSource(m, id);
       await wf.deleteOmittedLines(m, "goods_receipt_request_lines", "goods_receipt_request_id", id, lines.flatMap((l) => (l.id ? [l.id] : [])));

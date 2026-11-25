@@ -2,7 +2,7 @@
 **Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
 
 ## 0. HĐ bán và Product được phép giao
-1. Sales tạo HĐ (`DRAFT`), nhập khách hàng và các dòng HĐ. Mỗi dòng HĐ có ID riêng và lưu nguyên thông tin hàng hóa khách hàng ký (mã/tên có thể chưa chuẩn hóa, UoM, số lượng); không bắt buộc có Product chính thức.
+1. Sales tạo HĐ (`DRAFT`), nhập khách hàng và các dòng HĐ từ mã chính, mã tạm hoặc nhập tự do (SC-LINE-INPUT-001). Mỗi dòng HĐ có ID riêng và lưu nguyên thông tin hàng hóa khách hàng ký (mã/tên có thể chưa chuẩn hóa, UoM, số lượng); không bắt buộc có Product chính thức.
 2. Sales chốt HĐ: `DRAFT` → `ACTIVE`. Không có workflow phê duyệt HĐ. HĐ `ACTIVE` khóa nội dung nghiệp vụ.
 3. Chỉ HĐ `ACTIVE` được tham chiếu khi tạo PR/GIR.
 4. PM đề xuất Product chính thức (kể cả hàng thay thế) cho từng dòng HĐ, kèm lý do. Sales xác nhận hoặc từ chối theo thỏa thuận với khách hàng; hệ thống lưu người xác nhận, thời điểm, ghi chú hoặc số phụ lục. Một dòng HĐ có thể có nhiều Product được xác nhận.
@@ -10,14 +10,11 @@
 
 ## A. HĐ → PR → PO → GRR → GR
 1. HĐ `ACTIVE` là nguồn của PR (xem §0). Sales hoặc PM phụ trách HĐ tạo PR, trưởng bộ phận tương ứng phê duyệt và người tiếp nhận được phân công xác nhận để PR hoàn tất (ADR-0015).
-2. Khi lập PR, chọn đúng **một HĐ** `ACTIVE` (gắn ở cấp chứng từ). Có thể có nhiều PR cho một HĐ. Mỗi dòng PR giữ snapshot yêu cầu ban đầu; PR có thể có nhiều dòng, kể cả lặp mã cho nhu cầu khác nhau. Hai cách lập (ADR-0012):
-   - **PR hàng bán:** bắt đầu từ màn hình HĐ; hệ thống copy toàn bộ dòng hàng và thông tin liên quan sang form để người dùng chỉnh sửa trước khi lưu. Mỗi dòng PR giữ đúng `sales_contract_line_id`; không gộp các dòng HĐ cùng Product; trong cùng PR không chia/tạo trùng một dòng HĐ. Nhiều PR khác nhau được tham chiếu cùng dòng HĐ.
-   - **PR vật tư** (vật tư/phụ kiện triển khai, dự phòng): tạo tại màn hình PR, chọn HĐ rồi tự chọn vật tư (được dùng mã tạm, mapping trước khi nhập kho theo §A.4–5); dòng PR không bắt buộc `sales_contract_line_id`.
-   - Phân loại dòng tường minh; MVP không trộn hàng bán và vật tư trong một PR. Không tự suy ra dòng HĐ từ Product; trùng Product không đồng nghĩa trùng dòng HĐ.
+2. Khi lập PR, chọn một HĐ `ACTIVE` và một phân loại Hàng bán hoặc Vật tư. Cả hai chọn hàng từ toàn bộ danh mục. Trước Gửi duyệt, từng dòng Hàng bán phải liên kết một dòng HĐ; Vật tư có thể để trống. Một dòng HĐ có thể phục vụ nhiều dòng PR. Xem DEC-19-02.
 2a. Dòng PR chọn **mã tạm** (`temporary_products`, kèm chọn UoM từ dropdown) hoặc **mã chính** (`products`, UoM lấy từ danh mục). Dòng PR lưu snapshot mã, tên, mô tả, UoM ban đầu.
 3. Chọn dòng từ nhiều PR Hoàn tất để lập PO của **một nhà cung cấp**. Mỗi dòng PO giữ liên kết đến đúng một dòng PR; có thể chia một dòng PR qua nhiều dòng/PO.
-4. Mã tạm được ánh xạ (mapping) sang mã chính **một lần duy nhất**, theo từng dòng PR, trực tiếp trên PO hoặc GRR đang `DRAFT`; kết quả ghi vào `purchase_requisition_lines.product_id` và dùng chung cho mọi PO/GRR tham chiếu dòng PR đó, kể cả chứng từ đã duyệt. Không đổi lần hai; không đổi mã chính sang mã chính khác. Dòng PO kế thừa UoM snapshot của dòng PR. Mapping bị chặn nếu UoM mã chính khác UoM dòng PR hoặc bất kỳ dòng PO liên quan; không quy đổi UoM/số lượng. Chi tiết 03 §1a. Mapping PR → Product (chuẩn hóa hàng mua) **tách biệt** với xác nhận Product cho dòng HĐ (§0.4).
-5. Từ PO Đã duyệt, lập nhiều GRR cho các đợt nhập, mỗi GRR một PO và một kho; dòng GRR kế thừa UoM dòng PO. Không vượt hạn mức số lượng PO. GRR Nháp được giữ mã tạm; Gửi duyệt yêu cầu mọi dòng có mã chính và UoM dòng GRR trùng UoM mã chính. Điều chỉnh PO là nghiệp vụ ngoài MVP.
+4. Mô hình mục tiêu cho phép mã tạm trên PO, giữ nguyên mã trên chứng từ nguồn. Trong PR #19, chỉ dòng PR mã chính được lập PO. Dòng PO kế thừa ĐVT và liên kết nguồn của dòng PR.
+5. Từ PO Đã duyệt, lập nhiều GRR cho các đợt nhập, mỗi GRR một PO và một kho; dòng GRR kế thừa UoM dòng PO. Mỗi dòng PO được chọn tối đa một lần trong cùng GRR. Không vượt hạn mức số lượng PO. GRR Nháp được giữ mã tạm; Gửi duyệt yêu cầu mọi dòng có mã chính và UoM dòng GRR trùng UoM mã chính. Điều chỉnh PO là nghiệp vụ ngoài MVP.
 6. Từ GRR Đã duyệt, tạo GR kế thừa nguyên dòng, PN, số lượng, kho. Người có quyền khai báo kho nhập chi tiết hàng.
 7. Hàng quản lý SN: mỗi đơn vị một dòng chi tiết (`goods_receipt_details`, số lượng 1) và SN duy nhất; hàng không quản lý SN: một dòng chi tiết mang toàn bộ số lượng.
 8. GR Nháp có thể thiếu SN; Gửi duyệt yêu cầu đủ và hợp lệ; GR Chờ duyệt không giữ chỗ SN. Duyệt GR kiểm tra lại SN chưa từng nhập kho, rồi mới tăng tồn thực tế và tạo SN tồn kho.

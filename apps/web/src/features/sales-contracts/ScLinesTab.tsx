@@ -17,6 +17,11 @@ export type LineAction = { kind: 'add' } | { kind: 'edit' | 'delete' | 'propose'
 /** Lines of the contract with per-line actions; proposed products are listed under their line. */
 export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string) => boolean; onAction: (a: LineAction) => void }) {
   const { t } = useTranslation();
+  const codeCounts = new Map<string, number>();
+  for (const line of d.lines) {
+    const code = line.itemCode.trim().toLowerCase();
+    codeCounts.set(code, (codeCounts.get(code) ?? 0) + 1);
+  }
   const editable = d.status === 'DRAFT' && can('SALES_CONTRACT.CREATE');
   const canPropose = d.status !== 'CANCELED' && can('SALES_CONTRACT.PROPOSE_PRODUCT');
   const icon = (label: string, Icon: typeof EditOutlined, onClick: () => void, color?: 'error') => (
@@ -48,8 +53,13 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                 <Fragment key={l.id}>
                   <TableRow hover>
                     <TableCell>{i + 1}</TableCell>
-                    <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{l.itemCode}</TableCell>
-                    <TableCell>{l.itemName}</TableCell>
+                    <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{l.itemCode}
+                      {(codeCounts.get(l.itemCode.trim().toLowerCase()) ?? 0) > 1 &&
+                        <Typography variant="caption" sx={{ display: 'block', color: 'warning.dark' }}>{t('prCatalog.duplicate')}</Typography>}
+                    </TableCell>
+                    <TableCell>{l.itemName}
+                      {l.itemDescription && <Typography variant="body2" color="text.secondary">{l.itemDescription}</Typography>}
+                    </TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{num(l.quantity)}</TableCell>
                     <TableCell>{l.uomName}</TableCell>
                     <TableCell>{l.products.length ? t('sc.proposals', { count: l.products.length }) : <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{t('sc.noProductsShort')}</Typography>}</TableCell>

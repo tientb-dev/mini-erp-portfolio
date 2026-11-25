@@ -100,7 +100,7 @@ export function assertLineUpdated([, affected]: [unknown, number], lineId: numbe
   if (!affected) throw new BusinessError('LINE_NOT_EDITABLE', `Line ${lineId} is not on this document or is referenced by another document`, HttpStatus.CONFLICT);
 }
 
-/** One document references each source line at most once (CM6 for PR → HĐ line; same rule for PO → PR line). */
+/** Reject repeated source line IDs in a document whose source references must be unique. */
 export function assertUniqueSourceLines(sourceLineIds: number[]): void {
   const dup = sourceLineIds.find((id, i) => sourceLineIds.indexOf(id) !== i);
   if (dup !== undefined) throw new BusinessError('DUPLICATE_SOURCE_LINE', `Source line ${dup} is referenced more than once on this document`);

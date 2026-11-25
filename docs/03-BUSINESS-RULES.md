@@ -5,12 +5,11 @@
 - Mỗi PR thuộc một HĐ `ACTIVE` (cấp chứng từ); mỗi dòng PR giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
 - **Phân loại dòng** (đã chốt 2026-11-13, ADR-0012): mỗi dòng PR có phân loại tường minh hàng bán/vật tư; MVP không trộn hai loại trong một PR.
 - **Product không mang phân loại cố định** (đã chốt 2026-11-14, sau UAT Round 1): hàng bán / vật tư là mục đích nghiệp vụ của **chứng từ** (YCMH, ĐNXK), không phải thuộc tính của Product. Cùng một Product có thể dùng trong A/B hoặc C/D; luồng D được dùng Product từng được mua dưới dạng hàng bán nếu nguồn hợp lệ (HĐ nguồn + Sales nguồn) và có mục đích sử dụng. Vẫn không trộn hàng bán và vật tư trong một chứng từ. Không thêm phân loại vào danh mục Product.
-- **PR hàng bán:** tạo từ màn hình HĐ; copy toàn bộ dòng hàng và thông tin liên quan sang form để chỉnh sửa trước khi lưu. Mỗi dòng PR giữ đúng `sales_contract_line_id`; dòng HĐ phải thuộc HĐ của PR; không gộp dòng HĐ cùng Product. Trong cùng PR không chia/tạo trùng một dòng HĐ; nhiều PR khác nhau được tham chiếu cùng dòng HĐ. Không có hạn mức Σ PR ≤ dòng HĐ (IM19).
-- **PR vật tư** (vật tư/phụ kiện triển khai/dự phòng): tạo tại màn hình PR, chọn HĐ rồi tự chọn vật tư; `sales_contract_line_id` không bắt buộc; được dùng mã tạm theo §1a (chuẩn hóa trước khi nhập kho).
-- Trùng Product không đồng nghĩa trùng dòng HĐ; hệ thống không tự suy ra hoặc tự gán `sales_contract_line_id` theo Product.
+- **Liên kết dòng HĐ (DEC-19-02):** PR hàng bán và vật tư chọn hàng từ toàn bộ danh mục. Hàng bán bắt buộc liên kết một dòng HĐ đúng hợp đồng trước Gửi duyệt; Vật tư có thể để trống. Một dòng HĐ có thể liên kết nhiều dòng PR. Gợi ý chỉ dựa trên định danh danh mục trùng duy nhất; người tạo có thể đổi gợi ý. Không tự mapping theo mã hoặc tên nhập tự do. Không có hạn mức Σ PR ≤ dòng HĐ.
+- **Trùng mã (DEC-19-01):** cho phép trùng mã chính hoặc mã tạm, kể cả cùng NCC. Grid cảnh báo mềm và tự bỏ cảnh báo khi hết trùng. Không gộp dòng và không đặt khóa duy nhất theo mã hàng hoặc mã hàng + NCC. Liên kết và hạn mức theo ID dòng.
 - PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR (kể cả cùng Product). Trong cùng PO mỗi dòng PR được tham chiếu tối đa một lần; một dòng PR được xuất hiện ở nhiều PO khác nhau (đã chốt 2026-11-13).
 - Tổng số lượng dòng PO Chờ duyệt + Đã duyệt gắn với dòng PR không vượt số lượng PR Hoàn tất.
-- Một GRR tham chiếu một PO Đã duyệt, một kho; mỗi dòng GRR tham chiếu một dòng PO.
+- Một GRR tham chiếu một PO Đã duyệt, một kho; mỗi dòng GRR tham chiếu một dòng PO. Trong cùng GRR, mỗi dòng PO được chọn tối đa một lần và không được tách.
 - Tổng số lượng GRR Chờ duyệt + Đã duyệt theo dòng PO không vượt số lượng PO Đã duyệt.
 - GRR có thể chọn một phần dòng/số lượng của PO; không tự tăng vượt hạn mức.
 - **Tình trạng nhập kho của PO** (đã chốt 2026-11-13, CT12), tách khỏi trạng thái phê duyệt; chỉ tính GR `APPROVED` còn hiệu lực (GR đã Thu hồi không tính); được nhập kho từng phần:
@@ -21,29 +20,21 @@
 
 ## 1a. Danh mục hàng hóa, mã tạm và mapping — đã chốt (2026-11-13)
 - Danh mục hàng hóa gồm `temporary_products` (mã tạm: mã, tên, mô tả; không UoM) và `products` (mã chính: UoM, `is_serial_tracked`, thông tin kế toán dự trù).
-- Dòng PR (`purchase_requisition_lines`): snapshot mã, tên, mô tả, UoM ban đầu. Chọn mã tạm → bắt buộc chọn UoM từ dropdown; chọn mã chính → UoM lấy từ `products`. `purchase_requisition_lines.product_id` nullable là kết quả chuẩn hóa dùng chung.
-- **Mapping** chỉ theo chiều mã tạm → mã chính, ghi vào `purchase_requisition_lines.product_id`. **Không cho đổi lần hai**; không đổi mã chính sang mã chính khác.
-- Mapping thực hiện trực tiếp trên PO hoặc GRR **chỉ khi chứng từ đó ở `DRAFT`** và dòng PR chưa có mã chính. Dùng quyền sửa chứng từ tương ứng (không có mã quyền riêng); không có thông báo riêng.
-- Mapping theo **từng dòng PR**; không tự áp dụng cho các dòng khác cùng mã tạm. Mã tạm vẫn được tái sử dụng sau mapping.
-- Mọi PO/GRR cùng tham chiếu một dòng PR dùng chung kết quả mapping, kể cả chứng từ đã duyệt. **Ngoại lệ có chủ đích:** thông tin hàng hóa hiển thị trên chứng từ Đã duyệt có thể thay đổi do mapping dùng chung; không được sửa trực tiếp số lượng hay nội dung đã duyệt; snapshot ban đầu trên dòng PR không đổi.
-- Mapping phải an toàn đồng thời: hai người mapping cùng dòng PR → chỉ một thành công, người còn lại nhận lỗi rõ ràng.
-- **Không hỗ trợ quy đổi UoM trong MVP.** Mapping và mọi thao tác khác không bao giờ tự đổi UoM hay số lượng.
+- Dòng PR giữ snapshot mã, tên, mô tả và ĐVT. Mã tạm chọn ĐVT, mã chính lấy ĐVT từ `products`. Một PR có thể chứa cả hai loại mã và hoàn tất theo workflow thông thường.
+- Mô hình mục tiêu cho phép PO giữ mã tạm. Trong PR #19, chặn tạo PO từ dòng PR mã tạm và nêu lý do; dòng mã chính cùng PR vẫn có thể lập PO. GRR phải xác định mã chính trước Gửi duyệt và không ghi đè mã hàng trên chứng từ nguồn (ADR-0008).
+- **Không hỗ trợ quy đổi UoM trong MVP.** Xác định mã thực nhận giữ nguyên UoM và số lượng nguồn.
 - **Kế thừa UoM:** dòng PO kế thừa UoM snapshot của dòng PR khi tạo và lưu UoM riêng; dòng GRR kế thừa UoM của dòng PO.
 - Hạn mức Σ PO ≤ PR và Σ GRR ≤ PO chỉ so sánh số lượng cùng UoM.
-- **Chặn mapping** nếu UoM mã chính khác UoM snapshot của dòng PR **hoặc** UoM của bất kỳ dòng PO nào tham chiếu dòng PR đó (mọi trạng thái, kể cả `APPROVED`). Kiểm tra ở backend, trong cùng transaction với cập nhật `product_id`.
 - GRR **không được Gửi duyệt** nếu UoM dòng GRR khác UoM hiện hành của mã chính; không có cơ chế xác nhận để vượt qua. Backend kiểm tra từng dòng GRR.
 - Điều chỉnh PO (đổi UoM/số lượng PO đã duyệt) và quy đổi UoM: **ngoài MVP**.
 - GRR Nháp được giữ mã tạm; **tất cả dòng GRR phải có mã chính trước Gửi duyệt**. GR, GIR, GI và Inventory chỉ dùng mã chính.
-- Dòng HĐ **không bắt buộc** có mã chính (thay thế quy tắc T3 cũ "dòng HĐ chỉ dùng mã chính"); Product được phép giao của dòng HĐ quản lý riêng (§9.2).
+- Dòng HĐ chọn mã chính, mã tạm hoặc nhập tự do. Tối đa một tham chiếu danh mục, có snapshot riêng. Product được phép giao quản lý riêng (§9.2).
 - Mã tạm không có bản dịch trong MVP.
 - Auto Mapping hàng loạt: ngoài MVP.
 
 **Lỗi nghiệp vụ (mã trả về):**
 | Tình huống | Mã lỗi |
 |---|---|
-| Mapping khi PO/GRR không ở `DRAFT` | `DOCUMENT_NOT_DRAFT` |
-| Mapping dòng PR đã có mã chính / mapping đồng thời thua | `PRODUCT_ALREADY_MAPPED` |
-| Mapping sang mã chính khác UoM dòng PR hoặc dòng PO liên quan | `MAPPING_UOM_MISMATCH` |
 | Gửi duyệt GRR còn dòng mã tạm | `GRR_LINE_NOT_MAPPED` |
 | Gửi duyệt GRR có dòng UoM ≠ UoM mã chính | `GRR_LINE_UOM_MISMATCH` |
 | Đổi `is_serial_tracked` của PN đã khóa | `SERIAL_TRACKING_LOCKED` |
@@ -54,10 +45,10 @@
 - Khóa thay đổi nếu PN từng xuất hiện trên GRR, GR, GIR hoặc GI, **bất kể trạng thái** (kể cả `DRAFT`, `CANCELED`).
 
 ## 1c. UoM của mã chính — đã chốt (2026-11-13)
-- Khóa thay đổi `products.unit_of_measure_id` khi mã chính đã xuất hiện trên PR, PO, GRR, GR, HĐ bán hàng, GIR hoặc GI, **bất kể trạng thái** (kể cả `DRAFT`, `CANCELED`). Với HĐ: dòng HĐ không bắt buộc mã chính, nên "xuất hiện trên HĐ" được hiểu qua liên kết Product ↔ dòng HĐ (§9.2) — đề xuất chưa `APPROVED` không tính (H5).
+- Khóa thay đổi `products.unit_of_measure_id` khi mã chính đã xuất hiện trên PR, PO, GRR, GR, HĐ bán hàng, GIR hoặc GI, **bất kể trạng thái** (kể cả `DRAFT`, `CANCELED`). Với HĐ, Product được tính khi được chọn trực tiếp trên dòng HĐ hoặc được xác nhận cho phép giao (§9.2). Đề xuất chưa `APPROVED` không tính.
 - **Mở rộng (2026-11-13, M2):** sau khi Product đã được sử dụng trong chứng từ, khóa cả **mã hàng** và **tên hàng** (cùng phạm vi trên). Mô tả Product vẫn được sửa; trạng thái hoạt động được đổi; không xóa Product. Tên dịch (`product_translations`) bị khóa cùng tên.
 - HĐ và PR giữ thông tin hàng hóa gốc độc lập với Product. PO/GRR/GR/GIR/GI tham chiếu `product_id`, không snapshot tên/mô tả trong MVP; mô tả hiển thị trên chứng từ cũ có thể là mô tả mới nhất.
-- Dòng PR dùng mã tạm chỉ được tính là "xuất hiện" sau khi đã mapping sang mã chính đó.
+- Xác định mã chính thực tế ở GRR tính là sử dụng Product tại GRR; danh mục mã tạm và chứng từ nguồn giữ nguyên.
 - Backend bắt buộc kiểm tra; vi phạm trả `PRODUCT_UOM_LOCKED`.
 - Sửa UoM và mapping/thêm mã chính vào chứng từ không được chạy chen nhau làm mất hiệu lực kiểm tra (cơ chế: ADR-0008).
 
@@ -203,7 +194,7 @@
 - Mỗi dòng HĐ có ID riêng, lưu nguyên thông tin hàng hóa khách hàng ký (kể cả mã/tên chưa chuẩn hóa); không bắt buộc Product chính thức.
 - Một dòng HĐ được liên kết **nhiều** Product chính thức, kể cả hàng thay thế.
 - PM đề xuất Product (kèm lý do); Sales xác nhận hoặc từ chối theo từng dòng HĐ. Lưu người xác nhận, thời điểm, ghi chú hoặc số phụ lục; không quản lý quy trình ký phụ lục.
-- Mapping PR → Product (chuẩn hóa hàng mua, §1a) và xác nhận Product cho dòng HĐ (hàng được phép giao) là **hai trách nhiệm tách biệt**, không gộp.
+- Xác định mã chính thực nhận ở GRR (§1a) và xác nhận Product cho dòng HĐ (hàng được phép giao) là hai trách nhiệm riêng.
 - Đề xuất mapping dòng HĐ ↔ Product có trạng thái `PENDING` → `APPROVED` | `REJECTED` (PM tạo, Sales quyết định). Đây là trạng thái của đề xuất, không phải `approval_status` chứng từ.
 - Không cho thu hồi xác nhận (`APPROVED`) đang được dòng GIR hàng bán chưa `CANCELED` sử dụng. Dòng GIR vật tư cùng Product không tính là sử dụng xác nhận này.
 - Đề xuất `PENDING`/`REJECTED` không làm Product thành "đã sử dụng" (§1c).

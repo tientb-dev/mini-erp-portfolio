@@ -19,7 +19,7 @@ import WarehouseOutlined from '@mui/icons-material/WarehouseOutlined';
 import WorkOutline from '@mui/icons-material/WorkOutlined';
 import { GoodsReceiptsPage } from '../features/inbound';
 import { InventoryLotsPage, InventoryPage } from '../features/inventory';
-import { CustomersPage, ProductsPage, SuppliersPage, WarehousesPage } from '../features/master-data';
+import { CustomersPage, ProductsPage, PrCatalogPage, SuppliersPage, WarehousesPage } from '../features/master-data';
 import { GoodsIssueRequestsPage, GoodsIssuesPage } from '../features/outbound';
 import { GoodsReceiptRequestsPage, PurchaseOrdersPage, PurchaseRequisitionsPage } from '../features/procurement';
 import { SalesContractsPage } from '../features/sales-contracts';
@@ -39,6 +39,7 @@ export const PAGES = {
   inventory: [InventoryPage, 'INVENTORY.VIEW', Inventory2Outlined],
   inventoryLots: [InventoryLotsPage, 'INVENTORY.VIEW', TimelineOutlined],
   products: [ProductsPage, 'PRODUCT.VIEW', CategoryOutlined],
+  prCatalog: [PrCatalogPage, 'PRODUCT.VIEW', CategoryOutlined],
   warehouses: [WarehousesPage, 'WAREHOUSE.VIEW', WarehouseOutlined],
   customers: [CustomersPage, 'CUSTOMER.VIEW', GroupsOutlined],
   suppliers: [SuppliersPage, 'SUPPLIER.VIEW', LocalShippingOutlined],
@@ -57,5 +58,5 @@ export const NAV: { group: string; icon: SvgIconComponent; items: PageKey[] }[] 
   { group: 'nav.sales', icon: WorkOutline, items: ['salesContracts'] },
   { group: 'nav.purchasing', icon: ShoppingCartOutlined, items: ['purchaseRequisitions', 'purchaseOrders'] },
   { group: 'nav.warehouseOps', icon: StorefrontOutlined, items: ['goodsReceiptRequests', 'goodsReceipts', 'goodsIssueRequests', 'goodsIssues', 'inventory', 'inventoryLots'] },
-  { group: 'nav.masterData', icon: FolderOutlined, items: ['products', 'warehouses', 'customers', 'suppliers'] },
+  { group: 'nav.masterData', icon: FolderOutlined, items: ['products', 'prCatalog', 'warehouses', 'customers', 'suppliers'] },
 ];

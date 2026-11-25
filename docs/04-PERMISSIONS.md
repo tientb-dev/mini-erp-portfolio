@@ -29,6 +29,8 @@ Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệ
 **PR sau UAT (ADR-0015).** Organization độc lập với Authorization. Cây tổ chức không cấp hoặc kế thừa quyền. Quyền nghiệp vụ dựa trên permission và cấu hình eligibility, không hardcode tên Role. `PR.CONFIGURE` quản lý cấu hình. `PR.REASSIGN` cho phép phân công lại PR trong phạm vi đọc được cấp. Creator có `PR.CREATE` được đổi bước hiện tại trên PR của mình. Người tiếp nhận hiện tại còn đủ eligibility được chuyển giao bước tiếp nhận. Vai trò người phê duyệt không tự cấp quyền chuyển giao. Thu hồi eligibility có hiệu lực ngay.
 
 Quyền xem PR cho phép đọc và thêm ghi chú ở mọi trạng thái, kể cả Hoàn tất (ADR-0016).
+
+Danh mục hãng, mã tạm, tiền tệ và thuế dùng `PRODUCT.VIEW` để đọc và `PROCUREMENT_CATALOG.MANAGE` để quản lý. Xem NCC theo hãng cần `SUPPLIER.VIEW`; thay quan hệ hãng–NCC cần cả quyền đọc NCC lẫn quyền quản lý danh mục.
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.
 - Người duyệt mặc định cấu hình theo role hoặc bước duyệt, không dùng một flag chung cho mọi nghiệp vụ.
 - Không có mặc định và có nhiều người hợp lệ → người tạo phải chọn.

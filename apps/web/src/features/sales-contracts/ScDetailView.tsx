@@ -88,8 +88,8 @@ export function ScDetailView({ id }: { id: number }) {
           ]} />
           {(dialog?.kind === 'activate' || dialog?.kind === 'cancel') && <ScStatusDialog id={id} kind={dialog.kind} onClose={close} onDone={done} />}
           {dialog?.kind === 'header' && <ScHeaderDialog edit={d} onClose={close} onSaved={done} />}
-          {dialog?.kind === 'add' && <ScLineDialog contractId={id} version={d.version} onClose={close} onSaved={done} />}
-          {dialog?.kind === 'edit' && <ScLineDialog contractId={id} version={d.version} line={dialog.line} onClose={close} onSaved={done} />}
+          {dialog?.kind === 'add' && <ScLineDialog lines={d.lines} contractId={id} version={d.version} onClose={close} onSaved={done} />}
+          {dialog?.kind === 'edit' && <ScLineDialog lines={d.lines} contractId={id} version={d.version} line={dialog.line} onClose={close} onSaved={done} />}
           {dialog?.kind === 'delete' && <DeleteLineDialog line={dialog.line} version={d.version} onClose={close} onDone={done} />}
           {dialog?.kind === 'propose' && <ProposeDialog line={dialog.line} onClose={close} onDone={done} />}
           {(dialog?.kind === 'approve' || dialog?.kind === 'reject') && (

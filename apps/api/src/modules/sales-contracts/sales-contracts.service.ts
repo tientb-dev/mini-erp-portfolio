@@ -5,7 +5,9 @@ import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
-export interface ScLineInput { id?: number; itemCode: string; itemName: string; unitOfMeasureId: number; quantity: number }
+import { CatalogFacade } from '../master-data/catalog.facade';
+
+export interface ScLineInput { id?: number; productId?: number | null; temporaryProductId?: number | null; itemDescription?: string | null; itemCode: string; itemName: string; unitOfMeasureId: number; quantity: number }
 
 /** HĐ list filters/sort/paging; all optional, so old callers (pickers) keep getting every contract as an array. */
 export interface ScListQuery {
@@ -205,20 +207,56 @@ export class SalesContractsService {
     if (!u) throw new BusinessError('UOM_NOT_FOUND', `Unit of measure ${unitOfMeasureId} not found`);
   }
 
-  private async insertLine(m: EntityManager, id: number, l: ScLineInput): Promise<number> {
-    await this.assertUom(m, l.unitOfMeasureId);
+  private async lineValues(m: EntityManager, line: ScLineInput, existing?: ScLineInput) {
+    const keepSource = line.productId === undefined && line.temporaryProductId === undefined;
+    const productId = (keepSource ? existing?.productId : line.productId) ?? null;
+    const temporaryProductId = (keepSource ? existing?.temporaryProductId : line.temporaryProductId) ?? null;
+    if (productId !== null && temporaryProductId !== null) {
+      throw new BusinessError('SC_LINE_MULTIPLE_CATALOG_SOURCES', 'A contract line can reference only one catalog item');
+    }
+    let snapshot = {
+      code: line.itemCode,
+      name: line.itemName,
+      description: line.itemDescription === undefined ? existing?.itemDescription ?? null : line.itemDescription,
+      unitOfMeasureId: line.unitOfMeasureId,
+    };
+    if (productId !== null || temporaryProductId !== null) {
+      if (existing && productId === existing.productId && temporaryProductId === existing.temporaryProductId) {
+        snapshot = { code: existing.itemCode, name: existing.itemName, description: existing.itemDescription ?? null,
+          unitOfMeasureId: productId === null ? line.unitOfMeasureId : existing.unitOfMeasureId };
+      } else {
+        const item = await CatalogFacade.contractItem(m, productId, temporaryProductId);
+        if (!item) throw new BusinessError('SC_LINE_CATALOG_ITEM_NOT_FOUND', 'Catalog item was not found or is inactive');
+        snapshot = { ...item, unitOfMeasureId: item.unitOfMeasureId ?? line.unitOfMeasureId };
+        if (productId !== null) await ProductUsage.markUsed(m, productId, { stock: false });
+      }
+    }
+    await this.assertUom(m, snapshot.unitOfMeasureId);
+    return [snapshot.code, snapshot.name, snapshot.description, snapshot.unitOfMeasureId, line.quantity, productId, temporaryProductId];
+  }
+
+  private async insertLine(m: EntityManager, id: number, line: ScLineInput): Promise<number> {
+    const values = await this.lineValues(m, line);
     const [row] = await m.query(
-      `INSERT INTO sales_contract_lines (sales_contract_id, item_code, item_name, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [id, l.itemCode, l.itemName, l.unitOfMeasureId, l.quantity],
+      `INSERT INTO sales_contract_lines
+         (sales_contract_id, item_code, item_name, item_description, unit_of_measure_id, quantity, product_id, temporary_product_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, [id, ...values],
     );
     return row.id;
   }
 
-  private async updateLine(m: EntityManager, id: number, lineId: number, l: ScLineInput) {
-    await this.assertUom(m, l.unitOfMeasureId);
+  private async updateLine(m: EntityManager, id: number, lineId: number, line: ScLineInput) {
+    const [existing] = await m.query(
+      `SELECT item_code AS "itemCode", item_name AS "itemName", item_description AS "itemDescription",
+         unit_of_measure_id AS "unitOfMeasureId", product_id AS "productId", temporary_product_id AS "temporaryProductId"
+       FROM sales_contract_lines WHERE id = $1 AND sales_contract_id = $2`, [lineId, id],
+    );
+    if (!existing) throw new BusinessError('LINE_NOT_EDITABLE', `Line ${lineId} cannot be updated`, HttpStatus.CONFLICT);
+    const values = await this.lineValues(m, line, existing);
     wf.assertLineUpdated(await m.query(
-      `UPDATE sales_contract_lines SET item_code = $3, item_name = $4, unit_of_measure_id = $5, quantity = $6 WHERE id = $1 AND sales_contract_id = $2`,
-      [lineId, id, l.itemCode, l.itemName, l.unitOfMeasureId, l.quantity],
+      `UPDATE sales_contract_lines SET item_code = $3, item_name = $4, item_description = $5, unit_of_measure_id = $6,
+         quantity = $7, product_id = $8, temporary_product_id = $9 WHERE id = $1 AND sales_contract_id = $2`,
+      [lineId, id, ...values],
     ), lineId);
   }
 
@@ -303,7 +341,8 @@ export class SalesContractsService {
   /** Lines with confirmed (APPROVED) products and GIR quota usage, for GIR forms. */
   lines(id: number) {
     return this.ds.query(
-      `SELECT l.id, l.item_code AS "itemCode", l.item_name AS "itemName", l.unit_of_measure_id AS "unitOfMeasureId", uom.name AS "uomName",
+      `SELECT l.id, l.item_code AS "itemCode", l.item_name AS "itemName", l.item_description AS "itemDescription", l.product_id AS "productId",
+              l.temporary_product_id AS "temporaryProductId", l.unit_of_measure_id AS "unitOfMeasureId", uom.name AS "uomName",
               uom.code AS "uomCode", l.quantity,
               COALESCE((SELECT json_agg(json_build_object('id', x.id, 'productId', p.id, 'partNumber', p.part_number, 'name', p.name,
                                                           'status', x.status, 'reason', x.reason, 'decisionNote', x.decision_note,

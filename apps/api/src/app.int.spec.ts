@@ -34,7 +34,7 @@ describe('API foundation (integration)', () => {
 
   it('creates a product with is_serial_tracked defaulting to true and rejects duplicate PN', async () => {
     const [uom] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
-    const body = { partNumber: 'PN-001', name: 'Router X', unitOfMeasureId: uom.id };
+    const body = { brandId: 1, partNumber: 'PN-001', name: 'Router X', unitOfMeasureId: uom.id };
     const res = await request(app.getHttpServer()).post('/products').set(auth()).send(body).expect(201);
     expect(res.body.isSerialTracked).toBe(true);
     const dup = await request(app.getHttpServer()).post('/products').set(auth()).send(body).expect(409);

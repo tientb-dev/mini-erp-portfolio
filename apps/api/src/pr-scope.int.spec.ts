@@ -33,7 +33,7 @@ describe('PR read scope for the responsible sales (integration)', () => {
       SELECT u.id, r.id FROM users u CROSS JOIN roles r WHERE u.username = $1 AND r.code = 'SALES'`, [process.env.SEED_ADMIN_USERNAME]);
     const adminId = (await get(admin, '/auth/me')).body.id;
     const customerId = (await post(admin, '/customers', { code: 'PS1', name: 'Scope Corp' }).expect(201)).body.id;
-    const productId = (await post(admin, '/products', { partNumber: 'PN-PS', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    const productId = (await post(admin, '/products', { brandId: 1, partNumber: 'PN-PS', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
     const contractWithPr = async (responsibleSalesUserId: number) => {
       const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId, lines: [{ itemCode: 'A', itemName: 'A', unitOfMeasureId: pcs, quantity: 5 }] }).expect(201)).body.id;
       await post(admin, `/sales-contracts/${sc}/activate`).expect(204);

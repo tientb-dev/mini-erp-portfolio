@@ -32,8 +32,8 @@ describe('Inbound chain and GR (integration)', () => {
     salesUserId = (await http().get('/auth/me').set(as(creator))).body.id;
     [{ id: hcmId }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
     const [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
-    snProductId = (await post(creator, '/products', { partNumber: 'PN-SN', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
-    bulkProductId = (await post(creator, '/products', { partNumber: 'PN-BULK', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    snProductId = (await post(creator, '/products', { brandId: 1, partNumber: 'PN-SN', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
+    bulkProductId = (await post(creator, '/products', { brandId: 1, partNumber: 'PN-BULK', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
   });
 
   afterAll(async () => {
@@ -409,11 +409,14 @@ describe('Inbound chain and GR (integration)', () => {
     )).rejects.toThrow(/duplicate key/);
   });
 
-  it('GRR over the PO quantity is blocked (B02)', async () => {
+  it('GRR rejects duplicate PO sources and quantities over the PO limit (DEC-19-01, B02)', async () => {
     const grr = await approvedGrr(1, 1);
     const [{ purchase_order_id: po }] = await ds.query(`SELECT purchase_order_id FROM goods_receipt_requests WHERE id = $1`, [grr]);
     const poLines = (await http().get(`/purchase-orders/${po}/lines`).set(as(creator))).body;
-    const res = await post(creator, '/goods-receipt-requests', { purchaseOrderId: po, warehouseId: hcmId, lines: [{ sourceLineId: poLines[0].id, quantity: 1 }] });
+    const source = { sourceLineId: poLines[0].id, quantity: 1 };
+    const duplicate = await post(creator, '/goods-receipt-requests', { purchaseOrderId: po, warehouseId: hcmId, lines: [source, source] }).expect(422);
+    expect(duplicate.body.code).toBe('DUPLICATE_SOURCE_LINE');
+    const res = await post(creator, '/goods-receipt-requests', { purchaseOrderId: po, warehouseId: hcmId, lines: [source] });
     expect(res.body.code).toBe('QUANTITY_LIMIT_EXCEEDED');
   });
 });

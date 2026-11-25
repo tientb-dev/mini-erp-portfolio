@@ -56,8 +56,8 @@ describe('Outbound: GIR → GI (integration)', () => {
     salesUser = (await identity.loadCurrentUser(await idOf(process.env.SEED_APPROVER_USERNAME!)))!;
     salesId = salesUser.id;
     [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
-    router = (await post(pm, '/products', { partNumber: 'RT-1', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
-    cable = (await post(pm, '/products', { partNumber: 'CB-1', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    router = (await post(pm, '/products', { brandId: 1, partNumber: 'RT-1', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
+    cable = (await post(pm, '/products', { brandId: 1, partNumber: 'CB-1', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
   });
 
   afterAll(async () => {
@@ -182,7 +182,7 @@ describe('Outbound: GIR → GI (integration)', () => {
   // ---------- Product lock ----------
 
   it('locks code, name and UoM once used; description stays editable; pending proposals do not lock (03 §1c, H06–H07, G13)', async () => {
-    const fresh = (await post(pm, '/products', { partNumber: 'NEW-1', name: 'New', unitOfMeasureId: pcs })).body.id;
+    const fresh = (await post(pm, '/products', { brandId: 1, partNumber: 'NEW-1', name: 'New', unitOfMeasureId: pcs })).body.id;
     const sc = await contract(5, 5, false);
     await post(pm, `/sales-contract-lines/${sc.routerLine}/product-proposals`, { productId: fresh, reason: 'substitute' }).expect(201);
     await patch(pm, `/products/${fresh}`, { name: 'Renamed while pending' }).expect(200); // G13

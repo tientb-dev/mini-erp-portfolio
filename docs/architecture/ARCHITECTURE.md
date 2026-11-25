@@ -43,9 +43,9 @@ Các đề xuất bổ trợ chưa bị thay đổi và vẫn áp dụng: class-
 | # | Module | Trách nhiệm |
 |---|---|---|
 | 1 | **Identity & Access** | User, đăng nhập, role, permission, phạm vi kho; hàm kiểm tra quyền |
-| 2 | **Master Data** | Danh mục hàng hóa: mã tạm (`temporary_products`), mã chính (`products`), nhóm hàng, đơn vị tính, khách hàng, nhà cung cấp, kho; bản dịch danh mục |
+| 2 | **Master Data** | Danh mục hàng hóa: mã tạm (`temporary_products`), mã chính (`products`), hãng, tiền tệ, thuế suất, đơn vị tính, khách hàng, nhà cung cấp, kho; bản dịch danh mục |
 | 3 | **Sales Contracts** | HĐ (`DRAFT`/`ACTIVE`/`CANCELED`, không duyệt), dòng HĐ, Product được phép giao theo dòng HĐ (đề xuất PM, xác nhận Sales), hạn mức GIR hàng bán theo dòng HĐ; dòng vật tư chỉ gắn HĐ (ADR-0009, ADR-0010, ADR-0012) |
-| 4 | **Procurement** | PR, PO; mapping mã tạm → mã chính trên dòng PR (ADR-0008); hạn mức dòng PR → dòng PO; hạn mức và tiến độ nhập trên dòng PO |
+| 4 | **Procurement** | PR, PO; hạn mức dòng PR → dòng PO; hạn mức và tiến độ nhập trên dòng PO |
 | 5 | **Inbound** | GRR, GR, chi tiết GR; một GR chưa Hủy cho mỗi GRR |
 | 6 | **Outbound** | GIR (`PURCHASE_REQUISITION` / `AVAILABLE_STOCK`, phân loại hàng bán/vật tư; bốn luồng hàng bán/vật tư theo PR/trực tiếp, ADR-0012), GI; hạn mức dòng GIR → dòng GI; hoàn thành xuất (`COMPLETED`) (ADR-0010) |
 | 7 | **Inventory** | Số dư Kho + PN, giữ chỗ, SN, lịch sử biến động, lịch sử SN |
@@ -142,15 +142,12 @@ Tồn theo HĐ nguồn/Sales phụ trách/GR: ADR-0013 (thiết kế lô chờ r
 - Mã tạm không có bản dịch. Dòng HĐ lưu thông tin gốc, không bắt buộc mã chính (ADR-0009 thay thế T3).
 - Sau khi Product được dùng: khóa `part_number`, tên, UoM; mô tả và trạng thái hoạt động sửa được; không xóa. Chứng từ sau PR tham chiếu `product_id`, không snapshot tên/mô tả.
 - Kho có thuộc tính `allow_available_stock_issue` (đề xuất) cho GIR `AVAILABLE_STOCK`.
-- `products.unit_of_measure_id` bị khóa khi mã chính đã xuất hiện trên PR (kể cả qua mapping), PO, GRR, GR, HĐ, GIR, GI, mọi trạng thái (`PRODUCT_UOM_LOCKED`). Sửa UoM khóa `products` `FOR UPDATE`; mapping/thêm dòng chứng từ khóa `products` `FOR SHARE` → tuần tự (ADR-0008).
+- `products.unit_of_measure_id` bị khóa khi mã chính đã xuất hiện trên PR, PO, GRR, GR, HĐ, GIR, GI, mọi trạng thái (`PRODUCT_UOM_LOCKED`). Sửa UoM khóa `products` `FOR UPDATE`; xác định mã thực nhận và thêm dòng chứng từ khóa `products` trong transaction → tuần tự (ADR-0008).
 
-### 4.1 Mã tạm và mapping — [ADR-0008](decisions/ADR-0008-temporary-product-mapping.md)
-- `purchase_requisition_lines` lưu snapshot mã/tên/mô tả/UoM ban đầu; `product_id` nullable là kết quả chuẩn hóa dùng chung cho mọi PO/GRR tham chiếu dòng PR.
-- Mapping theo từng dòng PR, một lần, trên PO/GRR `DRAFT`, bằng quyền sửa chứng từ đó; `UPDATE … WHERE product_id IS NULL` chống mapping đồng thời.
-- UoM kế thừa PR → PO → GRR và lưu riêng trên từng dòng; không quy đổi; mapping không đổi UoM/số lượng.
-- Mapping: khóa dòng PR (`FOR UPDATE`) → kiểm tra chứng từ `DRAFT`, `product_id IS NULL`, UoM mã chính = UoM dòng PR = UoM mọi dòng PO liên quan → cập nhật. Tạo dòng PO từ dòng PR cũng khóa dòng PR (hạn mức Σ PO ≤ PR) nên hai thao tác tuần tự.
-- Gửi duyệt GRR: mọi dòng có mã chính và UoM dòng GRR = UoM mã chính (trong transaction đã khóa dòng PO).
-- Mã lỗi: `DOCUMENT_NOT_DRAFT`, `PRODUCT_ALREADY_MAPPED`, `MAPPING_UOM_MISMATCH`, `GRR_LINE_NOT_MAPPED`, `GRR_LINE_UOM_MISMATCH`, `SERIAL_TRACKING_LOCKED`, `PRODUCT_UOM_LOCKED` (03 §1a).
+### 4.1 Mã tạm và mã chính thực nhận — [ADR-0008](decisions/ADR-0008-temporary-product-mapping.md)
+- HĐ lưu snapshot và tối đa một tham chiếu danh mục. PR lưu snapshot và chọn mã tạm hoặc mã chính.
+- PO chưa nhận dòng PR mã tạm trong PR #19. Khi mở luồng mã tạm ở kho, GRR phải xác định mã chính trước Gửi duyệt và giữ nguyên chứng từ nguồn.
+- ĐVT và hạn mức tiếp tục theo dòng nguồn. Không quy đổi ĐVT hoặc số lượng. Một dòng PO được dùng tối đa một lần trong cùng GRR.
 
 ---
 

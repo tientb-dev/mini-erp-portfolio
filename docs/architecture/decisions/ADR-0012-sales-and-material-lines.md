@@ -14,17 +14,12 @@ Tài liệu này tách ba loại nội dung: **nghiệp vụ đã chốt**, **hi
 - PR và GIR gắn **một HĐ `ACTIVE` ở cấp chứng từ**.
 - Mỗi dòng PR/GIR có **phân loại tường minh**: **hàng bán** hoặc **vật tư** (vật tư/phụ kiện triển khai, dự phòng) (CM4).
 - MVP **không trộn** hàng bán và vật tư trong cùng một PR hoặc cùng một GIR (CM3).
-- Dòng hàng bán bắt buộc `sales_contract_line_id`; dòng vật tư không bắt buộc.
-- Trùng Product không đồng nghĩa trùng dòng HĐ. Hệ thống không tự suy ra, tự gán hoặc tự gộp dòng HĐ theo Product; không tự đổi phân loại dòng.
+- Dòng PR hàng bán bắt buộc `sales_contract_line_id` trước Gửi duyệt; dòng PR vật tư có thể để trống. Hạn mức và liên kết GIR theo §1.4.
+- Trùng Product không đồng nghĩa trùng dòng HĐ. GIR giữ liên kết nguồn theo ID dòng.
 
-### 1.2 PR hàng bán (tạo từ HĐ)
-- Từ màn hình HĐ, hệ thống copy toàn bộ dòng hàng và thông tin liên quan sang form PR; người dùng chỉnh sửa trước khi lưu.
-- Mỗi dòng PR giữ đúng `sales_contract_line_id` của dòng HĐ gốc; không gộp các dòng HĐ cùng Product.
-- Trong **cùng một PR**: không chia và không tạo trùng một dòng HĐ (tối đa một dòng PR cho mỗi dòng HĐ). **Nhiều PR khác nhau** được tham chiếu cùng dòng HĐ (CM6).
-
-### 1.3 PR vật tư (tạo tại màn hình PR)
-- Chọn HĐ, rồi tự chọn vật tư. Dòng vật tư không bắt buộc `sales_contract_line_id`.
-- Được dùng mã tạm (`temporary_products`); tuân thủ quy tắc mapping/chuẩn hóa trước khi nhập kho (03 §1a: GRR không Gửi duyệt khi còn mã tạm) (CM5).
+### 1.2 Chọn hàng và liên kết dòng HĐ trên PR
+- Cả hai loại PR chọn mã chính hoặc mã tạm từ toàn bộ danh mục, theo DEC-19-02 và DEC-19-03.
+- Mỗi dòng PR liên kết tối đa một dòng HĐ, một dòng HĐ có thể phục vụ nhiều dòng PR. Chỉ gợi ý khi trùng đúng một định danh danh mục; người tạo có thể thay đổi. Dòng HĐ nhập tự do được chọn thủ công.
 
 ### 1.4 Bốn luồng GIR (CM1, CM2)
 | Luồng | Phân loại | Nguồn | Quy tắc chính |

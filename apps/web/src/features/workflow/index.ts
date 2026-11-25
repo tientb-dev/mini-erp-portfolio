@@ -2,3 +2,4 @@
 export { DocActionDialog } from './DocActionDialog';
 export { HistoryList } from './HistoryList';
 export type { DocAction, HistoryEntry, Person } from './types';
+export { DocumentActivityDialog, DocumentHistoryTable } from './DocumentHistoryTable';

@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, P
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, ArrayUnique, IsArray, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
@@ -62,13 +62,22 @@ class CreatePoDto {
   @ApiProperty() @IsInt() supplierId!: number;
   @ApiProperty({ type: [SourceLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => SourceLineDto) lines!: SourceLineDto[];
 }
+class SaveNewPrDto extends CreatePrDto {
+  @ApiProperty() @IsUUID('4') requestKey!: string;
+  @ApiProperty() @IsBoolean() submit!: boolean;
+}
 
 class UpdatePrDto extends PrDraftSelection {
   @ApiProperty() @IsInt() version!: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() purpose?: string;
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
 }
 class UpdatePoDto extends CreatePoDto {
   @ApiProperty() @IsInt() version!: number;
+}
+class SubmitEditedPrDto extends UpdatePrDto {
+  @ApiProperty() @IsInt() @Min(0) round!: number;
+  @ApiProperty({ enum: ['CREATE'] }) @IsIn(['CREATE']) step!: 'CREATE';
 }
 
 /** PR, PO: list, detail, create, workflow actions. */
@@ -118,11 +127,24 @@ export class ProcurementController {
     return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose, dto.route, dto);
   }
 
+  @Post('purchase-requisitions/save-new')
+  @RequirePermissions('PR.CREATE')
+  saveNewPr(@Req() req: AuthedRequest, @Body() dto: SaveNewPrDto) {
+    return this.svc.saveNewPr(req.user, dto);
+  }
+
   @Patch('purchase-requisitions/:id')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
   updatePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePrDto) {
     return this.svc.updatePurchaseRequisition(req.user, id, dto.version, dto.lines, dto);
+  }
+
+  @Patch('purchase-requisitions/:id/submit-edited')
+  @HttpCode(204)
+  @RequirePermissions('PR.CREATE')
+  submitEdited(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: SubmitEditedPrDto) {
+    return this.svc.submitEditedPr(req.user, id, dto);
   }
 
   @Get('purchase-requisitions/:id/lines')

@@ -1,12 +1,11 @@
 /** PR, PO and GRR share one list/detail layout (DocListPage/DocDetailView); only the create form and a few header fields differ. */
 import { DocConfig } from './types';
 import { DocListPage, ReceiptStatusChip } from './DocListPage';
-import { CreatePrDialog } from './CreatePrDialog';
 import { CreatePoDialog } from './CreatePoDialog';
 import { CreateGrrDialog } from './CreateGrrDialog';
 
 const PR: DocConfig = {
-  key: 'pr', perm: 'PR', path: 'purchase-requisitions', Create: CreatePrDialog,
+  key: 'pr', perm: 'PR', path: 'purchase-requisitions',
   columns: (t) => [
     { field: 'salesContractNumber', headerName: t('gir.salesContract'), width: 160 },
     { field: 'customerName', headerName: t('sc.customer'), flex: 1, minWidth: 160 },

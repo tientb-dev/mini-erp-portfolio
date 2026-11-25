@@ -10,7 +10,7 @@
 - Admin cấu hình tập người phê duyệt cho Sales và PM, cùng một tập người tiếp nhận. Tư cách ứng viên dựa trên thành viên tập và permission hiện hành trong RBAC. Tài khoản được gán theo hợp đồng với `PR.CREATE` có phạm vi tạo PR; tên role do cấu hình quyết định.
 - Người tạo có thể lưu lựa chọn ở Nháp hoặc chọn lại khi Gửi duyệt. Submit lưu snapshot người xử lý và tên vai trò cấp quyền theo vòng. Action xử lý kiểm tra lại assignment, tư cách ứng viên, tài khoản hoạt động và permission trong transaction. Thu hồi eligibility tác động ngay sau commit, giữ nguyên phân công và trạng thái PR.
 - Người tạo thu hồi ở hai trạng thái chờ, nhập lý do, quay về Nháp và vô hiệu hóa các bước của vòng đã thu hồi. Gửi lại mở vòng mới. Hai bước đều cho từ chối và bắt buộc lý do.
-- Người tạo được hủy Nháp hoặc Bị từ chối. Với PR Hoàn tất, hủy yêu cầu lý do và không còn PO chưa hủy. PR Hoàn tất không thể thu hồi.
+- Người tạo được hủy Nháp hoặc Bị từ chối. Với PR Hoàn tất, hủy yêu cầu lý do và không còn PO chưa hủy. PR Hoàn tất không thể thu hồi. Quyết định Final Fix Phase 4.1 giữ kiểm tra PO trực tiếp. Các chứng từ từ PO trở đi kiểm tra phụ thuộc theo nghiệp vụ tương ứng. GIR/GI không chặn trực tiếp Hủy PR.
 - PO chỉ lấy dòng PR Hoàn tất. GIR A/C giữ quy tắc `PO done` dựa trên tổng số lượng của PO đã duyệt cho từng dòng. GRR/GR tiếp tục kiểm tra trạng thái của chứng từ nguồn trực tiếp.
 
 ## Xem chứng từ, ghi chú và thông báo
@@ -33,6 +33,8 @@ Cấu hình qua OpenAPI bằng người dùng có `PR.CONFIGURE` (seed cấp cho
 - Migration thông báo chuyển các bản ghi giao việc cũ thành task đúng bước và giữ tối đa task mới nhất khớp người xử lý/bước/vòng hiện tại. Bản ghi cũ được giữ lại.
 
 Migration schema workflow đầu tiên yêu cầu bảng PR rỗng. Migration bổ sung của Phase 1 bảo toàn PR và lịch sử hiện có, theo [ADR-0016](ADR-0016-common-document-records.md). Script reset riêng chỉ dành cho PR test và từ chối xóa khi PO/GIR còn tham chiếu.
+
+Phase 4.1 dùng POST /purchase-requisitions/save-new cho tạo nháp hoặc tạo và gửi duyệt. UUID idempotency theo người tạo cùng fingerprint request cho phép phát lại đúng payload và từ chối tái sử dụng khóa với payload khác. PATCH /purchase-requisitions/:id/submit-edited kiểm tra version, vòng và bước ban đầu trước khi lưu thay đổi và gửi duyệt. Hai API dùng chung luồng domain hiện có và ghi header, dòng hàng, assignment, lịch sử và thông báo trong một transaction. Migration chỉ bổ sung cột nullable và unique index, giữ dữ liệu PR hiện tại. Trang PR dựa trên canCancel để hiển thị thao tác hủy. Backend kiểm tra lại phạm vi và PO trực tiếp trong transaction.
 
 ## Quyết định UAT cho các phase tiếp theo
 

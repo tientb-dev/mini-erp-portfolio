@@ -165,7 +165,7 @@
 - Mã `approval_status`: `DRAFT` (Nháp), `WAITING_FOR_APPROVE` (Chờ duyệt; không dùng `PENDING`), `APPROVED` (Đã duyệt), `REJECTED` (Bị từ chối), `CANCELED` (Đã hủy; không dùng `CANCELLED`). Quy tắc chuyển trạng thái không đổi.
 - Người tạo không tự duyệt; người duyệt không sửa nội dung.
 - Từ chối và Thu hồi cần lý do; Nháp/Bị từ chối có thể Hủy; Chờ duyệt phải Thu hồi trước khi Hủy.
-- PR Hoàn tất chỉ được Hủy khi không có PO chưa Hủy tham chiếu, bắt buộc có lý do. Thu hồi PR chỉ được thực hiện khi Chờ duyệt hoặc Chờ tiếp nhận (ADR-0015).
+- PR Hoàn tất chỉ được Hủy khi không có PO chưa Hủy tham chiếu, bắt buộc có lý do. PR kiểm tra PO trực tiếp. Các chứng từ từ PO trở đi kiểm tra chứng từ phụ thuộc theo quy tắc nghiệp vụ của chính chúng. GIR/GI không phải điều kiện chặn trực tiếp khi Hủy PR. Thu hồi PR chỉ được thực hiện khi Chờ duyệt hoặc Chờ tiếp nhận (ADR-0015, quyết định Final Fix Phase 4.1).
 - Một người đủ điều kiện có thể thực hiện cả Phê duyệt và Tiếp nhận; creator không tự xử lý PR của mình. Phân công lại chỉ áp dụng bước đang chờ và giữ nguyên trạng thái/vòng. Action phải chỉ rõ version, vòng, bước và hành động, được xác thực trong transaction (ADR-0015).
 - PO Đã duyệt chỉ Thu hồi/Hủy khi không còn GRR chưa Hủy tham chiếu và đáp ứng quy tắc trạng thái (GIR không tham chiếu PO).
 - GRR Đã duyệt không Thu hồi/Hủy khi còn GR chưa Hủy.

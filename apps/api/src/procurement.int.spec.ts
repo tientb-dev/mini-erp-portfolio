@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { CommonDocumentRecords1732492800000 } from './database/migrations/1732492800000-CommonDocumentRecords';
@@ -59,6 +60,44 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(admin, `/${path}/${id}/submit`, { approverId }).expect(204);
     await post(approver, `/${path}/${id}/approve`).expect(204);
   }
+
+  it('atomically submits a new or edited PR and deduplicates concurrent creation', async () => {
+    const { sc, lineId } = await activeContract();
+    const [{ approverId, receiverId }] = await ds.query(`SELECT
+      (SELECT id FROM users WHERE username = 'sales-head') AS "approverId",
+      (SELECT id FROM users WHERE username = 'purchaser') AS "receiverId"`);
+    const path = '/purchase-requisitions';
+    const payload = { salesContractId: sc, requestKey: randomUUID(), submit: true, approverId, receiverId,
+      lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] };
+    await ds.query(`CREATE FUNCTION phase41_fail_task() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'phase41 rollback fixture'; END $$;
+      CREATE TRIGGER phase41_fail_task BEFORE INSERT ON pr_notifications
+      FOR EACH ROW EXECUTE FUNCTION phase41_fail_task()`);
+    try {
+      await post(admin, `${path}/save-new`, payload).expect(500);
+      expect(await ds.query('SELECT id FROM purchase_requisitions WHERE sales_contract_id = $1', [sc])).toEqual([]);
+      const draft = (await post(admin, `${path}/save-new`, { ...payload, requestKey: randomUUID(), submit: false }).expect(201)).body;
+      const prior = (await get(admin, `${path}/${draft.id}`).expect(200)).body;
+      const update = { version: prior.version, round: 0, step: 'CREATE', approverId, receiverId,
+        lines: [{ ...payload.lines[0], id: prior.lines[0].id, quantity: 3 }] };
+      const save = () => http().patch(`${path}/${draft.id}/submit-edited`).set(as(admin)).send(update);
+      await save().expect(500);
+      const unchanged = (await get(admin, `${path}/${draft.id}`).expect(200)).body;
+      expect(unchanged).toMatchObject({ approvalStatus: 'DRAFT', version: prior.version, lines: prior.lines, history: prior.history });
+      await ds.query('DROP TRIGGER phase41_fail_task ON pr_notifications');
+      await save().expect(204);
+      const submitted = (await get(admin, `${path}/${draft.id}`).expect(200)).body;
+      expect(submitted).toMatchObject({ approvalStatus: 'WAITING_FOR_APPROVE', approvalRound: 1, lines: [{ quantity: '3.000' }] });
+    } finally {
+      await ds.query('DROP TRIGGER IF EXISTS phase41_fail_task ON pr_notifications; DROP FUNCTION phase41_fail_task()');
+    }
+    const [first, retry] = await Promise.all([post(admin, `${path}/save-new`, payload).expect(201), post(admin, `${path}/save-new`, payload).expect(201)]);
+    expect(retry.body).toEqual(first.body);
+    const created = (await get(admin, `${path}/${first.body.id}`).expect(200)).body;
+    expect(created).toMatchObject({ approvalStatus: 'WAITING_FOR_APPROVE', approvalRound: 1 });
+    expect(await ds.query('SELECT id FROM pr_notifications WHERE pr_id = $1', [created.id])).toHaveLength(1);
+    await post(admin, `${path}/save-new`, { ...payload, submit: false }).expect(409);
+  });
 
   it('Phase 1: migrates legacy PR notes and history without changing their identity', async () => {
     const { sc, lineId } = await activeContract();
@@ -482,11 +521,14 @@ describe('Sales contracts and procurement documents (integration)', () => {
     const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 5 }] }).expect(201)).body.id;
     await approved('purchase-requisitions', pr);
     const avail = (await get(admin, '/purchase-requisition-lines/available-for-po').expect(200)).body.find((l: { prNumber: string }) => l.prNumber.startsWith('PR-'));
-    const prLine = (await get(admin, `/purchase-requisitions/${pr}`)).body.lines[0].id;
+    const beforePo = (await get(admin, `/purchase-requisitions/${pr}`)).body;
+    expect(beforePo).toMatchObject({ canCancel: true, canEdit: false });
+    const prLine = beforePo.lines[0].id;
     expect(Number((await get(admin, '/purchase-requisition-lines/available-for-po')).body.find((l: { id: number }) => l.id === prLine).remaining)).toBe(5);
     expect(avail).toBeDefined();
 
     const po = (await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: prLine, quantity: 5 }] }).expect(201)).body.id;
+    expect((await get(admin, `/purchase-requisitions/${pr}`)).body.canCancel).toBe(false);
     expect((await post(admin, `/purchase-requisitions/${pr}/cancel`, { ...await prContext(ds, pr), reason: 'Đổi nhà cung cấp' }).expect(409)).body.code).toBe('HAS_ACTIVE_CHILD_DOCUMENTS');
     await approved('purchase-orders', po);
     expect((await get(admin, '/purchase-requisition-lines/available-for-po')).body.some((l: { id: number }) => l.id === prLine)).toBe(false);
@@ -508,6 +550,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(admin, `/purchase-orders/${po}/recall`, { reason: 'Sửa giá' }).expect(204);
     expect((await get(admin, `/purchase-orders/${po}`)).body.approvalStatus).toBe('DRAFT');
     await post(admin, `/purchase-orders/${po}/cancel`).expect(204);
+    expect((await get(admin, `/purchase-requisitions/${pr}`)).body.canCancel).toBe(true);
     await post(admin, `/purchase-requisitions/${pr}/cancel`, { ...await prContext(ds, pr), reason: 'Đổi nhà cung cấp' }).expect(204);
     expect((await get(admin, `/purchase-requisitions/${pr}`)).body.history.map((h: { action: string }) => h.action)).toEqual(['CANCEL', 'RECEIVE', 'APPROVE', 'SUBMIT']);
   });

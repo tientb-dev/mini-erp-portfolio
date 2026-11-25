@@ -185,6 +185,8 @@ Ngoại lệ đã có giữ nguyên: `GR.DECLARE_DETAILS` cho phép sửa chi ti
 
 Module document records cung cấp Notes và Activity History dùng chung. Module sở hữu chứng từ kiểm tra đích và quyền. Activity append-only kể cả khi workflow có state, assignment và snapshot riêng. Xem [ADR-0016](decisions/ADR-0016-common-document-records.md) và [roadmap Dossier/Organization](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).
 
+PR phối hợp thao tác lưu chứng từ và Gửi duyệt trong cùng transaction ở module Procurement. Workflow nhận cùng EntityManager với thao tác ghi header, dòng hàng và phân công. Các API kết hợp vẫn kiểm tra ngữ cảnh workflow và ghi Activity History cùng Notification trong transaction đó. Xem [ADR-0015](decisions/ADR-0015-purchase-requisition-workflow.md) và [chuẩn Common Document Page](FRONTEND.md).
+
 - Một cấp phê duyệt cho PR, PO, GRR, GR, GIR `SALES_CONTRACT`, GI. **Ngoại lệ:** GIR `AVAILABLE_STOCK` hai bước người phụ trách nguồn hàng → Quản lý kho. HĐ không phê duyệt (`DRAFT`/`ACTIVE`/`CANCELED`).
 - `approval_status`: `DRAFT`, `WAITING_FOR_APPROVE`, `APPROVED`, `REJECTED`, `CANCELED`. Thu hồi luôn về `DRAFT`. PR dùng `WAITING_FOR_RECEIPT` và `DONE` cho bước tiếp nhận và hoàn tất, thay `APPROVED` ở cấp chứng từ (ADR-0015).
 - Chuyển trạng thái bằng `UPDATE` có điều kiện trạng thái hiện tại để chống xử lý trùng.

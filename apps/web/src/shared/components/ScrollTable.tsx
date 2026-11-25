@@ -7,9 +7,9 @@ import { fillMedia } from '../../config/theme';
  * box, natural height for a few rows. On fill screens it is the region that shrinks and scrolls vertically, so the page
  * header, tabs and footer stay put; elsewhere the main area scrolls as a whole.
  */
-export function ScrollTable({ label, minWidth, children }: { label: string; minWidth?: number; children: ReactNode }) {
+export function ScrollTable({ label, minWidth, children, maxHeight }: { label: string; minWidth?: number; children: ReactNode; maxHeight?: string }) {
   return (
-    <TableContainer data-fill-grow sx={{ overflow: 'auto', [fillMedia]: { flex: '0 1 auto', minHeight: 0 } }}>
+    <TableContainer data-fill-grow sx={{ overflow: 'auto', maxHeight, [fillMedia]: { flex: '0 1 auto', minHeight: 0 } }}>
       <Table stickyHeader size="small" aria-label={label} sx={{ minWidth }}>{children}</Table>
     </TableContainer>
   );

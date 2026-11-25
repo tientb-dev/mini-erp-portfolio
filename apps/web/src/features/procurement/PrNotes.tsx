@@ -22,6 +22,9 @@ export function PrNotes({ id, notes, nextCursor, onSaved }: {
   };
   return (
     <Stack spacing={2} component="form" onSubmit={submit}>
+      {save.error && <Alert severity="error">{save.error.message}</Alert>}
+      <TextField label={t('pr.note')} value={body} onChange={e => setBody(e.target.value)} multiline slotProps={{ htmlInput: { maxLength: 4000 } }} />
+      <Button type="submit" variant="contained" disabled={!body.trim() || save.isPending} sx={{ alignSelf: 'flex-end' }}>{t('pr.sendNote')}</Button>
       <DocumentRecordList key={`${id}-${notes[0]?.id ?? 0}`} path={`/purchase-requisitions/${id}/notes`} items={notes} nextCursor={nextCursor}
         render={items => items.map(note => (
         <div key={note.id}>
@@ -29,9 +32,6 @@ export function PrNotes({ id, notes, nextCursor, onSaved }: {
           <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note.body}</Typography>
         </div>
       ))} />
-      {save.error && <Alert severity="error">{save.error.message}</Alert>}
-      <TextField label={t('pr.note')} value={body} onChange={e => setBody(e.target.value)} multiline slotProps={{ htmlInput: { maxLength: 4000 } }} />
-      <Button type="submit" disabled={!body.trim() || save.isPending} sx={{ alignSelf: 'flex-end' }}>{t('pr.sendNote')}</Button>
     </Stack>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, IconButton, ListItemText, Menu, MenuItem } from '@mui/material';
+import { Badge, IconButton, ListItemText, ListSubheader, Menu, MenuItem } from '@mui/material';
 import NotificationsOutlined from '@mui/icons-material/NotificationsOutlined';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../services/api-client';
@@ -39,11 +39,18 @@ export function PrNotifications({ userId, openPr }: { userId: number; openPr: (i
         onClick={event => setAnchor(event.currentTarget)}>
         <Badge badgeContent={unread} color="primary"><NotificationsOutlined /></Badge>
       </IconButton>
-      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
+      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}
+        slotProps={{ paper: { sx: { width: 420, maxWidth: 'calc(100vw - 32px)', maxHeight: 'min(600px, 66dvh)',
+          overflowY: 'auto', scrollbarGutter: 'stable', overscrollBehavior: 'contain',
+          scrollbarWidth: 'thin', scrollbarColor: (theme) => `${theme.palette.text.disabled} ${theme.palette.background.default}`,
+        } }, list: { sx: { pt: 0 } } }}>
+        <ListSubheader role="presentation" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider',
+          color: 'text.primary', fontWeight: 600 }}>{t('pr.notifications')}</ListSubheader>
         {query.isError && <MenuItem disabled>{query.error.message}</MenuItem>}
         {!notifications.length && !query.isError && <MenuItem disabled>{t('pr.noNotifications')}</MenuItem>}
         {notifications.map(n => (
-          <MenuItem key={n.id} onClick={() => { setAnchor(null); read.mutate(n.id); openPr(n.prId); }}>
+          <MenuItem key={n.id} sx={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}
+            onClick={() => { setAnchor(null); read.mutate(n.id); openPr(n.prId); }}>
             <ListItemText primary={`${n.documentNumber} · ${t(`pr.notificationAction.${n.action}`, { defaultValue: n.action })}`}
               secondary={[n.taskStep ? t(n.resolvedAt ? 'pr.taskResolved' : 'pr.taskOpen') : undefined, fmtDate(n.createdAt), n.reason].filter(Boolean).join(' · ')}
               slotProps={{ primary: { sx: { fontWeight: n.readAt || n.resolvedAt ? 'normal' : 600 } } }} />

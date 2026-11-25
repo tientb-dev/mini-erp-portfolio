@@ -90,7 +90,7 @@ Hướng cho phép: `app → features → (features khác qua index) → shared/
 | `ErrorAlert` | Hiển thị Problem Details (`errors.<code>` hoặc `detail`) | mọi nơi |
 | `PageBreadcrumbs` | `Trang chủ / Nhóm / Trang / [Mã]`: mục có `to` là link, mục cuối là trang hiện tại; feature chỉ truyền route người dùng có quyền | `sales-contracts` |
 
-Không làm (chưa có nhu cầu thực): `ConfirmDialog` riêng (xác nhận = `FormDialog`/`DocActionDialog` không có trường), `ActionButton`, `EmptyState`/`LoadingState` riêng (đã có trong `DataTable`/`DetailPageLayout`), generic DataTable bọc thêm.
+Xác nhận dùng `FormDialog` hoặc `DocActionDialog`. `DataTable` và `DetailPageLayout` xử lý trạng thái tải. `DocumentEmptyState` phục vụ vùng chứng từ trống dạng gọn, như tab Hồ sơ của PR.
 
 ## 7. Quy ước Button / Link / vị trí thao tác
 
@@ -164,9 +164,29 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 - Header có mũi tên về danh sách, loại chứng từ, mã, tên và trạng thái. Footer sticky chỉ chứa action nghiệp vụ. Primary solid theo theme xanh, icon + text và ngoài cùng phải; secondary outlined; destructive outlined đỏ. Action theo dòng có thể icon-only kèm tooltip. Giữ Be Vietnam Pro và primary #1F5FC4.
 - Dialog dùng tiêu đề Xác nhận [hành động], nêu loại/mã chứng từ, hậu quả và lý do theo action. Nút Hủy bỏ outlined, nút xác nhận gọi tên hành động. Chặn gửi lặp khi đang xử lý. Duyệt PR chuyển sang Chờ tiếp nhận. Popup kết quả dùng check xanh tự đóng khoảng 3 giây hoặc X đỏ và nút Đã hiểu. Lỗi validation nằm inline và focus field lỗi đầu tiên.
 - Stepper dưới header. Check xanh cho bước hoàn tất, ba chấm xanh cho bước đang chờ, vòng xám rỗng cho bước tương lai và X đỏ đúng bước từ chối. Giữ check ở bước hoàn tất trước đó. Hiển thị vòng hiện tại, xem lý do trong card hoặc lịch sử.
-- Tabs theo thứ tự Thông tin chung, Người phê duyệt, Ghi chú, Lịch sử; grid nằm phía dưới tabs. Thông tin chung tập trung vào dữ liệu nghiệp vụ. Ba card responsive, một field người xử lý mỗi bước, Role dùng nhãn Vai trò. Xem lý do bằng dialog read-only. Nút Phân công lại nằm tại card đang chờ nếu đủ quyền.
+- Tabs theo thứ tự Thông tin chung, Hồ sơ, Người phê duyệt, Ghi chú, Lịch sử. Bảng hàng hóa nằm phía dưới nội dung tab. Xem lý do bằng dialog readonly. Nút Phân công lại nằm tại card đang chờ nếu đủ quyền.
 - Notes mới nhất trước và có tải thêm, composer phía trên trong chuẩn UI mục tiêu. Hiển thị tác giả, thời gian, wrap nội dung. History mới nhất trước, có thời gian, vòng, hành động, người thực hiện, trạng thái sau và chi tiết read-only.
 - Chuông phân biệt yêu cầu phê duyệt/tiếp nhận với sự kiện đã phê duyệt, từ chối, tiếp nhận, thu hồi hoặc phân công lại.
-- Cảnh báo dữ liệu chưa lưu khi rời trang, ưu tiên giữ search, filter và paging khi trở về danh sách. Layout toolbar dòng hàng thuộc PR #19; Import/Export/In theo mẫu thuộc backlog.
+- Cảnh báo dữ liệu chưa lưu khi rời trang, ưu tiên giữ search, filter và paging khi trở về danh sách. Mở rộng nghiệp vụ dòng hàng thuộc PR #19. Import/Export/In theo mẫu thuộc backlog.
 
-Phase 1 triển khai dữ liệu và tải thêm cho Notes/History; áp dụng lại bố cục, dialog, stepper và các trạng thái hiển thị ở phase UI.
+**COMMON-DOC-PAGE-001, COMMON-DOC-LAYOUT-001.** PR dùng chung DetailPageLayout cho Tạo, Sửa và Xem. Nháp hoặc Bị từ chối của người tạo có quyền sửa mở thẳng chế độ Sửa. Header có lối quay về danh sách. Footer dành cho thao tác nghiệp vụ, primary nằm cuối bên phải và footer vẫn chiếm diện tích trong luồng bố cục.
+
+**COMMON-DOC-FORM-001.** DocumentFormGrid có 12 cột, khoảng cách ngang 16px và dọc 12px. Trường ngắn dùng 2–3 cột, trung bình 4–6 cột, dài 6–12 cột. Màn hình hẹp xếp một trường mỗi hàng. Label semibold nằm trên input cao khoảng 36–40px. Textarea mặc định hai dòng và tự giãn. Đặt trường bắt buộc lên trước và dùng cùng bố cục cho Tạo, Sửa, Xem.
+
+**COMMON-DOC-TABS-001, COMMON-DOC-GRID-001.** Tạo chỉ hiện ba tab đầu. Hồ sơ dùng DocumentEmptyState với icon và nhãn Chưa có hồ sơ. ScrollTable giữ header khi cuộn dọc, hỗ trợ cuộn ngang, giới hạn chiều cao theo viewport và giữ toolbar cùng tổng số dòng ngoài vùng cuộn. Chế độ Tạo/Sửa luôn hiển thị nút Thêm hàng hóa và nêu lý do khi nút bị khóa. Popup thêm, sửa, xóa cập nhật state cục bộ. Dòng hàng lấy tên và ĐVT từ hàng hóa; PR #18 chưa có đơn giá hoặc tiền tệ để tính tổng.
+
+**COMMON-WORKFLOW-CARD-001.** Stepper dùng vòng 38px, đường nối 2px, nhãn 14px. Tạo mới và Nháp đều hiển thị ba chấm trắng trên nền #1F5FC4 ở bước Khởi tạo. Gửi duyệt thành công chuyển bước Khởi tạo sang dấu check trên nền #2E7D32. Bước tương lai có viền xám và bước từ chối dùng dấu X trên nền #D32F2F. Card chia đều chiều rộng, xếp label semibold trên value và đặt dropdown vào đúng card khi có quyền sửa. Vai trò lấy từ ứng viên hoặc snapshot của bước xử lý. Chuỗi dài hiển thị một dòng với tooltip chỉ khi bị cắt. Action footer căn phải, nút 32px và chỉ chiếm chỗ khi hàng card có thao tác.
+
+**Common Status Badge.** Header PR dùng StatusChip nổi bật cao 30px, chữ 14px semibold. Card workflow và bảng dùng biến thể compact với màu trạng thái từ theme.
+
+**Notification Scroll.** Menu có header ghim phía trên, chiều cao tối đa 66% viewport và cuộn nội bộ. Nhãn phân biệt tác vụ cần xử lý với tác vụ đã kết thúc.
+
+**COMMON-DOC-NAV-001, DOC-LINE-001, FE-VALIDATION-001.** Giữ tham số danh sách khi đi và quay lại. Cảnh báo khi rời trang có thay đổi. State sống ở editor nên chuyển tab và lỗi API giữ nội dung nhập. Lưu nháp và Gửi duyệt đều cần ít nhất một dòng hợp lệ. Gửi duyệt cần thêm ứng viên hợp lệ. Hiển thị validation cạnh trường và đánh dấu tab lỗi.
+
+**UI-15, UI-EVIDENCE-001.** Popup kết quả dùng chung chiều rộng 460px, chiều cao tối thiểu 260px và icon 64px nền tròn có dấu check hoặc X trắng. Nội dung dùng câu theo action và mã chứng từ. Thành công nêu trạng thái mới nếu thay đổi và tự đóng sau khoảng 3 giây. Thất bại hiển thị nguyên nhân dạng chữ và nút Đã hiểu. Kiểm tra trực tiếp Before/After trên Chromium với API và PostgreSQL test ở 1920×1080 và 1366×768.
+
+## UI-EVIDENCE-001 — Kiểm chứng bằng trình duyệt
+
+- PR thay đổi UI/UX phải kiểm chứng trên trình duyệt thật kết nối với backend và database test đã xác minh. Unit test và build là các bước kiểm chứng bổ sung.
+- Dùng Playwright MCP nếu có hoặc Playwright Test trực tiếp. Chụp trước và sau ở 1920×1080 và 1366×768, kiểm tra luồng E2E, quyền thao tác, console và lỗi API ngoài dự kiến.
+- Mở lại ảnh để kiểm tra căn chỉnh, tràn nội dung, màu và chữ. Sửa lỗi rồi chụp lại màn bị ảnh hưởng. Lưu ảnh, report và trace trong `artifacts/evidence/`. Báo các kịch bản đã kiểm chứng và đánh dấu BLOCKED nếu trình duyệt không chạy được.

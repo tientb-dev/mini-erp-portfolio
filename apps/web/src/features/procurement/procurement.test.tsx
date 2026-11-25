@@ -26,7 +26,7 @@ it('PR18: the assigned receiver can receive, and goods stay visible across tabs'
   fireEvent.click(screen.getByRole('button', { name: 'Tải thêm' }));
   expect(await screen.findByText('Ghi chú trước đó')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Tải thêm' })).toBeNull();
-  expect(screen.getByRole('gridcell', { name: 'PN-5' })).toBeTruthy();
+  expect(screen.getByRole('cell', { name: 'PN-5' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
   fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
   await waitFor(() => expect(posts).toEqual([{ url: '/purchase-requisitions/5/receive', body: { version: 3, round: 1, step: 'RECEIPT' } }]));
@@ -36,9 +36,11 @@ it('keeps the submit context and selected candidates from the open dialog when d
   const pr = {
     id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
     createdBy: 1, createdByName: 'Sales', assignedApproverId: null, salesContractNumber: 'SC-5',
-    createdAt: '2026-11-13T00:00:00Z', category: 'MATERIAL', children: [], history: [], notes: [], lines: [],
+    createdAt: '2026-11-13T00:00:00Z', category: 'MATERIAL', salesContractId: 9, children: [], history: [], notes: [],
+    draftApproverId: 2, draftReceiverId: 2,
+    lines: [{ id: 8, productId: 4, sourceLineId: null, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
   };
-  const candidate = { id: 2, username: 'candidate', fullName: 'Candidate' };
+  const candidate = { id: 2, username: 'candidate', fullName: 'Candidate', role: 'Configured workflow role' };
   const posts = mockApi({
     '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
     '/purchase-requisitions/5/candidates': { approvers: [candidate], receivers: [candidate] },
@@ -52,16 +54,45 @@ it('keeps the submit context and selected candidates from the open dialog when d
   }
   wrap(<TestPage />);
   const refresh = screen.getByRole('button', { name: 'Refresh fixture' });
-  fireEvent.click(await screen.findByRole('button', { name: 'Gửi duyệt' }));
-  for (const label of [/Người duyệt/, /Người tiếp nhận/]) {
-    fireEvent.mouseDown(await screen.findByRole('combobox', { name: label }));
-    fireEvent.click(await screen.findByRole('option', { name: 'Candidate (candidate)' }));
-  }
+  fireEvent.click(await screen.findByRole('tab', { name: 'Hồ sơ' }));
+  expect(within(screen.getByRole('tabpanel')).getByText('Chưa có hồ sơ')).toBeTruthy();
+  fireEvent.click(await screen.findByRole('tab', { name: 'Người phê duyệt' }));
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Người duyệt' }).textContent).toContain('Candidate'));
+  expect(screen.getAllByText('Configured workflow role')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
   fireEvent.click(refresh);
   fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
   await waitFor(() => expect(posts).toEqual([{
-    url: '/purchase-requisitions/5/submit', body: { version: 2, round: 0, step: 'CREATE', approverId: 2, receiverId: 2 },
+    url: '/purchase-requisitions/5/submit-edited',
+    body: { version: 2, round: 0, step: 'CREATE', purpose: '', approverId: 2, receiverId: 2, lines: [{ id: 8, productId: 4, quantity: 2 }] },
   }]));
+});
+
+it('keeps deletion local, allows cancellation, and blocks save and submit after deleting the last row', async () => {
+  const pr = {
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    createdBy: 1, createdByName: 'Sales', salesContractId: 9, salesContractNumber: 'SC-5', category: 'MATERIAL',
+    children: [], history: [], lines: [{ id: 8, productId: 4, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
+  };
+  const posts = mockApi({
+    '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
+    '/purchase-requisitions/5/candidates': { approvers: [], receivers: [] },
+  });
+  wrap(<PurchaseRequisitionsPage initialId={5} />);
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Mục đích sử dụng' }), { target: { value: 'Retained purpose' } });
+  const remove = screen.getByRole('button', { name: 'Xóa dòng 1' });
+  fireEvent.click(remove);
+  expect(within(screen.getByRole('dialog')).getByText(/1 · PN-5 · Switch/)).toBeTruthy();
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Hủy bỏ' }));
+  expect(screen.getByRole('cell', { name: 'PN-5' })).toBeTruthy();
+  fireEvent.click(remove);
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Xóa hàng hóa' }));
+  expect(screen.getByText('Chưa có hàng hóa')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+  expect(screen.getByRole('alert').textContent).toMatch(/ít nhất một dòng/);
+  expect((screen.getByRole('textbox', { name: 'Mục đích sử dụng' }) as HTMLTextAreaElement).value).toBe('Retained purpose');
+  expect(posts).toEqual([]);
 });
 
 it('shows Reassign only on the pending card and requires a replacement and a reason', async () => {

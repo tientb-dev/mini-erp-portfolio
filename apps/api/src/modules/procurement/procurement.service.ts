@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
@@ -5,8 +6,8 @@ import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
 import * as prWorkflow from './pr-workflow';
 import { configurePool, listCandidates, PR_POOLS, PrPool } from './pr-eligibility';
-import { ActionContext } from '../workflow/action-context';
-import { documentPage, insertNote } from '../document-records/document-records';
+import { ActionContext, assertActionContext } from '../workflow/action-context';
+import { documentPage, insertNote, latestRoundActivity } from '../document-records/document-records';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -154,20 +155,22 @@ export class ProcurementService {
 
   /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
   createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute, selection: prWorkflow.PrSelection = {}) {
-    return this.ds.transaction(async (m) => {
-      const creatorRoute = await prWorkflow.creatorRoute(m, user, salesContractId, route);
-      assertPrLines(category, lines);
-      await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
-      await prWorkflow.validateSelection(m, creatorRoute, user.id, selection);
-      const number = await wf.nextDocumentNumber(m, 'PR');
-      const [pr] = await m.query(
-        `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by, creator_route, draft_approver_id, draft_receiver_id)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute, selection.approverId ?? null, selection.receiverId ?? null],
-      );
-      for (const l of lines) await this.writePrLine(m, pr.id, l);
-      return { id: pr.id as number, documentNumber: number };
-    });
+    return this.ds.transaction(m => this.createPr(m, user, salesContractId, lines, category, purpose, route, selection));
+  }
+
+  private async createPr(m: EntityManager, user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory, purpose: string | undefined, route: prWorkflow.PrRoute | undefined, selection: prWorkflow.PrSelection) {
+    const creatorRoute = await prWorkflow.creatorRoute(m, user, salesContractId, route);
+    assertPrLines(category, lines);
+    await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
+    await prWorkflow.validateSelection(m, creatorRoute, user.id, selection);
+    const number = await wf.nextDocumentNumber(m, 'PR');
+    const [pr] = await m.query(
+      `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by, creator_route, draft_approver_id, draft_receiver_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute, selection.approverId ?? null, selection.receiverId ?? null],
+    );
+    for (const l of lines) await this.writePrLine(m, pr.id, l);
+    return { id: pr.id as number, documentNumber: number };
   }
 
   /**
@@ -198,28 +201,68 @@ export class ProcurementService {
   }
 
   /** Edit a DRAFT/REJECTED PR by its creator: lines (HĐ line, product → UoM, quantity); the HĐ stays the same. */
-  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection = {}) {
-    return this.ds.transaction(async (m) => {
-      const [head] = await m.query(`SELECT created_by, sales_contract_id, category, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
-      if (!head) throw new NotFoundException();
-      wf.assertCreator(head, user);
-      await prWorkflow.creatorRoute(m, user, head.sales_contract_id, head.creator_route);
-      // The request is the full line set (omitted lines are deleted), so checking it covers the saved result. Category is fixed.
-      assertPrLines(head.category, lines);
-      // Lock order: HĐ lines → document (ARCHITECTURE §2.1a); the HĐ must still be ACTIVE.
-      await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, scLineIds(lines));
-      const doc = await prWorkflow.lock(m, id);
-      wf.assertEditable(doc, user, version);
-      await prWorkflow.validateSelection(m, doc.creator_route, user.id, selection);
-      await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
-      for (const l of lines) await this.writePrLine(m, id, l);
-      await wf.setStatus(m, 'PR', doc, doc.approval_status,
-        ', draft_approver_id = CASE WHEN $3 THEN $4 ELSE draft_approver_id END, draft_receiver_id = CASE WHEN $5 THEN $6 ELSE draft_receiver_id END',
-        [selection.approverId !== undefined, selection.approverId ?? null, selection.receiverId !== undefined, selection.receiverId ?? null]);
-      await wf.record(m, 'PR', id, 'EDIT', user.id, undefined, {
-        previousStatus: doc.approval_status, nextStatus: doc.approval_status, round: doc.approval_round,
-      });
+  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & { purpose?: string } = {}) {
+    return this.ds.transaction(m => this.updatePr(m, user, id, version, lines, selection));
+  }
+
+  private async updatePr(m: EntityManager, user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & { purpose?: string }, context?: ActionContext) {
+    const [head] = await m.query(`SELECT created_by, sales_contract_id, category, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
+    if (!head) throw new NotFoundException();
+    wf.assertCreator(head, user);
+    await prWorkflow.creatorRoute(m, user, head.sales_contract_id, head.creator_route);
+    // The request is the full line set (omitted lines are deleted), so checking it covers the saved result. Category is fixed.
+    assertPrLines(head.category, lines);
+    // Lock order: HĐ lines → document (ARCHITECTURE §2.1a); the HĐ must still be ACTIVE.
+    await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, scLineIds(lines));
+    const doc = await prWorkflow.lock(m, id);
+    if (context) assertActionContext(doc, doc.approval_round, prWorkflow.currentStep(doc.approval_status), context);
+    wf.assertEditable(doc, user, version);
+    await prWorkflow.validateSelection(m, doc.creator_route, user.id, selection);
+    await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
+    for (const l of lines) await this.writePrLine(m, id, l);
+    await wf.setStatus(m, 'PR', doc, doc.approval_status,
+      ', draft_approver_id = CASE WHEN $3 THEN $4 ELSE draft_approver_id END, draft_receiver_id = CASE WHEN $5 THEN $6 ELSE draft_receiver_id END, purpose = CASE WHEN $7 THEN $8 ELSE purpose END',
+      [selection.approverId !== undefined, selection.approverId ?? null, selection.receiverId !== undefined, selection.receiverId ?? null,
+        selection.purpose !== undefined && head.category === 'MATERIAL', selection.purpose?.trim() || null]);
+    await wf.record(m, 'PR', id, 'EDIT', user.id, undefined, {
+      previousStatus: doc.approval_status, nextStatus: doc.approval_status, round: doc.approval_round,
     });
+  }
+
+  saveNewPr(user: CurrentUser, dto: prWorkflow.PrSelection & { salesContractId: number; lines: PrLineInput[];
+    category?: LineCategory; purpose?: string; route?: prWorkflow.PrRoute; requestKey: string; submit: boolean }) {
+    const fingerprint = createHash('sha256').update(JSON.stringify([
+      dto.salesContractId, dto.category, dto.purpose, dto.route, dto.approverId, dto.receiverId, dto.submit,
+      dto.lines.map(line => [line.id, line.productId, line.salesContractLineId, line.quantity]),
+    ])).digest('hex');
+    return this.ds.transaction(async m => {
+      await m.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [user.id, 'PR:create:' + dto.requestKey]);
+      const [existing] = await m.query(`SELECT id, document_number AS "documentNumber", create_request_fingerprint AS fingerprint
+        FROM purchase_requisitions WHERE created_by = $1 AND create_request_key = $2`, [user.id, dto.requestKey]);
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) throw new BusinessError('PR_REQUEST_REUSED', 'The request key was already used for different data', HttpStatus.CONFLICT);
+        return { id: existing.id as number, documentNumber: existing.documentNumber as string };
+      }
+      const pr = await this.createPr(m, user, dto.salesContractId, dto.lines, dto.category ?? 'SALES_GOODS', dto.purpose, dto.route, dto);
+      if (dto.submit) await this.submitSavedPr(m, user, pr.id, dto);
+      await m.query('UPDATE purchase_requisitions SET create_request_key = $2, create_request_fingerprint = $3 WHERE id = $1',
+        [pr.id, dto.requestKey, fingerprint]);
+      return pr;
+    });
+  }
+
+  submitEditedPr(user: CurrentUser, id: number, dto: ActionContext & prWorkflow.PrSelection & { lines: PrLineInput[]; purpose?: string }) {
+    return this.ds.transaction(async m => {
+      await this.updatePr(m, user, id, dto.version, dto.lines, dto, dto);
+      await this.submitSavedPr(m, user, id, dto);
+    });
+  }
+
+  private async submitSavedPr(m: EntityManager, user: CurrentUser, id: number, selection: prWorkflow.PrSelection) {
+    if (!selection.approverId || !selection.receiverId) throw new BusinessError('PR_CANDIDATE_NOT_ELIGIBLE', 'Select both workflow assignees');
+    const doc = await prWorkflow.lock(m, id);
+    await prWorkflow.submit(m, id, user, { version: doc.version, round: doc.approval_round, step: 'CREATE',
+      approverId: selection.approverId, receiverId: selection.receiverId });
   }
 
   /** PO from lines of DONE PRs, one supplier; each PO line inherits the PR line UoM (T7). */
@@ -409,7 +452,7 @@ export class ProcurementService {
     const [pr] = await m.query(
       `SELECT ${wf.DOC_COLUMNS}, d.approval_round AS "approvalRound", d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
         d.creator_route AS "creatorRoute", d.draft_approver_id AS "draftApproverId", d.draft_receiver_id AS "draftReceiverId",
-        s.responsible_sales_user_id AS "responsibleSalesUserId", d.category, d.purpose,
+        s.responsible_sales_user_id AS "responsibleSalesUserId", s.status AS "contractStatus", d.category, d.purpose,
         s.document_number AS "salesContractNumber", c.name AS "customerName",
         EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $2) AS "wasAssigned"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
@@ -422,12 +465,15 @@ export class ProcurementService {
       || (user.permissions.includes('SALES_CONTRACT.VIEW') && pr.responsibleSalesUserId === user.id));
     if (!fullView && !scoped) throw new ForbiddenException('Missing permission: PR.VIEW');
     if (!pr) throw new NotFoundException();
-    const { responsibleSalesUserId, wasAssigned, ...header } = pr;
-    return { header, fullView };
+    const { responsibleSalesUserId, contractStatus, wasAssigned, ...header } = pr;
+    const routeOwner = header.creatorRoute === 'SALES' ? responsibleSalesUserId : header.responsiblePmUserId;
+    const canEdit = header.createdBy === user.id && user.permissions.includes('PR.CREATE')
+      && contractStatus === 'ACTIVE' && routeOwner === user.id && ['DRAFT', 'REJECTED'].includes(header.approvalStatus);
+    return { header, fullView, canEdit };
   }
 
   async getPr(user: CurrentUser, id: number) {
-    const { header, fullView } = await this.readablePr(this.ds.manager, user, id);
+    const { header, fullView, canEdit } = await this.readablePr(this.ds.manager, user, id);
     const lines = await this.ds.query(
       `SELECT l.id, l.sales_contract_line_id AS "sourceLineId", l.product_id AS "productId", sl.item_name AS "ref", l.snapshot_code AS "partNumber", l.snapshot_name AS "productName", u.code AS uom, l.quantity,
               COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
@@ -453,7 +499,15 @@ export class ProcurementService {
     const canReassign = await prWorkflow.canReassign(this.ds.manager, {
       approval_status: header.approvalStatus, assigned_approver_id: header.assignedApproverId, created_by: header.createdBy,
     }, user, false);
-    return { ...header, canReassign, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
+    const [creatorRole] = await this.ds.query(`SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+      JOIN role_permissions rp ON rp.role_id = r.id JOIN permissions p ON p.id = rp.permission_id
+      WHERE ur.user_id = $1 AND p.code = 'PR.CREATE' ORDER BY r.id LIMIT 1`, [header.createdBy]);
+    const rejection = header.approvalStatus === 'REJECTED'
+      ? await latestRoundActivity(this.ds.manager, 'PR', id, header.approvalRound, 'REJECT') : null;
+    const canCancel = header.createdBy === user.id && user.permissions.includes('PR.CREATE')
+      && (['DRAFT', 'REJECTED'].includes(header.approvalStatus)
+        || (header.approvalStatus === 'DONE' && children.every((po: { approvalStatus: string }) => po.approvalStatus === 'CANCELED')));
+    return { ...header, canCancel, canEdit, creatorRole: creatorRole?.name ?? null, rejection, canReassign, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
       nodes: await this.ds.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",
         a.full_name AS "assigneeName", u.full_name AS "actorName", n.acted_at AS "actedAt", n.invalidated_at AS "invalidatedAt"
         FROM pr_workflow_nodes n JOIN users a ON a.id = n.assignee_id LEFT JOIN users u ON u.id = n.actor_id

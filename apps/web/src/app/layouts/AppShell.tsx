@@ -19,8 +19,10 @@ function PageRoute({ allowed, has }: { allowed: (k: PageKey) => boolean; has: (p
   const page = pageOf(path);
   const viaDetail = Boolean(page && id && DETAIL_ALSO[page] && has(DETAIL_ALSO[page]!));
   if (!page || !(allowed(page) || viaDetail)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
+  const creating = id === 'new' && page === 'purchaseRequisitions' && has('PR.CREATE');
+  if (id && !creating && !/^[1-9]\d*$/.test(id)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
   const Page = PAGES[page][0];
-  return <Page key={`${page}-${id ?? ''}`} initialId={id ? Number(id) : undefined} />;
+  return <Page key={`${page}-${id ?? ''}`} initialId={creating ? 0 : id ? Number(id) : undefined} />;
 }
 
 export function AppShell({ onLogout }: { onLogout: () => void }) {

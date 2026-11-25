@@ -33,6 +33,14 @@ export function legacyActivityList(m: EntityManager, type: DocumentTarget, id: n
     WHERE h.document_type = $1 AND h.document_id = $2 ORDER BY h.id`, [type, id]);
 }
 
+export async function latestRoundActivity(m: EntityManager, type: DocumentTarget, id: number, round: number, action: string) {
+  const [entry] = await m.query(`SELECT h.id, ${activityColumns}, h.metadata
+    FROM approval_histories h JOIN users u ON u.id = h.actor_id
+    WHERE h.document_type = $1 AND h.document_id = $2 AND h.approval_round = $3 AND h.action = $4
+    ORDER BY h.id DESC LIMIT 1`, [type, id, round, action]);
+  return entry ?? null;
+}
+
 export async function documentPage(m: EntityManager, type: DocumentTarget, id: number, kind: 'notes' | 'history', before?: number) {
   const rows: { id: number }[] = await m.query(kind === 'notes'
     ? `SELECT n.id, n.body, n.created_at AS "createdAt", u.full_name AS "authorName"

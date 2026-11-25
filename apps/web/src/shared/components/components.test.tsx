@@ -1,9 +1,59 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Button } from '@mui/material';
-import { MemoryRouter } from 'react-router-dom';
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
 import { TableBody, TableCell, TableHead, TableRow } from '@mui/material';
 import { DataTable, DetailPageLayout, DetailTabs, FilterToolbar, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
+import { ActionResultDialog } from './ActionResultDialog';
+import { DocumentWorkflowStepper } from './DocumentWorkflow';
+
+it('shows the rejection at its own step and preserves the completed steps in a workflow round', () => {
+  render(<DocumentWorkflowStepper caption="Vòng 2" steps={[
+    { key: 'create', label: 'Khởi tạo', state: 'completed' },
+    { key: 'approve', label: 'Phê duyệt', state: 'completed' },
+    { key: 'receive', label: 'Tiếp nhận', state: 'rejected' },
+  ]} />);
+  expect(screen.getByText('Vòng 2')).toBeTruthy();
+  expect(screen.getByLabelText('Phê duyệt: Hoàn thành').getAttribute('data-step-state')).toBe('completed');
+  expect(screen.getByLabelText('Tiếp nhận: Bị từ chối').getAttribute('data-step-state')).toBe('rejected');
+});
+
+it('dismisses a success after three seconds and keeps failure open for acknowledgment', () => {
+  vi.useFakeTimers();
+  try {
+    const onClose = vi.fn();
+    const { rerender } = render(<ActionResultDialog result={{ success: true }} onClose={onClose} />);
+    expect(screen.queryByRole('button', { name: 'Đã hiểu' })).toBeNull();
+    act(() => vi.advanceTimersByTime(2999));
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    rerender(<ActionResultDialog result={{ success: false, error: new Error('Fixture error') }} onClose={onClose} />);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert').textContent).toContain('Fixture error');
+    fireEvent.click(screen.getByRole('button', { name: 'Đã hiểu' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('blocks SPA navigation from a dirty dialog until the user discards changes', async () => {
+  const router = createMemoryRouter([
+    { path: '/', element: <FormDialog title="Sửa" submitLabel="Lưu" error={null} pending={false} canSubmit dirty
+      onSubmit={() => undefined} onClose={() => undefined}><input /></FormDialog> },
+    { path: '/list', element: <h1>Danh sách sau khi rời form</h1> },
+  ]);
+  render(<RouterProvider router={router} />);
+  await act(async () => { await router.navigate('/list'); });
+  expect(router.state.location.pathname).toBe('/');
+  fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục sửa' }));
+  expect(router.state.location.pathname).toBe('/');
+  await act(async () => { await router.navigate('/list'); });
+  fireEvent.click(screen.getByRole('button', { name: 'Bỏ thay đổi' }));
+  expect(await screen.findByRole('heading', { name: 'Danh sách sau khi rời form' })).toBeTruthy();
+});
 
 describe('ListPageLayout', () => {
   it('renders title, page actions, toolbar, the load error and the content', () => {

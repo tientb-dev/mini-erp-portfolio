@@ -53,3 +53,20 @@ docs/                business requirements (01–05, MVP baseline)
 docs/architecture/   architecture, ADRs, open questions
 docker-compose.yml   PostgreSQL
 ```
+
+### Workflow Đề nghị mua hàng (PR #18)
+
+Xem [ADR-0015](docs/architecture/decisions/ADR-0015-purchase-requisition-workflow.md) để cấu hình tập ứng viên Sales, PM, Receipt và PM phụ trách từng hợp đồng. Đặt cấu hình tập Sales và Receipt trước khi chạy demo seed.
+
+Database đã áp dụng workflow PR có thể chạy `pnpm migrate` và `pnpm seed` để nâng cấp Common Notes/History và đồng bộ permission. Migration bổ sung giữ dữ liệu hiện có.
+
+Trước khi triển khai workflow lần đầu, kiểm tra bảng `purchase_requisitions` trên đúng database đích. Migration `1732406400000-PrWorkflow` yêu cầu bảng rỗng và sẽ dừng nếu phát hiện PR cũ. Với dữ liệu test có thể bỏ, dùng database test mới hoặc script bên dưới sau khi xác minh môi trường. Nếu database development hoặc production còn PR cũ, dừng triển khai và thống nhất phương án dữ liệu trước khi chạy lại. Migration giữ nguyên dữ liệu và không tự động reset database.
+
+Khi cần xóa fixture PR, dừng tiến trình đang ghi và xác minh đích là **database test Compose cục bộ**. Lệnh nối qua Unix socket bên trong container của dự án.
+
+```powershell
+Get-Content -Raw apps/api/src/database/scripts/reset-pr-test.sql |
+  docker compose exec -T postgres psql -U mini_erp -d mini_erp_test -v verified_local_test=1
+```
+
+Script chỉ xóa PR và dữ liệu workflow, thông báo, ghi chú, lịch sử của PR. Nếu PO hoặc GIR đang tham chiếu PR, script dừng và rollback toàn bộ.

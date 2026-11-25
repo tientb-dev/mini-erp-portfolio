@@ -50,12 +50,22 @@ export class SalesContractFacade {
   }
 
   /** A contract referenced as a stock source (B/D), read FOR SHARE: status and responsible Sales. */
-  static async sourceContract(m: EntityManager, id: number): Promise<{ status: string; responsibleSalesUserId: number | null } | undefined> {
-    const [r] = await m.query(`SELECT status, responsible_sales_user_id AS "responsibleSalesUserId" FROM sales_contracts WHERE id = $1 FOR SHARE`, [id]);
+  static async sourceContract(m: EntityManager, id: number): Promise<{ status: string; responsibleSalesUserId: number | null; responsiblePmUserId: number | null } | undefined> {
+    const [r] = await m.query(`SELECT status, responsible_sales_user_id AS "responsibleSalesUserId", responsible_pm_user_id AS "responsiblePmUserId" FROM sales_contracts WHERE id = $1 FOR SHARE`, [id]);
     return r;
   }
 
   /** Responsible sales of one contract (plain read, for read-only scope checks); undefined when the contract does not exist. */
+  static async assignResponsiblePm(m: EntityManager, contractId: number, userId: number) {
+    const [pm] = await m.query(`SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
+      JOIN role_permissions rp ON rp.role_id = ur.role_id JOIN permissions p ON p.id = rp.permission_id
+      WHERE u.id = $1 AND u.is_active AND p.code = 'PR.CREATE'`, [userId]);
+    if (!pm) throw new BusinessError('PR_PM_NOT_ELIGIBLE', 'Select an active PM');
+    const [, updated] = await m.query(`UPDATE sales_contracts SET responsible_pm_user_id = $2,
+      version = version + 1, updated_at = now() WHERE id = $1`, [contractId, userId]);
+    if (!updated) throw new NotFoundException();
+  }
+
   static async responsibleSalesOf(m: EntityManager, id: number): Promise<number | null | undefined> {
     const [r] = await m.query(`SELECT responsible_sales_user_id AS id FROM sales_contracts WHERE id = $1`, [id]);
     return r ? r.id : undefined;
@@ -263,7 +273,7 @@ export class SalesContractsService {
     const size = f.pageSize ?? 25;
     const items = await this.ds.query(
       `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId", c.name AS "customerName", s.created_at AS "createdAt",
-              u.full_name AS "createdByName", s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName",
+              u.full_name AS "createdByName", s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName", s.responsible_pm_user_id AS "responsiblePmUserId",
               (SELECT COUNT(*)::int FROM sales_contract_lines l WHERE l.sales_contract_id = s.id) AS "lineCount",
               (SELECT COUNT(*)::int FROM sales_contract_line_products x JOIN sales_contract_lines l ON l.id = x.sales_contract_line_id
                 WHERE l.sales_contract_id = s.id AND x.status = 'PENDING') AS "pendingProposals"
@@ -280,7 +290,7 @@ export class SalesContractsService {
       `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId",
               c.code AS "customerCode", c.name AS "customerName",
               s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt",
-              s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName",
+              s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName", s.responsible_pm_user_id AS "responsiblePmUserId",
               s.updated_at AS "updatedAt", (SELECT full_name FROM users WHERE id = s.updated_by) AS "updatedByName"
          FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
          LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id WHERE s.id = $1`,

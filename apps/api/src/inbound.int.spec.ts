@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { ProcurementFacade } from './modules/procurement/procurement.service';
 import { RECONCILE_SQL } from './database/migrations/1732060800000-LotAllocations';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
+import { prContext, prSubmission } from './test-utils';
 
 /** HĐ → PR → PO → GRR → GR → Inventory, against real PostgreSQL. IDs refer to 05-ACCEPTANCE-TESTS. */
 describe('Inbound chain and GR (integration)', () => {
@@ -23,6 +24,8 @@ describe('Inbound chain and GR (integration)', () => {
 
   beforeAll(async () => {
     ({ app, ds } = await bootTestApp());
+    await ds.query(`INSERT INTO user_roles (user_id, role_id)
+      SELECT u.id, r.id FROM users u CROSS JOIN roles r WHERE u.username = $1 AND r.code = 'SALES'`, [process.env.SEED_ADMIN_USERNAME]);
     creator = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
     approver = await login(app, process.env.SEED_APPROVER_USERNAME!, process.env.SEED_APPROVER_PASSWORD!);
     approverId = (await http().get('/auth/me').set(as(approver))).body.id;
@@ -38,6 +41,12 @@ describe('Inbound chain and GR (integration)', () => {
   });
 
   async function approveDoc(path: string, id: number) {
+    if (path === 'purchase-requisitions') {
+      await post(creator, `/${path}/${id}/submit`, await prSubmission(ds, id)).expect(204);
+      await post(await login(app, 'sales-head', 'role-users-test'), `/${path}/${id}/approve`, await prContext(ds, id)).expect(204);
+      await post(await login(app, 'purchaser', 'role-users-test'), `/${path}/${id}/receive`, await prContext(ds, id)).expect(204);
+      return;
+    }
     await post(creator, `/${path}/${id}/submit`, { approverId }).expect(204);
     await post(approver, `/${path}/${id}/approve`).expect(204);
   }

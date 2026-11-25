@@ -25,21 +25,30 @@ const pick = async (label: RegExp | string, option: string) => {
 };
 
 describe('Sales contract list', () => {
-  it('searches, filters and pages on the server; the number is a real link; row click opens, action icons do not', async () => {
+  it('requests paginated search and filter results from the server', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 }, ...common });
     renderAt('/sales-contracts');
-    const link = await screen.findByRole('link', { name: 'SC-2026-000004' });
-    expect(link.getAttribute('href')).toBe('/sales-contracts/4');
+    await screen.findByRole('link', { name: 'SC-2026-000004' });
     expect(fetched()).toContain('/sales-contracts?page=1&pageSize=25');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Tìm kiếm' }), { target: { value: 'cust' } });
     await waitFor(() => expect(fetched()).toContain('/sales-contracts?q=cust&page=1&pageSize=25'));
     await pick('Trạng thái', 'Nháp');
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?q=cust&status=DRAFT'));
+    await waitFor(() => expect(fetched()).toContain('/sales-contracts?q=cust&status=DRAFT&page=1&pageSize=25'));
+  });
 
+  it('links the contract number and opens the row without navigating from the action menu', async () => {
+    mockApi({
+      '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 },
+      '/sales-contracts/4': detail('DRAFT'), ...common,
+    });
+    renderAt('/sales-contracts');
+    const link = await screen.findByRole('link', { name: 'SC-2026-000004' });
+    expect(link.getAttribute('href')).toBe('/sales-contracts/4');
     fireEvent.click(screen.getByRole('button', { name: 'Thao tác SC-2026-000004' }));
     expect(await screen.findByRole('menuitem', { name: 'Hủy hợp đồng' })).toBeTruthy();
-    expect(screen.getByTestId('where').textContent).toMatch(/^\/sales-contracts\?/); // the action did not open the row
+    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts');
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
     fireEvent.click(screen.getByText('Customer 1'));
@@ -103,7 +112,7 @@ describe('Sales contract detail', () => {
     expect(within(crumbs).getByText('SC-2026-000004').getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: 'Quay lại danh sách' }).getAttribute('href')).toMatch(/^\/sales-contracts/);
     expect(screen.getByRole('tab', { name: 'Hàng hóa (1)', selected: true })).toBeTruthy();
-    expect(screen.queryByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeNull(); // no PR.VIEW
+    expect(screen.queryByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeNull(); // no PR.VIEW
   });
 
   it('adds a line from the UoM catalog; the version is sent', async () => {
@@ -179,7 +188,7 @@ describe('Sales contract detail', () => {
       '/purchase-requisitions?salesContractId=4': [{ id: 7, documentNumber: 'PR-2026-000007', approvalStatus: 'APPROVED', category: 'SALES_GOODS', createdAt: '2026-11-14T00:00:00Z', createdByName: 'PM' }],
     });
     renderAt('/sales-contracts/4');
-    fireEvent.click(await screen.findByRole('tab', { name: 'Đề nghị mua (PR)' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Đề nghị mua hàng (PR)' }));
     expect((await screen.findByRole('link', { name: 'PR-2026-000007' })).getAttribute('href')).toBe('/purchase-requisitions/7');
     expect(fetched()).toContain('/purchase-requisitions?salesContractId=4');
   });
@@ -259,12 +268,12 @@ describe('Sales contract design rules (PR #17)', () => {
   it('the responsible sales sees the PR tab without PR.VIEW; another sales does not', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 1 }), '/purchase-requisitions?salesContractId=4': [] });
     const { unmount } = renderAt('/sales-contracts/4');
-    expect(await screen.findByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeTruthy(); // me() has id 1
+    expect(await screen.findByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeTruthy(); // me() has id 1
     unmount();
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 2 }) });
     renderAt('/sales-contracts/4');
     await screen.findByRole('tab', { name: 'Hàng hóa (1)' });
-    expect(screen.queryByRole('tab', { name: 'Đề nghị mua (PR)' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeNull();
   });
 });
 

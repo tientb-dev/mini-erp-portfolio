@@ -9,7 +9,7 @@
 - **PR vật tư** (vật tư/phụ kiện triển khai/dự phòng): tạo tại màn hình PR, chọn HĐ rồi tự chọn vật tư; `sales_contract_line_id` không bắt buộc; được dùng mã tạm theo §1a (chuẩn hóa trước khi nhập kho).
 - Trùng Product không đồng nghĩa trùng dòng HĐ; hệ thống không tự suy ra hoặc tự gán `sales_contract_line_id` theo Product.
 - PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR (kể cả cùng Product). Trong cùng PO mỗi dòng PR được tham chiếu tối đa một lần; một dòng PR được xuất hiện ở nhiều PO khác nhau (đã chốt 2026-11-13).
-- Tổng số lượng dòng PO Chờ duyệt + Đã duyệt gắn với dòng PR không vượt số lượng PR Đã duyệt.
+- Tổng số lượng dòng PO Chờ duyệt + Đã duyệt gắn với dòng PR không vượt số lượng PR Hoàn tất.
 - Một GRR tham chiếu một PO Đã duyệt, một kho; mỗi dòng GRR tham chiếu một dòng PO.
 - Tổng số lượng GRR Chờ duyệt + Đã duyệt theo dòng PO không vượt số lượng PO Đã duyệt.
 - GRR có thể chọn một phần dòng/số lượng của PO; không tự tăng vượt hạn mức.
@@ -107,7 +107,7 @@
   - **C. Vật tư theo PR**: nguồn là dòng PR vật tư thuộc PR đã `PO done`; giữ riêng từng dòng PR; kiểm soát hạn mức dòng PR; không áp hạn mức dòng HĐ. Mục đích sử dụng (đã chốt, CT9): chỉ tham khảo, có thể kế thừa từ PR, không bắt buộc nhập lại, không là điều kiện hạn mức hay phê duyệt.
   - **D. Vật tư trực tiếp** (`AVAILABLE_STOCK`): không cần PR/dòng HĐ; vẫn gắn HĐ; **bắt buộc ghi mục đích sử dụng**; không áp hạn mức PR/HĐ.
 - **Hàng bán (A, B) dùng chung hạn mức giao của dòng HĐ** (§10.1), kể cả khi nhiều PR tham chiếu cùng dòng HĐ.
-- **Hạn mức dòng PR (A, C):** Σ số lượng dòng GIR tham chiếu một dòng PR không vượt số lượng dòng PR Đã duyệt. Trạng thái chiếm hạn mức, thời điểm kiểm tra và đồng thời theo §10.1 (CT2).
+- **Hạn mức dòng PR (A, C):** Σ số lượng dòng GIR tham chiếu một dòng PR không vượt số lượng dòng PR Hoàn tất. Trạng thái chiếm hạn mức, thời điểm kiểm tra và đồng thời theo §10.1 (CT2).
 - **`PO done`** (đã chốt 2026-11-13, CT1): một PR đạt `PO done` khi **mọi dòng PR** có tổng số lượng trên các dòng PO `APPROVED` (còn hiệu lực theo workflow) **bằng đúng** số lượng yêu cầu của dòng đó. Một dòng PR có thể mua qua nhiều PO; cộng dồn theo tham chiếu dòng PR, không theo Product; tổng đặt mua không vượt số lượng dòng PR (§1). Thiếu bất kỳ dòng nào → chưa `PO done`. `PO done` quyết định PR có hiển thị khi lập GIR theo PR và là điều kiện Gửi duyệt GIR A/C (xem quy tắc mất `PO done`); không có nghĩa là đã nhập kho; GIR A/C có thể lập và duyệt khi hàng chưa về.
 - **Mất `PO done`** (đã chốt 2026-11-13): `PO done` là **điều kiện để Gửi duyệt** GIR A/C, kiểm tra tại backend ở mỗi lần Gửi duyệt (GIR `DRAFT`, và GIR `REJECTED` sửa rồi Gửi duyệt lại), không chỉ khi hiển thị danh sách PR. PR không còn `PO done` → chặn Gửi duyệt. GIR **đã Gửi duyệt hợp lệ** không bị tự động Hủy, Thu hồi hay đổi trạng thái khi PR mất `PO done` sau đó; tiếp tục theo workflow và hạn mức hiện hữu (không hồi tố). PR đạt lại `PO done` → được Gửi duyệt.
 - **Lượng đã nhập tham khảo (A, C):** cộng số lượng GR `APPROVED` theo chuỗi dòng PR → dòng PO → dòng GRR → dòng GR; chưa nhập hiển thị 0. Không ghép theo Product; **không dùng làm hạn mức GIR**.
@@ -165,7 +165,8 @@
 - Mã `approval_status`: `DRAFT` (Nháp), `WAITING_FOR_APPROVE` (Chờ duyệt; không dùng `PENDING`), `APPROVED` (Đã duyệt), `REJECTED` (Bị từ chối), `CANCELED` (Đã hủy; không dùng `CANCELLED`). Quy tắc chuyển trạng thái không đổi.
 - Người tạo không tự duyệt; người duyệt không sửa nội dung.
 - Từ chối và Thu hồi cần lý do; Nháp/Bị từ chối có thể Hủy; Chờ duyệt phải Thu hồi trước khi Hủy.
-- PR Đã duyệt chỉ Thu hồi/Hủy khi không có PO chưa Hủy tham chiếu.
+- PR Hoàn tất chỉ được Hủy khi không có PO chưa Hủy tham chiếu, bắt buộc có lý do. PR kiểm tra PO trực tiếp. Các chứng từ từ PO trở đi kiểm tra chứng từ phụ thuộc theo quy tắc nghiệp vụ của chính chúng. GIR/GI không phải điều kiện chặn trực tiếp khi Hủy PR. Thu hồi PR chỉ được thực hiện khi Chờ duyệt hoặc Chờ tiếp nhận (ADR-0015, quyết định Final Fix Phase 4.1).
+- Một người đủ điều kiện có thể thực hiện cả Phê duyệt và Tiếp nhận; creator không tự xử lý PR của mình. Phân công lại chỉ áp dụng bước đang chờ và giữ nguyên trạng thái/vòng. Action phải chỉ rõ version, vòng, bước và hành động, được xác thực trong transaction (ADR-0015).
 - PO Đã duyệt chỉ Thu hồi/Hủy khi không còn GRR chưa Hủy tham chiếu và đáp ứng quy tắc trạng thái (GIR không tham chiếu PO).
 - GRR Đã duyệt không Thu hồi/Hủy khi còn GR chưa Hủy.
 - GR Đã duyệt không Hủy trực tiếp; được Thu hồi theo điều kiện §2.2. GI Đã duyệt không Thu hồi/Hủy.

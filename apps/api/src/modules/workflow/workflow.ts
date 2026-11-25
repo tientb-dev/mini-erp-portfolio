@@ -1,6 +1,8 @@
 import { ForbiddenException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
+import { appendActivity, legacyActivityList } from '../document-records/document-records';
+import type { ActivityDetails } from '../document-records/document-records';
 
 /** Business rule violation with a stable `code` (RFC 9457 extension, mapped by ProblemDetailsFilter). */
 export class BusinessError extends HttpException {
@@ -104,10 +106,8 @@ export function assertUniqueSourceLines(sourceLineIds: number[]): void {
   if (dup !== undefined) throw new BusinessError('DUPLICATE_SOURCE_LINE', `Source line ${dup} is referenced more than once on this document`);
 }
 
-export async function record(m: EntityManager, type: DocType, id: number, action: string, actorId: number, reason?: string) {
-  await m.query(`INSERT INTO approval_histories (document_type, document_id, action, actor_id, reason) VALUES ($1, $2, $3, $4, $5)`, [
-    type, id, action, actorId, reason ?? null,
-  ]);
+export async function record(m: EntityManager, type: DocType, id: number, action: string, actorId: number, reason?: string, details?: ActivityDetails) {
+  await appendActivity(m, type, id, action, actorId, reason, details);
 }
 
 export async function setStatus(m: EntityManager, type: DocType, doc: DocHeader, status: string, extra = '', params: unknown[] = []) {
@@ -209,10 +209,5 @@ export const DOC_COLUMNS = `d.id, d.document_number AS "documentNumber", d.appro
   (SELECT full_name FROM users WHERE id = d.assigned_approver_id) AS "assignedApproverName"`;
 
 export function history(m: EntityManager, type: DocType, id: number) {
-  return m.query(
-    `SELECT h.action, h.reason, h.created_at AS "createdAt", u.full_name AS "actorName"
-       FROM approval_histories h JOIN users u ON u.id = h.actor_id
-      WHERE h.document_type = $1 AND h.document_id = $2 ORDER BY h.id`,
-    [type, id],
-  );
+  return legacyActivityList(m, type, id);
 }

@@ -1,12 +1,45 @@
-import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { ProcurementService } from './procurement.service';
+import { PR_POOLS, PrPool, PrRoute } from './pr-eligibility';
+import { WORKFLOW_STEPS, WorkflowStep } from '../workflow/action-context';
+
+class WorkflowRouteDto {
+  @ApiProperty({ type: [Number] }) @IsArray() @ArrayUnique() @IsInt({ each: true }) @IsPositive({ each: true }) userIds!: number[];
+}
+class AssignPmDto {
+  @ApiProperty() @IsInt() @IsPositive() userId!: number;
+}
+class PrNoteDto {
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(4000) body!: string;
+}
+class PrDecisionDto {
+  @ApiProperty() @IsInt() @IsPositive() version!: number;
+  @ApiProperty() @IsInt() @Min(0) round!: number;
+  @ApiProperty({ enum: WORKFLOW_STEPS }) @IsIn(WORKFLOW_STEPS) step!: WorkflowStep;
+}
+class PrSubmitDto extends PrDecisionDto {
+  @ApiProperty() @IsInt() @IsPositive() approverId!: number;
+  @ApiProperty() @IsInt() @IsPositive() receiverId!: number;
+}
+class PrRejectDto extends PrDecisionDto {
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
+}
+class PrReassignDto extends PrRejectDto {
+  @ApiProperty() @IsInt() @IsPositive() assigneeId!: number;
+}
+class PrCancelDto extends PrDecisionDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() reason?: string;
+}
+class PrPoolParams {
+  @ApiProperty({ enum: PR_POOLS }) @IsIn(PR_POOLS) route!: PrPool;
+}
 
 class PrLineDto {
   @ApiPropertyOptional({ description: "Existing line id when editing; omit for a new line" }) @IsOptional() @IsInt() id?: number;
@@ -14,7 +47,12 @@ class PrLineDto {
   @ApiProperty() @IsInt() productId!: number;
   @ApiProperty() @IsPositive() quantity!: number;
 }
-class CreatePrDto {
+class PrDraftSelection {
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() approverId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() receiverId?: number | null;
+}
+class CreatePrDto extends PrDraftSelection {
+  @ApiPropertyOptional({ enum: ['SALES', 'PM'] }) @IsOptional() @IsIn(['SALES', 'PM']) route?: 'SALES' | 'PM';
   @ApiProperty() @IsInt() salesContractId!: number;
   @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], default: 'SALES_GOODS' }) @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
   @ApiPropertyOptional({ description: 'Purpose of use (materials; reference)' }) @IsOptional() @IsString() purpose?: string;
@@ -24,13 +62,22 @@ class CreatePoDto {
   @ApiProperty() @IsInt() supplierId!: number;
   @ApiProperty({ type: [SourceLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => SourceLineDto) lines!: SourceLineDto[];
 }
+class SaveNewPrDto extends CreatePrDto {
+  @ApiProperty() @IsUUID('4') requestKey!: string;
+  @ApiProperty() @IsBoolean() submit!: boolean;
+}
 
-class UpdatePrDto {
+class UpdatePrDto extends PrDraftSelection {
   @ApiProperty() @IsInt() version!: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() purpose?: string;
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
 }
 class UpdatePoDto extends CreatePoDto {
   @ApiProperty() @IsInt() version!: number;
+}
+class SubmitEditedPrDto extends UpdatePrDto {
+  @ApiProperty() @IsInt() @Min(0) round!: number;
+  @ApiProperty({ enum: ['CREATE'] }) @IsIn(['CREATE']) step!: 'CREATE';
 }
 
 /** PR, PO: list, detail, create, workflow actions. */
@@ -77,14 +124,27 @@ export class ProcurementController {
   @Post('purchase-requisitions')
   @RequirePermissions('PR.CREATE')
   createPr(@Req() req: AuthedRequest, @Body() dto: CreatePrDto) {
-    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose);
+    return this.svc.createPurchaseRequisition(req.user, dto.salesContractId, dto.lines, dto.category, dto.purpose, dto.route, dto);
+  }
+
+  @Post('purchase-requisitions/save-new')
+  @RequirePermissions('PR.CREATE')
+  saveNewPr(@Req() req: AuthedRequest, @Body() dto: SaveNewPrDto) {
+    return this.svc.saveNewPr(req.user, dto);
   }
 
   @Patch('purchase-requisitions/:id')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
   updatePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePrDto) {
-    return this.svc.updatePurchaseRequisition(req.user, id, dto.version, dto.lines);
+    return this.svc.updatePurchaseRequisition(req.user, id, dto.version, dto.lines, dto);
+  }
+
+  @Patch('purchase-requisitions/:id/submit-edited')
+  @HttpCode(204)
+  @RequirePermissions('PR.CREATE')
+  submitEdited(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: SubmitEditedPrDto) {
+    return this.svc.submitEditedPr(req.user, id, dto);
   }
 
   @Get('purchase-requisitions/:id/lines')
@@ -112,10 +172,65 @@ export class ProcurementController {
     return this.ds.query(`SELECT id, purchase_requisition_line_id AS "purchaseRequisitionLineId", quantity FROM purchase_order_lines WHERE purchase_order_id = $1 ORDER BY id`, [id]);
   }
 
-  @Get('purchase-requisitions/:id/approvers')
+  @Put('pr-workflow/routes/:route')
+  @HttpCode(204)
+  @RequirePermissions('PR.CONFIGURE')
+  configureRoute(@Param() params: PrPoolParams, @Body() dto: WorkflowRouteDto) {
+    return this.svc.configurePrRoute(params.route, dto.userIds);
+  }
+
+  @Get('pr-workflow/routes')
+  @RequirePermissions('PR.CONFIGURE')
+  listRoutes() {
+    return this.svc.listPrRoutes();
+  }
+
+  @Get('pr-workflow/candidates')
+  @RequirePermissions('PR.CONFIGURE')
+  listCandidates() {
+    return this.svc.listPrAssignmentCandidates();
+  }
+
+  @Get('pr-workflow/creator-candidates')
   @RequirePermissions('PR.CREATE')
-  prApprovers(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.approvers('PR', id);
+  creatorCandidates(@Req() req: AuthedRequest, @Query('salesContractId', ParseIntPipe) contractId: number,
+    @Query('route', new ParseEnumPipe({ SALES: 'SALES', PM: 'PM' }, { optional: true })) route?: PrRoute) {
+    return this.svc.listCreatorCandidates(req.user, contractId, route);
+  }
+
+  @Put('pr-workflow/contracts/:id/responsible-pm')
+  @HttpCode(204)
+  @RequirePermissions('PR.CONFIGURE')
+  assignPm(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignPmDto) {
+    return this.svc.assignResponsiblePm(id, dto.userId);
+  }
+
+  @Post('purchase-requisitions/:id/notes')
+  @HttpCode(204)
+  addNote(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrNoteDto) {
+    return this.svc.addPrNote(req.user, id, dto.body);
+  }
+
+  @Get('purchase-requisitions/:id/notes')
+  listNotes(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number) {
+    return this.svc.readPrRecords(req.user, id, 'notes', before);
+  }
+
+  @Get('purchase-requisitions/:id/history')
+  listHistory(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number) {
+    return this.svc.readPrRecords(req.user, id, 'history', before);
+  }
+  @Get('pr-notifications')
+  listNotifications(@Req() req: AuthedRequest) {
+    return this.svc.listPrNotifications(req.user.id);
+  }
+
+  @Patch('pr-notifications/:id/read')
+  @HttpCode(204)
+  readNotification(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.readPrNotification(req.user.id, id);
   }
 
   @Get('purchase-orders/:id/approvers')
@@ -127,15 +242,37 @@ export class ProcurementController {
   @Post('purchase-requisitions/:id/submit')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
-  submitPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: SubmitDto) {
-    return this.svc.submit('PR', id, req.user, dto.approverId);
+  submitPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrSubmitDto) {
+    return this.svc.submitPr(id, req.user, dto);
+  }
+
+  @Get('purchase-requisitions/:id/candidates')
+  @RequirePermissions('PR.CREATE')
+  listPrCandidates(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.listPrCandidates(id, req.user);
+  }
+
+  @Get('purchase-requisitions/:id/reassignment-candidates')
+  reassignmentCandidates(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.prReassignmentCandidates(id, req.user);
+  }
+
+  @Post('purchase-requisitions/:id/reassign')
+  @HttpCode(204)
+  reassignPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrReassignDto) {
+    return this.svc.reassignPr(id, req.user, dto);
   }
 
   @Post('purchase-requisitions/:id/approve')
   @HttpCode(204)
-  @RequirePermissions('PR.APPROVE')
-  approvePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.svc.approve('PR', id, req.user);
+  approvePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrDecisionDto) {
+    return this.svc.actOnPr(id, req.user, 'approve', dto);
+  }
+
+  @Post('purchase-requisitions/:id/receive')
+  @HttpCode(204)
+  receivePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrDecisionDto) {
+    return this.svc.actOnPr(id, req.user, 'receive', dto);
   }
 
   @Post('purchase-orders/:id/submit')
@@ -154,23 +291,22 @@ export class ProcurementController {
 
   @Post('purchase-requisitions/:id/reject')
   @HttpCode(204)
-  @RequirePermissions('PR.APPROVE')
-  rejectPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: ReasonDto) {
-    return this.svc.decide('PR', 'reject', id, req.user, dto.reason);
+  rejectPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrRejectDto) {
+    return this.svc.actOnPr(id, req.user, 'reject', dto, dto.reason);
   }
 
   @Post('purchase-requisitions/:id/recall')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
-  recallPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: ReasonDto) {
-    return this.svc.decide('PR', 'recall', id, req.user, dto.reason);
+  recallPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrRejectDto) {
+    return this.svc.actOnPr(id, req.user, 'recall', dto, dto.reason);
   }
 
   @Post('purchase-requisitions/:id/cancel')
   @HttpCode(204)
   @RequirePermissions('PR.CREATE')
-  cancelPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: OptionalReasonDto) {
-    return this.svc.decide('PR', 'cancel', id, req.user, dto.reason);
+  cancelPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrCancelDto) {
+    return this.svc.actOnPr(id, req.user, 'cancel', dto, dto.reason);
   }
 
   @Post('purchase-orders/:id/reject')

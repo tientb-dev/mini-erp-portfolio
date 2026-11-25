@@ -17,6 +17,7 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+artifacts/evidence/
 
 # logs
 *.log

@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
+import { prContext, prSubmission } from './test-utils';
 
 /** Editing HĐ (DRAFT) and PR/PO/GRR (DRAFT/REJECTED): limits, versions, RBAC, warehouse scope, history (IM18). */
 describe('Document editing (integration)', () => {
@@ -28,6 +29,8 @@ describe('Document editing (integration)', () => {
   beforeAll(async () => {
     process.env.SEED_ROLE_USERS_PASSWORD = 'role-users-test';
     ({ app, ds } = await bootTestApp());
+    await ds.query(`INSERT INTO user_roles (user_id, role_id)
+      SELECT u.id, r.id FROM users u CROSS JOIN roles r WHERE u.username = $1 AND r.code = 'SALES'`, [process.env.SEED_ADMIN_USERNAME]);
     admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
     approver = await login(app, process.env.SEED_APPROVER_USERNAME!, process.env.SEED_APPROVER_PASSWORD!);
     approverId = (await get(approver, '/auth/me')).body.id;
@@ -57,6 +60,12 @@ describe('Document editing (integration)', () => {
   }
 
   async function approved(path: string, id: number) {
+    if (path === 'purchase-requisitions') {
+      await post(admin, `/${path}/${id}/submit`, await prSubmission(ds, id)).expect(204);
+      await post(await login(app, 'sales-head', 'role-users-test'), `/${path}/${id}/approve`, await prContext(ds, id)).expect(204);
+      await post(await login(app, 'purchaser', 'role-users-test'), `/${path}/${id}/receive`, await prContext(ds, id)).expect(204);
+      return;
+    }
     await post(admin, `/${path}/${id}/submit`, { approverId }).expect(204);
     await post(approver, `/${path}/${id}/approve`).expect(204);
   }
@@ -177,11 +186,11 @@ describe('Document editing (integration)', () => {
     // Only the creator edits; the assigned approver never does (E06).
     expect((await patch(approver, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(403)).body.code)
       .toBe('NOT_DOCUMENT_CREATOR');
-    await post(admin, `/purchase-requisitions/${pr}/submit`, { approverId }).expect(204);
+    await post(admin, `/purchase-requisitions/${pr}/submit`, await prSubmission(ds, pr)).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(409)).body.code)
       .toBe('INVALID_STATUS'); // C18 equivalent: recall first
-    await post(approver, `/purchase-requisitions/${pr}/reject`, { reason: 'Sai mã' }).expect(204);
+    await post(await login(app, 'sales-head', 'role-users-test'), `/purchase-requisitions/${pr}/reject`, { ...await prContext(ds, pr), reason: 'Sai mã' }).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     await patch(admin, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ id: d.lines[0].id, salesContractLineId: lineId, productId: p1, quantity: 4 }] }).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
@@ -189,26 +198,20 @@ describe('Document editing (integration)', () => {
     expect(d.lines).toHaveLength(1);
     await approved('purchase-requisitions', pr);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
-    expect(d.history.map((h: { action: string }) => h.action)).toEqual(['EDIT', 'SUBMIT', 'REJECT', 'EDIT', 'SUBMIT', 'APPROVE']);
+    expect(d.history.map((h: { action: string }) => h.action)).toEqual(['RECEIVE', 'APPROVE', 'RESUBMIT', 'EDIT', 'REJECT', 'SUBMIT', 'EDIT']);
     expect(d.documentNumber).toMatch(/^PR-\d{4}-\d{6}$/);
   });
 
-  it('PR line referenced by a canceled PO keeps its product; its quantity may change', async () => {
+  it('a DONE PR stays immutable after its PO is canceled', async () => {
     const { sc, lineId } = await activeContract();
     const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 5 }] }).expect(201)).body.id;
     await approved('purchase-requisitions', pr);
-    const prLine = (await get(admin, `/purchase-requisitions/${pr}`)).body.lines[0].id;
-    const po = (await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: prLine, quantity: 5 }] }).expect(201)).body.id;
+    const { lines, version } = (await get(admin, `/purchase-requisitions/${pr}`)).body;
+    const po = (await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: lines[0].id, quantity: 5 }] }).expect(201)).body.id;
     await post(admin, `/purchase-orders/${po}/cancel`).expect(204);
-    await post(admin, `/purchase-requisitions/${pr}/recall`, { reason: 'Sửa' }).expect(204);
-    const v = (await get(admin, `/purchase-requisitions/${pr}`)).body.version;
-    expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: v, lines: [{ id: prLine, salesContractLineId: lineId, productId: p2, quantity: 5 }] }).expect(409)).body.code)
-      .toBe('LINE_NOT_EDITABLE');
-    expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: v, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 5 }] }).expect(409)).body.code)
-      .toBe('RECORD_IN_USE'); // deleting it is blocked too
-    await patch(admin, `/purchase-requisitions/${pr}`, { version: v, lines: [{ id: prLine, salesContractLineId: lineId, productId: p1, quantity: 8 }] }).expect(204);
+    expect((await post(admin, `/purchase-requisitions/${pr}/recall`, { ...await prContext(ds, pr), reason: 'Sửa' }).expect(409)).body.code).toBe('INVALID_STATUS');
+    expect((await patch(admin, `/purchase-requisitions/${pr}`, { version, lines: [{ id: lines[0].id, salesContractLineId: lineId, productId: p2, quantity: 5 }] }).expect(409)).body.code).toBe('INVALID_STATUS');
   });
-
   it('PR: an HĐ line at most once per PR (CM6); other PRs and other HĐ lines with the same product stay separate', async () => {
     const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(5, 'A'), scLine(5, 'B')] }).expect(201)).body.id;
     await post(admin, `/sales-contracts/${sc}/activate`).expect(204);

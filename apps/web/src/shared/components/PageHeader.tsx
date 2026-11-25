@@ -1,20 +1,24 @@
 import { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 /**
  * Optional breadcrumbs, then the title row: Back arrow (a fixed route, not browser history), the title with an inline
  * status, an optional subtitle under it, and the page actions on the right; wraps on narrow screens.
  */
-export function PageHeader({ title, action, breadcrumbs, backTo, status, subtitle }: {
+export function PageHeader({ title, action, breadcrumbs, backTo, status, subtitle, onBack, backLabel }: {
   title: string; action?: ReactNode; breadcrumbs?: ReactNode; backTo?: string; status?: ReactNode; subtitle?: ReactNode;
+  onBack?: () => void; backLabel?: string;
 }) {
   const { t } = useTranslation();
   return (
-    <Stack spacing={1.5} sx={{ mb: 3 }}>
+    <Stack spacing={onBack ? 1 : 1.5} sx={{ mb: onBack ? { xs: 0.5, xl: 2 } : 3 }}>
       {breadcrumbs}
+      {onBack && <Button variant="text" startIcon={<ArrowBackIcon />} onClick={onBack} sx={{ alignSelf: 'flex-start', px: 0.5 }}>
+        {backLabel ?? t('common.back')}
+      </Button>}
       <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
           {backTo && (

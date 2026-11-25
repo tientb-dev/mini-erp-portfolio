@@ -1,4 +1,5 @@
-import { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, ReactNode, useContext, useEffect, useRef, useState } from 'react';
+import { UNSAFE_DataRouterContext, useBlocker } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Stack, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -14,10 +15,25 @@ export function FormDialog(props: {
   /** Unsaved input: closing asks for confirmation. */ dirty?: boolean;
   /** `error` for destructive actions (delete, cancel). */ submitColor?: 'primary' | 'error';
   /** One short line under the title (what to enter, what happens). */ description?: ReactNode;
+  submitIcon?: ReactNode;
+  pageGuardsNavigation?: boolean;
 }) {
   const { t } = useTranslation();
   const [asking, setAsking] = useState(false);
-  const submit = (e: FormEvent) => { e.preventDefault(); if (props.canSubmit && !props.pending) props.onSubmit(); };
+  const router = useContext(UNSAFE_DataRouterContext);
+  const submitting = useRef(false);
+  useEffect(() => {
+    if (!props.dirty && !props.pending) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [props.dirty, props.pending]);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!props.canSubmit || props.pending || submitting.current) return;
+    submitting.current = true;
+    try { props.onSubmit(); } finally { queueMicrotask(() => { submitting.current = false; }); }
+  };
   const requestClose = () => {
     if (props.pending) return;
     if (props.dirty) setAsking(true);
@@ -38,20 +54,37 @@ export function FormDialog(props: {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={requestClose} disabled={props.pending}>{t('common.cancel')}</Button>
-          <Button type="submit" variant="contained" color={props.submitColor ?? 'primary'} disabled={!props.canSubmit || props.pending}>{props.submitLabel}</Button>
+          <Button variant="outlined" onClick={requestClose} disabled={props.pending}>{t('common.cancel')}</Button>
+          <Button type="submit" variant={props.submitColor === 'error' ? 'outlined' : 'contained'} startIcon={props.submitIcon}
+            color={props.submitColor ?? 'primary'} disabled={!props.canSubmit || props.pending}>{props.submitLabel}</Button>
         </DialogActions>
       </Dialog>
-      {asking && (
-        <Dialog open onClose={() => setAsking(false)} maxWidth="xs" aria-labelledby="discard-title">
+      {router && !props.pageGuardsNavigation && (props.dirty || props.pending)
+        && <RouteDiscardGuard dirty={Boolean(props.dirty)} pending={props.pending} />}
+      {asking && <DiscardDialog onKeep={() => setAsking(false)} onDiscard={props.onClose} />}
+    </>
+  );
+}
+
+export function RouteDiscardGuard({ dirty, pending, allowNavigation }: { dirty: boolean; pending: boolean; allowNavigation?: () => boolean }) {
+  const blocker = useBlocker(() => (dirty || pending) && !allowNavigation?.());
+  useEffect(() => {
+    if (pending && blocker.state === 'blocked') blocker.reset();
+  }, [pending, blocker]);
+  if (pending || blocker.state !== 'blocked') return null;
+  return <DiscardDialog onKeep={blocker.reset} onDiscard={blocker.proceed} />;
+}
+
+export function DiscardDialog({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: () => void }) {
+  const { t } = useTranslation();
+  return (
+        <Dialog open onClose={onKeep} maxWidth="xs" aria-labelledby="discard-title">
           <DialogTitle id="discard-title" variant="h2">{t('common.discardTitle')}</DialogTitle>
           <DialogContent><DialogContentText>{t('common.discardHint')}</DialogContentText></DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={() => setAsking(false)} autoFocus>{t('common.keepEditing')}</Button>
-            <Button color="error" variant="contained" onClick={props.onClose}>{t('common.discard')}</Button>
+            <Button variant="outlined" onClick={onKeep} autoFocus>{t('common.keepEditing')}</Button>
+            <Button color="error" variant="outlined" onClick={onDiscard}>{t('common.discard')}</Button>
           </DialogActions>
         </Dialog>
-      )}
-    </>
   );
 }

@@ -2,6 +2,26 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 const vi = {
+  prPhase: {
+    number: 'Mã PR', name: 'Tên PR', requisitionDate: 'Ngày đề nghị', requiredDate: 'Ngày cần hàng', currency: 'Tiền tệ',
+    from: 'Ngày đề nghị từ', to: 'Ngày đề nghị đến', invalidRange: 'Ngày bắt đầu không được sau ngày kết thúc.',
+    search: 'Tìm theo mã PR, tên PR hoặc HĐ', refresh: 'Làm mới', refreshHint: 'Đặt lại bộ lọc và tải lại dữ liệu',
+    handler: 'Người đang xử lý', waiting: 'Chờ tôi xử lý', picker: 'Chọn hàng hóa', main: 'Mã chính', temporary: 'Mã tạm',
+    itemSearch: 'Tìm theo mã hoặc tên hàng', itemCode: 'Mã hàng', itemName: 'Tên hàng', brand: 'Hãng',
+    description: 'Diễn giải', purpose: 'Mục đích đề nghị', selected: 'Đã chọn {{count}} hàng hóa', confirm: 'Xác nhận',
+    selectPage: 'Chọn tất cả dòng đang hiển thị', lineCount: '{{count}} dòng hàng hóa', lines: 'Danh sách hàng hóa',
+    net: 'Tổng tiền trước thuế', taxTotal: 'Tổng tiền thuế', tax: 'Tiền thuế', total: 'Tổng thanh toán', lineNet: 'Thành tiền',
+    row: 'STT', source: 'Loại mã', requirement: 'Mô tả yêu cầu', supplier: 'Nhà cung cấp', uom: 'ĐVT',
+    quantity: 'Số lượng', unitPrice: 'Đơn giá', taxRate: 'Thuế suất', mapping: 'Dòng HĐ bán', actions: 'Thao tác',
+    brandId: 'Hãng', supplierId: 'Nhà cung cấp', unitOfMeasureId: 'ĐVT', taxRateId: 'Thuế suất', salesContractLineId: 'Dòng HĐ bán',
+    duplicates: 'Mã hàng trùng với dòng {{rows}}', emptyLines: 'Chưa có hàng hóa',
+    editor: 'Cập nhật hàng hóa', errorCount: 'Có {{count}} trường chưa hợp lệ. Vui lòng kiểm tra các ô được đánh dấu đỏ.',
+    required: 'Bắt buộc chọn giá trị', badQuantity: 'Nhập số lượng dương, tối đa 3 chữ số thập phân',
+    badPrice: 'Nhập đơn giá không âm, tối đa 4 chữ số thập phân', positivePrice: 'Nhập đơn giá dương, tối đa 4 chữ số thập phân',
+    manual: 'Nhập tỷ giá thủ công', rate: 'Tỷ giá', rateSource: 'Nguồn tỷ giá', catalogRate: 'Tỷ giá danh mục',
+    locked: 'Xóa hết dòng hàng hóa trước khi thay đổi trường này.', chooseHeader: 'Chọn HĐ bán và phân loại trước khi thêm hàng hóa.',
+    needsLine: 'Thêm ít nhất một dòng hàng hóa hợp lệ.',
+  },
   app: { title: 'Mini ERP', logout: 'Đăng xuất', language: 'English' },
   login: {
     title: 'Đăng nhập', subtitle: 'Quản lý mua hàng, kho và tồn kho', username: 'Tên đăng nhập', password: 'Mật khẩu', submit: 'Đăng nhập',
@@ -339,6 +359,26 @@ const vi = {
 };
 
 const en: typeof vi = {
+  prPhase: {
+    number: 'PR number', name: 'PR name', requisitionDate: 'Requisition date', requiredDate: 'Required date', currency: 'Currency',
+    from: 'Requisition date from', to: 'Requisition date to', invalidRange: 'Start date must be on or before the end date.',
+    search: 'Search PR number, name or contract', refresh: 'Refresh', refreshHint: 'Reset filters and reload data',
+    handler: 'Current assignee', waiting: 'Waiting for me', picker: 'Select items', main: 'Main item', temporary: 'Temporary item',
+    itemSearch: 'Search by item code or name', itemCode: 'Item code', itemName: 'Item name', brand: 'Brand',
+    description: 'Description', purpose: 'Requisition purpose', selected: '{{count}} items selected', confirm: 'Confirm',
+    selectPage: 'Select all displayed rows', lineCount: '{{count}} item lines', lines: 'Items',
+    net: 'Subtotal', taxTotal: 'Total tax', tax: 'Tax amount', total: 'Total payable', lineNet: 'Line subtotal',
+    row: 'No.', source: 'Source', requirement: 'Requirement description', supplier: 'Supplier', uom: 'UoM',
+    quantity: 'Quantity', unitPrice: 'Unit price', taxRate: 'Tax rate', mapping: 'Sales contract line', actions: 'Actions',
+    brandId: 'Brand', supplierId: 'Supplier', unitOfMeasureId: 'UoM', taxRateId: 'Tax rate', salesContractLineId: 'Sales contract line',
+    duplicates: 'Item code also appears on rows {{rows}}', emptyLines: 'No items',
+    editor: 'Edit items', errorCount: '{{count}} invalid fields. Check the highlighted inputs.',
+    required: 'Select a value', badQuantity: 'Enter a positive quantity with up to 3 decimal places',
+    badPrice: 'Enter a non-negative price with up to 4 decimal places', positivePrice: 'Enter a positive price with up to 4 decimal places',
+    manual: 'Enter exchange rate manually', rate: 'Exchange rate', rateSource: 'Exchange rate source', catalogRate: 'Catalog rate',
+    locked: 'Remove all item lines before changing this field.', chooseHeader: 'Select a sales contract and category before adding items.',
+    needsLine: 'Add at least one valid item line.',
+  },
   app: { title: 'Mini ERP', logout: 'Sign out', language: 'Tiếng Việt' },
   login: {
     title: 'Sign in', subtitle: 'Purchasing, warehouse and inventory', username: 'Username', password: 'Password', submit: 'Sign in',

@@ -37,8 +37,8 @@ it('keeps the submit context and selected candidates from the open dialog when d
     id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
     createdBy: 1, createdByName: 'Sales', assignedApproverId: null, salesContractNumber: 'SC-5',
     createdAt: '2026-11-13T00:00:00Z', category: 'MATERIAL', salesContractId: 9, children: [], history: [], notes: [],
-    draftApproverId: 2, draftReceiverId: 2,
-    lines: [{ id: 8, productId: 4, sourceLineId: null, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
+    draftApproverId: 2, draftReceiverId: 2, name: 'PR fixture',
+    lines: [{ id: 8, productId: 4, sourceLineId: null, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2', brandId: 1, supplierId: 2, unitOfMeasureId: 1, taxRateId: 1, unitPrice: '8' }],
   };
   const candidate = { id: 2, username: 'candidate', fullName: 'Candidate', role: 'Configured workflow role' };
   const posts = mockApi({
@@ -64,7 +64,8 @@ it('keeps the submit context and selected candidates from the open dialog when d
   fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
   await waitFor(() => expect(posts).toEqual([{
     url: '/purchase-requisitions/5/submit-edited',
-    body: { version: 2, round: 0, step: 'CREATE', purpose: '', approverId: 2, receiverId: 2, lines: [{ id: 8, productId: 4, quantity: 2 }] },
+    body: { version: 2, round: 0, step: 'CREATE', name: 'PR fixture', purpose: '', description: '', requisitionDate: null, requiredDate: null,
+      approverId: 2, receiverId: 2, lines: [{ id: 8, productId: 4, salesContractLineId: null, requirementDescription: '', brandId: 1, supplierId: 2, unitOfMeasureId: 1, taxRateId: 1, unitPrice: '8', quantity: '2' }] },
   }]));
 });
 
@@ -79,7 +80,7 @@ it('keeps deletion local, allows cancellation, and blocks save and submit after 
     '/purchase-requisitions/5/candidates': { approvers: [], receivers: [] },
   });
   wrap(<PurchaseRequisitionsPage initialId={5} />);
-  fireEvent.change(await screen.findByRole('textbox', { name: 'Mục đích sử dụng' }), { target: { value: 'Retained purpose' } });
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Mục đích đề nghị' }), { target: { value: 'Retained purpose' } });
   const remove = screen.getByRole('button', { name: 'Xóa dòng 1' });
   fireEvent.click(remove);
   expect(within(screen.getByRole('dialog')).getByText(/1 · PN-5 · Switch/)).toBeTruthy();
@@ -91,7 +92,7 @@ it('keeps deletion local, allows cancellation, and blocks save and submit after 
   fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
   fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
   expect(screen.getByRole('alert').textContent).toMatch(/ít nhất một dòng/);
-  expect((screen.getByRole('textbox', { name: 'Mục đích sử dụng' }) as HTMLTextAreaElement).value).toBe('Retained purpose');
+  expect((screen.getByRole('textbox', { name: 'Mục đích đề nghị' }) as HTMLTextAreaElement).value).toBe('Retained purpose');
   expect(posts).toEqual([]);
 });
 

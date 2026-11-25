@@ -8,6 +8,7 @@
 - **Liên kết dòng HĐ (DEC-19-02):** PR hàng bán và vật tư chọn hàng từ toàn bộ danh mục. Hàng bán bắt buộc liên kết một dòng HĐ đúng hợp đồng trước Gửi duyệt; Vật tư có thể để trống. Một dòng HĐ có thể liên kết nhiều dòng PR. Gợi ý chỉ dựa trên định danh danh mục trùng duy nhất; người tạo có thể đổi gợi ý. Không tự mapping theo mã hoặc tên nhập tự do. Không có hạn mức Σ PR ≤ dòng HĐ.
 - **Trùng mã (DEC-19-01):** cho phép trùng mã chính hoặc mã tạm, kể cả cùng NCC. Grid cảnh báo mềm và tự bỏ cảnh báo khi hết trùng. Không gộp dòng và không đặt khóa duy nhất theo mã hàng hoặc mã hàng + NCC. Liên kết và hạn mức theo ID dòng.
 - PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR (kể cả cùng Product). Trong cùng PO mỗi dòng PR được tham chiếu tối đa một lần; một dòng PR được xuất hiện ở nhiều PO khác nhau (đã chốt 2026-11-13).
+- Khi phát triển nghiệp vụ giá PO, backend phải chặn đơn giá mua vượt hạn mức của dòng PR đã duyệt trên cùng cơ sở tiền tệ, ĐVT và giá trước thuế. PO hiện thiếu các trường thương mại để thực thi. Đây là tiêu chí bắt buộc để nghiệm thu nghiệp vụ PO.
 - Tổng số lượng dòng PO Chờ duyệt + Đã duyệt gắn với dòng PR không vượt số lượng PR Hoàn tất.
 - Một GRR tham chiếu một PO Đã duyệt, một kho; mỗi dòng GRR tham chiếu một dòng PO. Trong cùng GRR, mỗi dòng PO được chọn tối đa một lần và không được tách.
 - Tổng số lượng GRR Chờ duyệt + Đã duyệt theo dòng PO không vượt số lượng PO Đã duyệt.

@@ -26,6 +26,7 @@ import { DocAction, DocActionDialog, DocumentActivityDialog, DocumentHistoryTabl
 import { DocConfig, DocDetail, DocLine } from './types';
 import { PrPageEditor, PrReadonlyField, type PrEditorModel } from './PrPageEditor';
 import { PrLineTable } from './PrLineTable';
+import { fromSavedPrLine } from './pr-lines';
 
 const stepTones = { future: 'neutral', pending: 'pending', completed: 'success', rejected: 'danger' } as const;
 
@@ -137,18 +138,24 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
       >
         {isPr && <DocumentWorkflowStepper steps={steps} caption={latestRound ? t('pr.round', { round: latestRound }) : undefined} />}
         <DetailTabs value={editor?.tab} onChange={editor?.setTab}
-          below={isPr ? editor?.grid ?? <PrLineTable lines={d.lines} /> : undefined} tabs={[
+          below={isPr ? editor?.grid ?? <PrLineTable lines={d.lines.map(fromSavedPrLine)} currency={String(d.currencyCode ?? '')}
+            scale={Number(d.currencyDecimalPlaces ?? 0)} official={[d.subtotal, d.taxTotal, d.total].map(value => value == null ? null : String(value)) as [string | null, string | null, string | null]} /> : undefined} tabs={[
           {
             key: 'general', label: t('gr.tabGeneral'), invalid: editor?.invalidTab === 'general', content: editor?.general ?? (
               <>
                 {!isPr && <Field label={t('common.status')}><ApprovalStatusChip status={status} /></Field>}
-                {isPr ? <DocumentFormGrid>
-                  <DocumentFormCell span={5}><PrReadonlyField label={t('gir.salesContract')} value={String(d.salesContractNumber ?? '')} /></DocumentFormCell>
+                {isPr ? <DocumentFormGrid compact>
+                  <DocumentFormCell span={8}><PrReadonlyField label={t('prPhase.name')} value={String(d.name ?? '')} /></DocumentFormCell>
+                  <DocumentFormCell span={4}><PrReadonlyField label={t('pr.requester')} value={String(d.requesterName ?? d.createdByName ?? '')} /></DocumentFormCell>
                   <DocumentFormCell span={3}><PrReadonlyField label={t('pr.category')} value={t(`category.${d.category}`)} /></DocumentFormCell>
-                  <DocumentFormCell span={4}><PrReadonlyField label={t('pr.requester')} value={d.createdByName} /></DocumentFormCell>
-                  {d.category === 'MATERIAL' && <DocumentFormCell span={8}>
-                    <PrReadonlyField label={t('gir.purpose')} value={String(d.purpose ?? '')} multiline />
-                  </DocumentFormCell>}
+                  <DocumentFormCell span={5}><PrReadonlyField label={t('gir.salesContract')} value={[d.salesContractNumber, d.customerName].filter(Boolean).join(' · ')} /></DocumentFormCell>
+                  <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requisitionDate')} value={String(d.requisitionDate ?? '').split('-').reverse().join('/')} /></DocumentFormCell>
+                  <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requiredDate')} value={String(d.requiredDate ?? '').split('-').reverse().join('/')} /></DocumentFormCell>
+                  <DocumentFormCell span={3}><PrReadonlyField label={t('prPhase.currency')} value={String(d.currencyCode ?? '')} /></DocumentFormCell>
+                  <DocumentFormCell span={5}><PrReadonlyField label={t('prPhase.rateSource')} value={d.exchangeRateSource ? t(d.exchangeRateSource === 'MANUAL' ? 'prPhase.manual' : 'prPhase.catalogRate') : ''} /></DocumentFormCell>
+                  <DocumentFormCell span={4}><PrReadonlyField label={t('prPhase.rate')} value={String(d.exchangeRate ?? '')} /></DocumentFormCell>
+                  <DocumentFormCell span={6}><PrReadonlyField label={t('prPhase.purpose')} value={String(d.purpose ?? '')} multiline /></DocumentFormCell>
+                  <DocumentFormCell span={6}><PrReadonlyField label={t('prPhase.description')} value={String(d.description ?? '')} multiline /></DocumentFormCell>
                 </DocumentFormGrid> : <>
                   {cfg.fields(d, t).map(([label, value]) => <Field key={label} label={label}>{value}</Field>)}
                   <Field label={t('gr.createdBy')}>{d.createdByName}, {fmtDate(d.createdAt)}</Field>
@@ -200,6 +207,8 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
                 message: t(`pr.result.success.${submit ? 'submit' : creating ? 'create' : 'save'}`, { number }),
                 status: submit ? t('pr.resultStatus', { status: t('status.WAITING_FOR_APPROVE') }) : undefined };
               void qc.invalidateQueries({ queryKey: ['pr', 'list'] });
+              void qc.invalidateQueries({ queryKey: ['/purchase-requisitions'] });
+              void qc.invalidateQueries({ queryKey: ['sc-prs'] });
               if (submit) void qc.invalidateQueries({ queryKey: ['pr-notifications'] });
               if (creating) navigate(`/${cfg.path}/${savedId}${location.search}`, { replace: true, state: { prResult: outcome } });
               else {
@@ -230,7 +239,11 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
           onDone={() => {
             setAction(null);
             void qc.invalidateQueries({ queryKey: [cfg.key] });
-            if (isPr) void qc.invalidateQueries({ queryKey: ['pr-notifications'] });
+            if (isPr) {
+              void qc.invalidateQueries({ queryKey: ['/purchase-requisitions'] });
+              void qc.invalidateQueries({ queryKey: ['sc-prs'] });
+              void qc.invalidateQueries({ queryKey: ['pr-notifications'] });
+            }
           }} />
       )}
     </>

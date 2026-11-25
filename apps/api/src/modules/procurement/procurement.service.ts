@@ -6,7 +6,7 @@ import type { CurrentUser } from '../identity/auth';
 import { CatalogFacade } from '../master-data/catalog.facade';
 import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
-import { assertDecimal, PR_AMOUNTS, PR_TOTALS, PrCommercialHeader, savePrCommercialHeader } from './pr-commercial';
+import { assertDecimal, PR_AMOUNTS, PR_TOTALS, PrCommercialHeader, PrLineError, savePrCommercialHeader } from './pr-commercial';
 import * as prWorkflow from './pr-workflow';
 import { configurePool, listCandidates, PR_POOLS, PrPool } from './pr-eligibility';
 import { ActionContext, assertActionContext } from '../workflow/action-context';
@@ -19,7 +19,7 @@ export interface PrLineInput {
   salesContractLineId?: number | null;
   productId?: number | null;
   temporaryProductId?: number | null;
-  quantity: number;
+  quantity: number | string;
   requirementDescription?: string | null;
   brandId?: number | null;
   supplierId?: number | null;
@@ -40,8 +40,10 @@ function assertPrLines(lines: PrLineInput[]) {
   wf.assertUniqueSourceLines(lines.flatMap(line => line.id == null ? [] : [line.id]));
   for (const line of lines) {
     const sources = [line.productId, line.temporaryProductId].filter(id => id != null);
+    const quantity = String(line.quantity);
     if (sources.length !== 1 || !Number.isInteger(sources[0]) || (sources[0] ?? 0) <= 0
-      || !nonNegativeDecimal(String(line.quantity), DOCUMENT_MONEY_PRECISION.quantity) || !(line.quantity > 0 && line.quantity < 1e15)) {
+      || !nonNegativeDecimal(quantity, DOCUMENT_MONEY_PRECISION.quantity) || !/[1-9]/.test(quantity)
+      || quantity.split('.')[0].replace(/^0+/, '').length > 15) {
       throw new BusinessError('PR_INVALID_LINE', 'Choose exactly one catalog item and enter a positive quantity with up to three decimal places');
     }
     if (line.unitPrice !== undefined) assertDecimal(line.unitPrice, DOCUMENT_MONEY_PRECISION.unitPrice, 'PR_INVALID_UNIT_PRICE');
@@ -49,6 +51,14 @@ function assertPrLines(lines: PrLineInput[]) {
 }
 const scLineIds = (lines: PrLineInput[]) => lines.flatMap((l) => (l.salesContractLineId ? [l.salesContractLineId] : []));
 export interface SourceLineInput { id?: number; sourceLineId: number; quantity: number }
+
+export const PR_SORT = {
+  documentNumber: 'd.document_number', name: 'd.name', category: 'd.category',
+  salesContractNumber: 's.document_number', customerName: 'c.name', requesterName: 'requester.full_name',
+  requisitionDate: 'd.requisition_date', requiredDate: 'd.required_date', currencyCode: 'd.currency_code',
+  approvalStatus: 'd.approval_status', assignedApproverName: '(SELECT full_name FROM users WHERE id = d.assigned_approver_id)',
+  createdAt: 'd.created_at',
+} as const;
 
 const PR_DETAILS = `d.name, d.purpose, d.description, d.created_by AS "requesterId", requester.full_name AS "requesterName",
   d.requisition_date::text AS "requisitionDate", d.required_date::text AS "requiredDate",
@@ -190,7 +200,7 @@ export class ProcurementService {
       [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute, selection.approverId ?? null, selection.receiverId ?? null],
     );
     await savePrCommercialHeader(m, pr.id, selection);
-    for (const l of lines) await this.writePrLine(m, pr.id, l);
+    await this.writePrLines(m, pr.id, lines);
     return { id: pr.id as number, documentNumber: number };
   }
 
@@ -198,6 +208,21 @@ export class ProcurementService {
    * Inserts a PR line, or updates line `l.id` in place. Snapshot and UoM are captured when selecting a main product (03 §1a).
    * A line referenced by a (canceled) PO line keeps its product: that PO still shows it.
    */
+  private async writePrLines(m: EntityManager, id: number, lines: PrLineInput[]) {
+    const field: Record<string, string> = {
+      PR_SUPPLIER_NOT_LINKED: 'supplierId', SUPPLIER_NOT_FOUND: 'supplierId', BRAND_NOT_FOUND: 'brandId',
+      UOM_NOT_FOUND: 'unitOfMeasureId', TAX_RATE_NOT_FOUND: 'taxRateId', PR_INVALID_TAX_RATE: 'taxRateId',
+    };
+    for (const [index, line] of lines.entries()) {
+      try {
+        await this.writePrLine(m, id, line);
+      } catch (error) {
+        if (error instanceof BusinessError && field[error.code]) throw new PrLineError(error, { index, field: field[error.code] });
+        throw error;
+      }
+    }
+  }
+
   private async writePrLine(m: EntityManager, prId: number, l: PrLineInput) {
     const [existing] = l.id ? await m.query(
       'SELECT * FROM purchase_requisition_lines WHERE id = $1 AND purchase_requisition_id = $2', [l.id, prId],
@@ -289,7 +314,7 @@ export class ProcurementService {
     await prWorkflow.validateSelection(m, doc.creator_route, user.id, selection);
     await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
     await savePrCommercialHeader(m, id, selection);
-    for (const l of lines) await this.writePrLine(m, id, l);
+    await this.writePrLines(m, id, lines);
     await wf.setStatus(m, 'PR', doc, doc.approval_status,
       ', draft_approver_id = CASE WHEN $3 THEN $4 ELSE draft_approver_id END, draft_receiver_id = CASE WHEN $5 THEN $6 ELSE draft_receiver_id END, purpose = CASE WHEN $7 THEN $8 ELSE purpose END',
       [selection.approverId !== undefined, selection.approverId ?? null, selection.receiverId !== undefined, selection.receiverId ?? null,
@@ -304,6 +329,7 @@ export class ProcurementService {
     // PostgreSQL UUID equality ignores case. Use the same representation for the advisory lock and the row.
     const requestKey = dto.requestKey.toLowerCase();
     const commercialHeader = [dto.name, dto.description, dto.requisitionDate, dto.requiredDate, dto.currencyId, dto.exchangeRateSource, dto.exchangeRate];
+    if (dto.refreshCatalogExchangeRate !== undefined) commercialHeader.push(String(dto.refreshCatalogExchangeRate));
     const commercialLines = dto.lines.map(line => [line.temporaryProductId, line.brandId, line.supplierId, line.unitOfMeasureId,
       line.requirementDescription, line.unitPrice, line.taxRateId]);
     const hasCommercialFields = [...commercialHeader, ...commercialLines.flat()].some(value => value !== undefined);
@@ -509,7 +535,10 @@ export class ProcurementService {
   }
 
   /** `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR/PO are not warehouse-scoped: the VIEW permission sees all. */
-  async listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number) {
+  async listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number, filters: {
+    q?: string; category?: string; status?: string; from?: string; to?: string; sort?: keyof typeof PR_SORT;
+    direction?: 'asc' | 'desc'; page?: number; size?: number;
+  } = {}) {
     const fullView = user.permissions.includes('PR.VIEW');
     const canViewContract = user.permissions.includes('SALES_CONTRACT.VIEW');
     const canCreate = user.permissions.includes('PR.CREATE');
@@ -519,18 +548,41 @@ export class ProcurementService {
       const contract = await SalesContractFacade.sourceContract(this.ds.manager, salesContractId);
       if (!canCreate || contract?.responsiblePmUserId !== user.id) await this.assertPrReadScope(user, salesContractId);
     }
-    return this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.category, d.sales_contract_id AS "salesContractId", ${PR_DETAILS}, s.document_number AS "salesContractNumber", c.name AS "customerName"
-         FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
-         JOIN users requester ON requester.id = d.created_by
-         ${PR_TOTALS}
-        WHERE (NOT $2 OR (d.approval_status IN ('WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT') AND d.assigned_approver_id = $1))
-          AND ($3::int IS NULL OR d.sales_contract_id = $3)
-          AND ($4 OR ($5 AND s.responsible_sales_user_id = $1) OR ($6 AND s.responsible_pm_user_id = $1) OR d.created_by = $1
-            OR EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $1))
-        ORDER BY d.id DESC`,
-      [user.id, assignedToMe, salesContractId ?? null, fullView, canViewContract, canCreate],
-    );
+    if (filters.from && filters.to && filters.from > filters.to) {
+      throw new BusinessError('PR_INVALID_DATE_RANGE', 'The start date must not be later than the end date');
+    }
+    const values = [user.id, assignedToMe, salesContractId ?? null, fullView, canViewContract, canCreate,
+      filters.q?.trim() ?? '', filters.category ?? null, filters.status ?? null, filters.from ?? null, filters.to ?? null];
+    const source = `FROM purchase_requisitions d
+      JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
+      JOIN users requester ON requester.id = d.created_by`;
+    const where = `WHERE (NOT $2 OR (d.approval_status IN ('WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT') AND d.assigned_approver_id = $1))
+      AND ($3::int IS NULL OR d.sales_contract_id = $3)
+      AND ($4 OR ($5 AND s.responsible_sales_user_id = $1) OR ($6 AND s.responsible_pm_user_id = $1) OR d.created_by = $1
+        OR EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $1))
+      AND ($7 = '' OR strpos(lower(d.document_number), lower($7)) > 0 OR strpos(lower(d.name), lower($7)) > 0
+        OR strpos(lower(s.document_number), lower($7)) > 0 OR strpos(lower(c.name), lower($7)) > 0)
+      AND ($8::text IS NULL OR d.category = $8) AND ($9::text IS NULL OR d.approval_status = $9)
+      AND ($10::date IS NULL OR d.requisition_date >= $10) AND ($11::date IS NULL OR d.requisition_date <= $11)`;
+    const sort = filters.sort && Object.hasOwn(PR_SORT, filters.sort) ? PR_SORT[filters.sort] : PR_SORT.createdAt;
+    const size = filters.size ?? 25;
+    const sql = `SELECT ${wf.DOC_COLUMNS}, d.category, d.sales_contract_id AS "salesContractId", ${PR_DETAILS},
+      s.document_number AS "salesContractNumber", c.name AS "customerName"
+      ${source} ${PR_TOTALS} ${where} ORDER BY ${sort} ${filters.direction === 'asc' ? 'ASC' : 'DESC'} NULLS LAST, d.id DESC`;
+    if (filters.page === undefined) return this.ds.query(sql, values);
+    return this.ds.transaction('REPEATABLE READ', async m => {
+      const [{ total }] = await m.query(`SELECT count(*)::int AS total ${source} ${where}`, values);
+      const items = await m.query(sql + ' LIMIT $12 OFFSET $13', [...values, size, (filters.page! - 1) * size]);
+      return { items, total };
+    });
+  }
+
+  listPrContracts(user: CurrentUser, q: string, page: number) {
+    return SalesContractFacade.prOptions(this.ds.manager, user.id, q, page);
+  }
+
+  productPicker(source: 'main' | 'temporary', query: Parameters<typeof CatalogFacade.productPicker>[2]) {
+    return CatalogFacade.productPicker(this.ds, source, query);
   }
 
   private async readablePr(m: EntityManager, user: CurrentUser, id: number, lock = false) {

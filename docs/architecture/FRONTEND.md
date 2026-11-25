@@ -210,3 +210,14 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 - PR thay đổi UI/UX phải kiểm chứng trên trình duyệt thật kết nối với backend và database test đã xác minh. Unit test và build là các bước kiểm chứng bổ sung.
 - Dùng Playwright MCP nếu có hoặc Playwright Test trực tiếp. Chụp trước và sau ở 1920×1080 và 1366×768, kiểm tra luồng E2E, quyền thao tác, console và lỗi API ngoài dự kiến.
 - Mở lại ảnh để kiểm tra căn chỉnh, tràn nội dung, màu và chữ. Sửa lỗi rồi chụp lại màn bị ảnh hưởng. Lưu ảnh, report và trace trong `artifacts/evidence/`. Báo các kịch bản đã kiểm chứng và đánh dấu BLOCKED nếu trình duyệt không chạy được.
+## Danh sách và grid chứng từ PR
+
+**COMMON-LIST-001.** Với danh sách phân trang phía server, gửi tìm kiếm sau khoảng 300 ms, lọc và sắp xếp một cột trên toàn bộ tập dữ liệu. API áp dụng phạm vi dữ liệu trước khi tính tổng và dùng danh sách trường sort cho phép. Danh sách PR lưu truy vấn và trang trên URL, mặc định 25 dòng theo ngày tạo mới nhất với ID giảm dần làm tiêu chí phụ. Cột tiền thanh toán tắt sắp xếp vì danh sách có nhiều tiền tệ. Query key riêng theo tham số và tín hiệu hủy giữ phản hồi cũ khỏi lượt tìm mới.
+
+**COMMON-LIST-002.** Nút Làm mới dùng kiểu secondary, có icon và nhãn. Đặt lại từ khóa, bộ lọc, chế độ chờ xử lý, sort và pagination về mặc định rồi tải lại kể cả khi ở trạng thái mặc định. Với Product Picker, áp dụng đặt lại cho tab hiện hành và giữ các mục đã chọn. Checkbox đầu bảng của picker áp dụng cho trang hiện tại.
+
+**COMMON-EDITABLE-GRID-001.** Grid nhập liệu dùng một hàng cho mỗi dòng, cột có chiều rộng cố định phù hợp, sticky header, nhóm cột định danh bên trái và thao tác bên phải. Chỉ grid cuộn ngang và dọc. Toolbar, tổng tiền và footer nằm ngoài vùng cuộn. Dùng chung ScrollTable và GridText theo COMMON-DOC-GRID-001. Popup sửa dòng giữ bản sao cục bộ theo ID ổn định, áp dụng vào chứng từ khi Xác nhận.
+
+**COMMON-EDITABLE-GRID-002.** Dành sẵn một hàng thông báo lỗi. Khi xác nhận, đánh dấu các ô lỗi và hiện nguyên nhân qua tooltip khi hover hoặc focus. Cuộn đến và focus ô lỗi đầu tiên theo thứ tự dòng/cột, chừa khoảng cho sticky header và các cột sticky. Sửa giá trị cập nhật số lỗi mà không tự cuộn lại. API có thể trả `fieldIssue` gồm chỉ số dòng và tên trường để mở editor tại ô tương ứng.
+
+**COMMON-DOC-TOTAL-001.** Một hàng dưới grid, bên trái là số dòng, bên phải là tổng trước thuế, tổng thuế và tổng thanh toán. Mã tiền tệ theo sau tổng thanh toán. Preview dùng số nguyên theo đơn vị tiền nhỏ nhất, làm tròn mỗi dòng theo DEC-19-07. Chứng từ đã lưu dùng số tiền do backend trả.

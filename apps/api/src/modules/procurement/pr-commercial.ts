@@ -10,6 +10,13 @@ export interface PrCommercialHeader {
   currencyId?: number;
   exchangeRateSource?: 'CATALOG' | 'MANUAL';
   exchangeRate?: string;
+  refreshCatalogExchangeRate?: boolean;
+}
+
+export class PrLineError extends BusinessError {
+  constructor(error: BusinessError, readonly fieldIssue: { index: number; field: string }) {
+    super(error.code, error.message, error.getStatus());
+  }
 }
 
 export function assertDecimal(value: string, decimalPlaces: number, code: string) {
@@ -26,7 +33,10 @@ export async function savePrCommercialHeader(m: EntityManager, id: number, field
   if (source === 'CATALOG' && fields.exchangeRate != null) {
     throw new BusinessError('PR_INVALID_EXCHANGE_RATE', 'Send an exchange rate only for manual entry');
   }
-  if (!old.currency_id || currencyChanged || source !== old.exchange_rate_source || fields.exchangeRate != null) {
+  if (fields.refreshCatalogExchangeRate && source !== 'CATALOG') {
+    throw new BusinessError('PR_INVALID_EXCHANGE_RATE', 'Select the catalog exchange rate before refreshing it');
+  }
+  if (!old.currency_id || currencyChanged || source !== old.exchange_rate_source || fields.exchangeRate != null || fields.refreshCatalogExchangeRate) {
     const [currency] = await m.query(`
       SELECT id, code, decimal_places, exchange_rate
         FROM currencies WHERE (id = $1 OR ($1::int IS NULL AND code = 'VND'))
@@ -77,12 +87,18 @@ export async function assertPrReady(m: EntityManager, id: number) {
   if (!header.name || !header.sales_contract_id || !header.currency_id) {
     throw new BusinessError('PR_HEADER_INCOMPLETE', 'Enter a PR name, sales contract and currency before submitting');
   }
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     if (header.category === 'SALES_GOODS' && !line.sales_contract_line_id) {
-      throw new BusinessError('SALES_CONTRACT_LINE_REQUIRED', 'Every sales-goods PR line must reference a sales contract line');
+      throw new PrLineError(new BusinessError('SALES_CONTRACT_LINE_REQUIRED', 'Every sales-goods PR line must reference a sales contract line'),
+        { index, field: 'salesContractLineId' });
     }
-    if (!line.positive_price || !line.brand_id || !line.supplier_id || !line.unit_of_measure_id || line.tax_rate === null) {
-      throw new BusinessError('PR_LINE_INCOMPLETE', `Line ${line.id} requires a brand, supplier, unit, positive price and tax rate`);
+    const missing = [
+      ['brandId', !line.brand_id], ['supplierId', !line.supplier_id], ['unitOfMeasureId', !line.unit_of_measure_id],
+      ['unitPrice', !line.positive_price], ['taxRateId', line.tax_rate === null],
+    ].find(([, invalid]) => invalid);
+    if (missing) {
+      throw new PrLineError(new BusinessError('PR_LINE_INCOMPLETE', `Line ${line.id} requires a brand, supplier, unit, positive price and tax rate`),
+        { index, field: String(missing[0]) });
     }
     if (line.net === null || line.tax === null) throw new BusinessError('PR_INVALID_TOTAL', `Could not calculate the total for line ${line.id}`);
   }

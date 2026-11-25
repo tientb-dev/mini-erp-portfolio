@@ -1,3 +1,4 @@
+import { PrList } from './PrList';
 /** PR, PO and GRR share one list/detail layout (DocListPage/DocDetailView); only the create form and a few header fields differ. */
 import { DocConfig } from './types';
 import { DocListPage, ReceiptStatusChip } from './DocListPage';
@@ -29,6 +30,6 @@ const GRR: DocConfig = {
   fields: (d, t) => [[t('gr.po'), `${String(d.poNumber)}: ${String(d.supplierName)}`], [t('inventory.warehouse'), String(d.warehouseCode)]],
 };
 
-export const PurchaseRequisitionsPage = ({ initialId }: { initialId?: number }) => <DocListPage cfg={PR} initialId={initialId} />;
+export const PurchaseRequisitionsPage = ({ initialId }: { initialId?: number }) => initialId === undefined ? <PrList /> : <DocListPage cfg={PR} initialId={initialId} />;
 export const PurchaseOrdersPage = ({ initialId }: { initialId?: number }) => <DocListPage cfg={PO} initialId={initialId} />;
 export const GoodsReceiptRequestsPage = ({ initialId }: { initialId?: number }) => <DocListPage cfg={GRR} initialId={initialId} />;

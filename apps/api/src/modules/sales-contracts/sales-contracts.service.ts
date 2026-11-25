@@ -20,6 +20,15 @@ export interface ScListQuery {
  * Lock order: HĐ line first (ARCHITECTURE §2.1a).
  */
 export class SalesContractFacade {
+  static prOptions(m: EntityManager, userId: number, q: string, page: number) {
+    return m.query(`SELECT s.id, s.document_number AS "documentNumber", c.name AS "customerName",
+      s.responsible_sales_user_id AS "responsibleSalesUserId", s.responsible_pm_user_id AS "responsiblePmUserId"
+      FROM sales_contracts s JOIN customers c ON c.id = s.customer_id
+      WHERE s.status = 'ACTIVE' AND $1 IN (s.responsible_sales_user_id, s.responsible_pm_user_id)
+        AND (strpos(lower(s.document_number), lower($2)) > 0 OR strpos(lower(c.name), lower($2)) > 0)
+      ORDER BY s.document_number DESC, s.id DESC LIMIT 25 OFFSET $3`, [userId, q.trim(), (page - 1) * 25]);
+  }
+
   /** Locks HĐ lines (id order) of an ACTIVE contract; throws if any line is missing or the contract is not ACTIVE. */
   static async lockActiveLines(m: EntityManager, salesContractId: number, lineIds: number[]): Promise<Map<number, { quantity: string }>> {
     const [sc] = await m.query(`SELECT status FROM sales_contracts WHERE id = $1 FOR SHARE`, [salesContractId]);

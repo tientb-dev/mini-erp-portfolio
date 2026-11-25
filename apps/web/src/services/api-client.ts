@@ -10,7 +10,7 @@ export const token = {
 };
 
 export class ApiError extends Error {
-  constructor(readonly status: number, readonly code: string, detail: string) {
+  constructor(readonly status: number, readonly code: string, detail: string, readonly fieldIssue?: { index: number; field: string }) {
     super(detail);
   }
 }
@@ -23,7 +23,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     const problem = await res.json().catch(() => ({}));
     if (res.status === 401) token.clear();
-    throw new ApiError(res.status, problem.code ?? 'HTTP_ERROR', String(problem.detail ?? res.statusText));
+    throw new ApiError(res.status, problem.code ?? 'HTTP_ERROR', String(problem.detail ?? res.statusText), problem.fieldIssue);
   }
   return (res.status === 204 ? undefined : res.json()) as Promise<T>;
 }

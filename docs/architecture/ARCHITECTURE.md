@@ -195,6 +195,13 @@ PR phối hợp thao tác lưu chứng từ và Gửi duyệt trong cùng transa
 
 DEC-19-07 đặt giới hạn precision chung trong `common/document-money.ts`. Chứng từ lưu nguồn và cấu hình tiền tệ tại thời điểm chọn, gồm số chữ số thập phân và tỷ giá. Helper dùng PostgreSQL `round(numeric, scale)` theo `ROUND_HALF_UP` để tính thành tiền trước, sau đó tính thuế trên thành tiền đã làm tròn. Backend cộng các dòng đã làm tròn để trả tổng chứng từ. PR dùng quy tắc này trong Phase 2. Số lượng lưu `numeric(18,3)`. Cột thuế suất danh mục hiện hữu giữ kiểu lưu trữ để bảo toàn dữ liệu. API giới hạn giá trị mới và snapshot dùng cho chứng từ theo DEC-19-07.
 
+#### API danh sách và picker của Phase 3
+
+- `GET /purchase-requisitions?page=1&size=25` trả `{ items, total }`. Hỗ trợ `q`, `category`, `status`, `from`, `to`, `assignedToMe`, `sort`, `direction` và `salesContractId`. `from/to` lọc ngày đề nghị với hai biên bao gồm. Request không gửi `page` tiếp tục nhận mảng cho tab PR trong HĐ. HĐ hiện có mã chứng từ và khách hàng. Tìm kiếm dùng hai trường đó kết hợp mã và tên PR.
+- `GET /purchase-requisitions/catalog/contracts?q=…` trả tối đa 25 HĐ ACTIVE theo phạm vi người tạo. `GET /product-picker/main` và `/product-picker/temporary` trả danh mục Active theo trang, tìm mã/tên, sort và lọc Hãng với mã chính.
+- Editor gửi số lượng dưới dạng chuỗi thập phân để giữ đủ precision đến PostgreSQL. API tiếp tục chấp nhận số JSON của các client cũ.
+- Editor gửi `refreshCatalogExchangeRate: true` khi người dùng bỏ chọn nhập tỷ giá thủ công. Backend đọc tỷ giá danh mục ở thao tác rõ ràng này, giữ precision của snapshot tiền tệ hiện hữu. Lưu lại hoặc gửi duyệt thông thường tiếp tục dùng snapshot.
+
 - Một cấp phê duyệt cho PR, PO, GRR, GR, GIR `SALES_CONTRACT`, GI. **Ngoại lệ:** GIR `AVAILABLE_STOCK` hai bước người phụ trách nguồn hàng → Quản lý kho. HĐ không phê duyệt (`DRAFT`/`ACTIVE`/`CANCELED`).
 - `approval_status`: `DRAFT`, `WAITING_FOR_APPROVE`, `APPROVED`, `REJECTED`, `CANCELED`. Thu hồi luôn về `DRAFT`. PR dùng `WAITING_FOR_RECEIPT` và `DONE` cho bước tiếp nhận và hoàn tất, thay `APPROVED` ở cấp chứng từ (ADR-0015).
 - Chuyển trạng thái bằng `UPDATE` có điều kiện trạng thái hiện tại để chống xử lý trùng.

@@ -1,4 +1,4 @@
-import { EntityManager } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { DOCUMENT_MONEY_PRECISION } from '../../common/document-money';
 import { BusinessError } from '../workflow/workflow';
 
@@ -7,6 +7,29 @@ const selectionTables = {
 } as const;
 
 export class CatalogFacade {
+  static productPicker(ds: DataSource, source: 'main' | 'temporary', query: {
+    q?: string; brandId?: number; sort?: string; direction?: 'asc' | 'desc'; page?: number; size?: number;
+  }) {
+    const main = source === 'main';
+    const code = main ? 'p.part_number' : 'p.code';
+    const table = main ? 'products p JOIN brands b ON b.id = p.brand_id JOIN units_of_measure u ON u.id = p.unit_of_measure_id' : 'temporary_products p';
+    const details = main ? ', b.id AS "brandId", b.name AS brand, u.id AS "unitOfMeasureId", u.code AS uom' : '';
+    const columns = { code, name: 'p.name', description: 'p.description', ...(main && { brand: 'b.name', uom: 'u.code' }) };
+    const sort = query.sort && Object.hasOwn(columns, query.sort) ? columns[query.sort as keyof typeof columns] : code;
+    const where = `FROM ${table} WHERE p.is_active AND
+      (strpos(lower(${code}), lower($1)) > 0 OR strpos(lower(p.name), lower($1)) > 0)
+      ${main ? 'AND ($2::int IS NULL OR p.brand_id = $2)' : 'AND $2::int IS NULL'}`;
+    const values = [query.q?.trim() ?? '', main ? query.brandId ?? null : null];
+    const size = query.size ?? 25;
+    return ds.transaction('REPEATABLE READ', async m => {
+      const [{ total }] = await m.query(`SELECT count(*)::int AS total ${where}`, values);
+      const items = await m.query(`SELECT p.id, ${code} AS code, p.name, p.description ${details} ${where}
+        ORDER BY ${sort} ${query.direction === 'desc' ? 'DESC' : 'ASC'} NULLS LAST, p.id LIMIT $3 OFFSET $4`,
+        [...values, size, ((query.page ?? 1) - 1) * size]);
+      return { items, total };
+    });
+  }
+
   static async assertDocumentTaxRate(m: EntityManager, id: number) {
     const [record] = await m.query('SELECT rate = trunc(rate, $2) AS valid FROM tax_rates WHERE id = $1 AND is_active FOR SHARE',
       [id, DOCUMENT_MONEY_PRECISION.taxRate]);

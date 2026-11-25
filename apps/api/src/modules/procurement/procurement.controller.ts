@@ -2,13 +2,37 @@ import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, P
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsDateString, Matches, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, Max, IsDateString, Matches, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
-import { ProcurementService } from './procurement.service';
+import { ProcurementService, PR_SORT } from './procurement.service';
 import { PR_POOLS, PrPool, PrRoute } from './pr-eligibility';
 import { WORKFLOW_STEPS, WorkflowStep } from '../workflow/action-context';
+
+class PrListQuery {
+  @IsOptional() @IsString() @MaxLength(200) q?: string;
+  @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: string;
+  @IsOptional() @IsIn(['DRAFT','WAITING_FOR_APPROVE','WAITING_FOR_RECEIPT','DONE','REJECTED','CANCELED']) status?: string;
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) from?: string;
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) to?: string;
+  @IsOptional() @IsIn(Object.keys(PR_SORT)) sort?: keyof typeof PR_SORT;
+  @IsOptional() @IsIn(['asc','desc']) direction?: 'asc' | 'desc';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000000) page?: number;
+  @IsOptional() @Type(() => Number) @IsIn([25,50,100]) size?: number;
+}
+class PickerQuery {
+  @IsOptional() @IsString() @MaxLength(200) q?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) brandId?: number;
+  @IsOptional() @IsIn(['code','name','brand','uom','description']) sort?: string;
+  @IsOptional() @IsIn(['asc','desc']) direction?: 'asc' | 'desc';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000000) page?: number;
+  @IsOptional() @Type(() => Number) @IsIn([25,50,100]) size?: number;
+}
+class PrRequestListQuery extends PrListQuery {
+  @IsOptional() @IsIn(['true','false']) assignedToMe?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) salesContractId?: number;
+}
 
 class WorkflowRouteDto {
   @ApiProperty({ type: [Number] }) @IsArray() @ArrayUnique() @IsInt({ each: true }) @IsPositive({ each: true }) userIds!: number[];
@@ -52,7 +76,8 @@ class PrLineDto {
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() taxRateId?: number | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() requirementDescription?: string | null;
   @ApiPropertyOptional({ type: String }) @IsOptional() @IsString() unitPrice?: string;
-  @ApiProperty() @IsPositive() quantity!: number;
+  @ApiProperty({ oneOf: [{ type: 'string' }, { type: 'number' }], description: 'Use a decimal string for exact input' })
+  @ValidateIf((_, value: unknown) => typeof value !== 'string') @IsPositive() quantity!: number | string;
 }
 class PrDraftSelection {
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() name?: string | null;
@@ -62,6 +87,7 @@ class PrDraftSelection {
   @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() currencyId?: number;
   @ApiPropertyOptional({ enum: ['CATALOG', 'MANUAL'] }) @IsOptional() @IsIn(['CATALOG', 'MANUAL']) exchangeRateSource?: 'CATALOG' | 'MANUAL';
   @ApiPropertyOptional({ type: String }) @IsOptional() @IsString() exchangeRate?: string;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() refreshCatalogExchangeRate?: boolean;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() approverId?: number | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() receiverId?: number | null;
 }
@@ -105,10 +131,10 @@ export class ProcurementController {
   @Get('purchase-requisitions')
   listPrs(
     @Req() req: AuthedRequest,
-    @Query('assignedToMe', new ParseBoolPipe({ optional: true })) mine?: boolean,
-    @Query('salesContractId', new ParseIntPipe({ optional: true })) salesContractId?: number,
+    @Query() query: PrRequestListQuery,
   ) {
-    return this.svc.listPrs(req.user, mine ?? false, salesContractId);
+    const { assignedToMe, salesContractId, ...filters } = query;
+    return this.svc.listPrs(req.user, assignedToMe === 'true', salesContractId, filters);
   }
 
   /** PR.VIEW, or read-only for the responsible sales of the PR's contract (scope checked in the service). */
@@ -121,6 +147,19 @@ export class ProcurementController {
   @RequirePermissions('PO.CREATE')
   prLinesForPo() {
     return this.svc.prLinesAvailableForPo();
+  }
+
+  @Get('purchase-requisitions/catalog/contracts')
+  @RequirePermissions('PR.CREATE')
+  prContracts(@Req() req: AuthedRequest, @Query() query: PickerQuery) {
+    return this.svc.listPrContracts(req.user, query.q ?? '', query.page ?? 1);
+  }
+
+  @Get('product-picker/:source')
+  @RequirePermissions('PRODUCT.VIEW')
+  productPicker(@Param('source', new ParseEnumPipe({ main: 'main', temporary: 'temporary' })) source: 'main' | 'temporary',
+    @Query() query: PickerQuery) {
+    return this.svc.productPicker(source, query);
   }
 
   @Get('purchase-requisitions/catalog/suppliers')

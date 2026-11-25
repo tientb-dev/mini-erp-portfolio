@@ -8,15 +8,15 @@ import RotateLeftIcon from '@mui/icons-material/RotateLeft';
  * (disabled while nothing is applied), so the row never shifts. `active` must come from the applied filters (URL),
  * so Back/Forward update it too. It sits right after the last filter with the same gap (never pushed to the far edge) and wraps with them.
  */
-export function FilterToolbar({ active, onClear, children }: { active: boolean; onClear: () => void; children: ReactNode }) {
+export function FilterToolbar({ active, onClear, children }: { active?: boolean; onClear?: () => void; children: ReactNode }) {
   const { t } = useTranslation();
   return (
     <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1.5, alignItems: 'center' }}>
       {children}
-      <Button variant="text" color="inherit" startIcon={<RotateLeftIcon />} disabled={!active} onClick={onClear}
+      {onClear && <Button variant="text" color="inherit" startIcon={<RotateLeftIcon />} disabled={!active} onClick={onClear}
         sx={{ flexShrink: 0, color: 'text.secondary' }}>
         {t('common.clearFilters')}
-      </Button>
+      </Button>}
     </Stack>
   );
 }

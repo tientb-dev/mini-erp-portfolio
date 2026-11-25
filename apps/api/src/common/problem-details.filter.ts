@@ -12,12 +12,14 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = 'INTERNAL_ERROR';
     let detail: unknown = 'Unexpected error';
+    let fieldIssue: unknown;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       // BusinessError carries its own stable code; plain HttpExceptions use the status name.
       code = (exception as { code?: string }).code ?? HttpStatus[status] ?? 'HTTP_ERROR';
       const body = exception.getResponse();
+      fieldIssue = (exception as { fieldIssue?: unknown }).fieldIssue;
       detail = typeof body === 'object' && body && 'message' in body ? body.message : exception.message;
     } else if (exception instanceof QueryFailedError && (exception as { code?: string }).code === '23505') {
       status = HttpStatus.CONFLICT;
@@ -32,6 +34,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       this.logger.error(exception);
     }
 
-    res.status(status).type('application/problem+json').json({ type: 'about:blank', title: HttpStatus[status], status, code, detail });
+    res.status(status).type('application/problem+json').json({ type: 'about:blank', title: HttpStatus[status], status, code, detail,
+      ...(fieldIssue === undefined ? {} : { fieldIssue }) });
   }
 }

@@ -63,6 +63,63 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(approver, `/${path}/${id}/approve`).expect(204);
   }
 
+  it('paginates scoped PRs with stable sorting, search and inclusive business dates', async () => {
+    const { sc, lineId } = await activeContract();
+    const contract = (await get(admin, `/sales-contracts/${sc}`).expect(200)).body;
+    const endpoint = '/purchase-requisitions';
+    for (let i = 0; i < 26; i++) {
+      await post(admin, endpoint, {
+        salesContractId: sc, name: 'Phase-three paging ' + String(i).padStart(2, '0'), requisitionDate: '2026-11-20',
+        lines: [{ productId, salesContractLineId: lineId, quantity: 1 }],
+      }).expect(201);
+    }
+    const query = `q=PHASE-THREE+PAGING&sort=name&direction=asc&from=2026-11-20&to=2026-11-20&size=25`;
+    const first = (await get(admin, `${endpoint}?page=1&${query}`).expect(200)).body;
+    const second = (await get(admin, `${endpoint}?page=2&${query}`).expect(200)).body;
+    expect(first.total).toBe(26);
+    expect(first.items).toHaveLength(25);
+    expect(first.items[0].name).toBe('Phase-three paging 00');
+    expect(second.items.map((item: { name: string }) => item.name)).toEqual(['Phase-three paging 25']);
+    expect((await get(admin, `${endpoint}?page=1&q=${contract.documentNumber}`).expect(200)).body.total).toBe(26);
+    expect((await get(admin, `${endpoint}?page=1&salesContractId=${sc}&from=2026-11-21`).expect(200)).body.total).toBe(0);
+    await get(admin, `${endpoint}?page=1&sort=total`).expect(400);
+    await get(admin, `${endpoint}?page=1&from=2026-11-21&to=2026-11-20`).expect(422);
+    expect((await get(admin, `${endpoint}?salesContractId=${sc}`).expect(200)).body).toHaveLength(26);
+    const sales = await login(app, 'sales', 'role-users-test');
+    expect((await get(sales, `${endpoint}?page=1&${query}`).expect(200)).body).toEqual({ items: [], total: 0 });
+    expect((await get(sales, '/purchase-requisitions/catalog/contracts?q=' + contract.documentNumber).expect(200)).body).toEqual([]);
+  });
+
+  it('returns only active catalog picker rows with scoped search and brand filters', async () => {
+    await ds.query("INSERT INTO temporary_products (code, name, is_active) VALUES ('PICKER-ON','Picker active',true),('PICKER-OFF','Picker inactive',false)");
+    expect((await get(admin, '/product-picker/temporary?page=1&q=picker').expect(200)).body).toMatchObject({
+      total: 1, items: [{ code: 'PICKER-ON' }],
+    });
+    expect((await get(admin, '/product-picker/main?page=1&q=pn-p1&brandId=1').expect(200)).body).toMatchObject({
+      total: 1, items: [{ code: 'PN-P1', brandId: 1, unitOfMeasureId: pcs }],
+    });
+    expect((await get(admin, '/product-picker/main?page=1&q=pn-p1&brandId=999999').expect(200)).body).toEqual({ total: 0, items: [] });
+  });
+
+  it('refreshes the catalog exchange rate only on explicit request and retains currency precision', async () => {
+    const { sc, lineId } = await activeContract();
+    const [{ id: currencyId }] = await ds.query(
+      "INSERT INTO currencies (code, name, exchange_rate, decimal_places) VALUES ('EUR', 'Euro fixture', 27000, 2) RETURNING id");
+    const row = { productId, salesContractLineId: lineId, quantity: '999999999999999.123' };
+    const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc, currencyId, lines: [row] }).expect(201)).body;
+    const path = '/purchase-requisitions/' + id;
+    const draft = (await get(admin, path).expect(200)).body;
+    expect(draft.lines[0].quantity).toBe(row.quantity);
+    await ds.query('UPDATE currencies SET exchange_rate = 28000, decimal_places = 3 WHERE id = $1', [currencyId]);
+    const update = (version: number, refreshCatalogExchangeRate?: boolean) => http().patch(path).set(as(admin))
+      .send({ version, refreshCatalogExchangeRate, lines: [{ ...row, id: draft.lines[0].id }] }).expect(204);
+    await update(draft.version);
+    const unchanged = (await get(admin, path).expect(200)).body;
+    expect(unchanged).toMatchObject({ exchangeRate: '27000', currencyDecimalPlaces: 2 });
+    await update(unchanged.version, true);
+    expect((await get(admin, path).expect(200)).body).toMatchObject({ exchangeRate: '28000', currencyDecimalPlaces: 2 });
+  });
+
   it('upgrades a legacy PR without inventing financial data or replacing source IDs', async () => {
     const { sc, lineId } = await activeContract();
     const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc,

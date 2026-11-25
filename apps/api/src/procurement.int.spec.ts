@@ -67,7 +67,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
       (SELECT id FROM users WHERE username = 'sales-head') AS "approverId",
       (SELECT id FROM users WHERE username = 'purchaser') AS "receiverId"`);
     const path = '/purchase-requisitions';
-    const payload = { salesContractId: sc, requestKey: randomUUID(), submit: true, approverId, receiverId,
+    const payload = { salesContractId: sc, requestKey: `a${randomUUID().slice(1)}`, submit: true, approverId, receiverId,
       lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] };
     await ds.query(`CREATE FUNCTION phase41_fail_task() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN RAISE EXCEPTION 'phase41 rollback fixture'; END $$;
@@ -91,7 +91,10 @@ describe('Sales contracts and procurement documents (integration)', () => {
     } finally {
       await ds.query('DROP TRIGGER IF EXISTS phase41_fail_task ON pr_notifications; DROP FUNCTION phase41_fail_task()');
     }
-    const [first, retry] = await Promise.all([post(admin, `${path}/save-new`, payload).expect(201), post(admin, `${path}/save-new`, payload).expect(201)]);
+    const [first, retry] = await Promise.all([
+      post(admin, `${path}/save-new`, payload).expect(201),
+      post(admin, `${path}/save-new`, { ...payload, requestKey: payload.requestKey.toUpperCase() }).expect(201),
+    ]);
     expect(retry.body).toEqual(first.body);
     const created = (await get(admin, `${path}/${first.body.id}`).expect(200)).body;
     expect(created).toMatchObject({ approvalStatus: 'WAITING_FOR_APPROVE', approvalRound: 1 });

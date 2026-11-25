@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
-import { prContext } from './test-utils';
+import { prContext, prSubmission } from './test-utils';
 
 /** PR #17 / ADR-0014: without PR.VIEW, the responsible sales of a contract may read (only read) that contract's PRs. */
 describe('PR read scope for the responsible sales (integration)', () => {
@@ -80,5 +80,48 @@ describe('PR read scope for the responsible sales (integration)', () => {
     await get(purchaser, `/purchase-requisitions/${other.pr}`).expect(200);
     expect((await get(purchaser, '/purchase-requisitions/999999')).status).toBe(404);
     expect(ds).toBeTruthy();
+  });
+
+  it('a contract PM without PR.CREATE cannot list PR metadata based on the PM assignment alone', async () => {
+    const pmId = (await get(pm, '/auth/me').expect(200)).body.id;
+    await http().put(`/pr-workflow/contracts/${other.sc}/responsible-pm`).set(as(admin)).send({ userId: pmId }).expect(204);
+    const [grant] = await ds.query(`SELECT r.id AS "roleId", p.id AS "createId", a.id AS "approveId"
+      FROM roles r CROSS JOIN permissions p CROSS JOIN permissions a
+      WHERE r.code = 'PM' AND p.code = 'PR.CREATE' AND a.code = 'PR.APPROVE'`);
+    await ds.query('INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2)', [grant.roleId, grant.approveId]);
+    await ds.query('DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2', [grant.roleId, grant.createId]);
+    try {
+      expect((await get(pm, '/purchase-requisitions').expect(200)).body.map((r: { id: number }) => r.id)).not.toContain(other.pr);
+      await get(pm, `/purchase-requisitions?salesContractId=${other.sc}`).expect(403);
+      await get(pm, `/purchase-requisitions/${other.pr}`).expect(403);
+    } finally {
+      await ds.query('INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2)', [grant.roleId, grant.createId]);
+      await ds.query('DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2', [grant.roleId, grant.approveId]);
+    }
+  });
+
+  it('assigned approver and receiver can list, read, and act without PR.VIEW', async () => {
+    const salesHead = await login(app, 'sales-head', 'role-users-test');
+    const [grant] = await ds.query(`SELECT r.id AS "roleId", p.id AS "permissionId"
+      FROM roles r JOIN role_permissions rp ON rp.role_id = r.id
+      JOIN permissions p ON p.id = rp.permission_id WHERE r.code = 'PURCHASING' AND p.code = 'PR.VIEW'`);
+    await ds.query('DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2', [grant.roleId, grant.permissionId]);
+    try {
+      const path = `/purchase-requisitions/${other.pr}`;
+      await post(admin, `${path}/submit`, await prSubmission(ds, other.pr)).expect(204);
+      for (const [token, action, status] of [
+        [salesHead, 'approve', 'WAITING_FOR_APPROVE'],
+        [purchaser, 'receive', 'WAITING_FOR_RECEIPT'],
+      ]) {
+        expect((await get(token, '/auth/me').expect(200)).body.permissions).not.toContain('PR.VIEW');
+        const list = await get(token, '/purchase-requisitions?assignedToMe=true').expect(200);
+        expect(list.body).toEqual([expect.objectContaining({ id: other.pr, approvalStatus: status })]);
+        expect((await get(token, path).expect(200)).body.approvalStatus).toBe(status);
+        await post(token, `${path}/${action}`, await prContext(ds, other.pr)).expect(204);
+      }
+      expect((await get(purchaser, path).expect(200)).body.approvalStatus).toBe('DONE');
+    } finally {
+      await ds.query('INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2)', [grant.roleId, grant.permissionId]);
+    }
   });
 });

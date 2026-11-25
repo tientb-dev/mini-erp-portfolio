@@ -231,14 +231,16 @@ export class ProcurementService {
 
   saveNewPr(user: CurrentUser, dto: prWorkflow.PrSelection & { salesContractId: number; lines: PrLineInput[];
     category?: LineCategory; purpose?: string; route?: prWorkflow.PrRoute; requestKey: string; submit: boolean }) {
+    // PostgreSQL UUID equality ignores case. Use the same representation for the advisory lock and the row.
+    const requestKey = dto.requestKey.toLowerCase();
     const fingerprint = createHash('sha256').update(JSON.stringify([
       dto.salesContractId, dto.category, dto.purpose, dto.route, dto.approverId, dto.receiverId, dto.submit,
       dto.lines.map(line => [line.id, line.productId, line.salesContractLineId, line.quantity]),
     ])).digest('hex');
     return this.ds.transaction(async m => {
-      await m.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [user.id, 'PR:create:' + dto.requestKey]);
+      await m.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [user.id, 'PR:create:' + requestKey]);
       const [existing] = await m.query(`SELECT id, document_number AS "documentNumber", create_request_fingerprint AS fingerprint
-        FROM purchase_requisitions WHERE created_by = $1 AND create_request_key = $2`, [user.id, dto.requestKey]);
+        FROM purchase_requisitions WHERE created_by = $1 AND create_request_key = $2`, [user.id, requestKey]);
       if (existing) {
         if (existing.fingerprint !== fingerprint) throw new BusinessError('PR_REQUEST_REUSED', 'The request key was already used for different data', HttpStatus.CONFLICT);
         return { id: existing.id as number, documentNumber: existing.documentNumber as string };
@@ -246,7 +248,7 @@ export class ProcurementService {
       const pr = await this.createPr(m, user, dto.salesContractId, dto.lines, dto.category ?? 'SALES_GOODS', dto.purpose, dto.route, dto);
       if (dto.submit) await this.submitSavedPr(m, user, pr.id, dto);
       await m.query('UPDATE purchase_requisitions SET create_request_key = $2, create_request_fingerprint = $3 WHERE id = $1',
-        [pr.id, dto.requestKey, fingerprint]);
+        [pr.id, requestKey, fingerprint]);
       return pr;
     });
   }
@@ -430,21 +432,23 @@ export class ProcurementService {
   /** `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR/PO are not warehouse-scoped: the VIEW permission sees all. */
   async listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number) {
     const fullView = user.permissions.includes('PR.VIEW');
+    const canViewContract = user.permissions.includes('SALES_CONTRACT.VIEW');
+    const canCreate = user.permissions.includes('PR.CREATE');
     const scopedList = user.permissions.some(permission => ['PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE'].includes(permission));
     if (!fullView && !scopedList) await this.assertPrReadScope(user, salesContractId);
     if (!fullView && salesContractId !== undefined) {
       const contract = await SalesContractFacade.sourceContract(this.ds.manager, salesContractId);
-      if (contract?.responsiblePmUserId !== user.id) await this.assertPrReadScope(user, salesContractId);
+      if (!canCreate || contract?.responsiblePmUserId !== user.id) await this.assertPrReadScope(user, salesContractId);
     }
     return this.ds.query(
       `SELECT ${wf.DOC_COLUMNS}, d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
         WHERE (NOT $2 OR (d.approval_status IN ('WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT') AND d.assigned_approver_id = $1))
           AND ($3::int IS NULL OR d.sales_contract_id = $3)
-          AND ($4 OR s.responsible_sales_user_id = $1 OR s.responsible_pm_user_id = $1 OR d.created_by = $1
+          AND ($4 OR ($5 AND s.responsible_sales_user_id = $1) OR ($6 AND s.responsible_pm_user_id = $1) OR d.created_by = $1
             OR EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $1))
         ORDER BY d.id DESC`,
-      [user.id, assignedToMe, salesContractId ?? null, fullView],
+      [user.id, assignedToMe, salesContractId ?? null, fullView, canViewContract, canCreate],
     );
   }
 

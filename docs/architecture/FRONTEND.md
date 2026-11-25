@@ -191,6 +191,7 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 - DataTable và ScrollTable dùng độ rộng cột theo loại dữ liệu và chiều cao dòng nhất quán. Mã, tên, mô tả và văn bản dài hiển thị một dòng với ellipsis. GridText mở tooltip đầy đủ khi rê chuột hoặc dùng bàn phím nếu nội dung thực sự bị cắt. Giữ nguyên giá trị gốc.
 - Số lượng và giá trị tiền căn phải. Header giữ vị trí khi cuộn dọc. Cột thao tác giữ vị trí bên phải khi cuộn ngang; bảng phải cuộn được tới cột và dòng cuối. Toolbar và tổng số dòng nằm ngoài vùng bảng cuộn.
 - Giữ biểu tượng cảnh báo trùng cạnh mã, kể cả khi phần chữ của mã bị cắt.
+- Grid PR ở Create/Edit dùng cùng checkbox cho Sửa và Xóa nhiều dòng. Nút Xóa (N) luôn có vị trí cố định và dùng kiểu destructive. Confirm Dialog giữ danh sách ID dòng đã chọn. Xác nhận cập nhật form cục bộ, giữ thứ tự các dòng còn lại và xóa selection. Hủy giữ dữ liệu và selection. View chỉ hiển thị grid.
 
 ## COMMON-MASTER-DATA-001 — Danh mục
 
@@ -216,9 +217,13 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 **COMMON-LIST-002.** Nút Làm mới dùng kiểu secondary, có icon và nhãn. Đặt lại từ khóa, bộ lọc, chế độ chờ xử lý, sort và pagination về mặc định rồi tải lại kể cả khi ở trạng thái mặc định. Với Product Picker, áp dụng đặt lại cho tab hiện hành và giữ các mục đã chọn. Checkbox đầu bảng của picker áp dụng cho trang hiện tại.
 
+**Common Search Input.** Giữ label phía trên, icon tìm kiếm bên trái và vùng cố định cho nút X có tooltip và tên truy cập. Placeholder mô tả dữ liệu mà truy vấn hiện tại hỗ trợ, bắt đầu bằng “Nhập” trong giao diện tiếng Việt. X chỉ xóa từ khóa, giữ bộ lọc và sort. Màn hình điều khiển debounce, URL và đưa danh sách về trang đầu theo cách xử lý tìm kiếm hiện hữu.
+
 **COMMON-EDITABLE-GRID-001.** Grid nhập liệu dùng một hàng cho mỗi dòng, cột có chiều rộng cố định phù hợp, sticky header, nhóm cột định danh bên trái và thao tác bên phải. Chỉ grid cuộn ngang và dọc. Toolbar, tổng tiền và footer nằm ngoài vùng cuộn. Dùng chung ScrollTable và GridText theo COMMON-DOC-GRID-001. Popup sửa dòng giữ bản sao cục bộ theo ID ổn định, áp dụng vào chứng từ khi Xác nhận.
 
 **COMMON-EDITABLE-GRID-002.** Dành sẵn một hàng thông báo lỗi. Khi xác nhận, đánh dấu các ô lỗi và hiện nguyên nhân qua tooltip khi hover hoặc focus. Cuộn đến và focus ô lỗi đầu tiên theo thứ tự dòng/cột, chừa khoảng cho sticky header và các cột sticky. Sửa giá trị cập nhật số lỗi mà không tự cuộn lại. API có thể trả `fieldIssue` gồm chỉ số dòng và tên trường để mở editor tại ô tương ứng.
+
+Giữa toolbar, vùng validation và grid header dùng khoảng cách 8px. Giữ nguyên chiều cao vùng validation khi nội dung xuất hiện hoặc biến mất.
 
 **COMMON-DOC-TOTAL-001.** Một hàng dưới grid, bên trái là số dòng, bên phải là tổng trước thuế, tổng thuế và tổng thanh toán. Mã tiền tệ theo sau tổng thanh toán. Preview dùng số nguyên theo đơn vị tiền nhỏ nhất, làm tròn mỗi dòng theo DEC-19-07. Chứng từ đã lưu dùng số tiền do backend trả.
 

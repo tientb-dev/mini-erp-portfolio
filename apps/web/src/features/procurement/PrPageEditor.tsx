@@ -16,6 +16,8 @@ import { trimDecimal } from '../../shared/utils/format';
 import { PrLineEditor, PrLineTable } from './PrLineTable';
 import { DocumentDatePicker } from '../../shared/components/DocumentDatePicker';
 import { DocumentNumericInput } from '../../shared/components/DocumentNumericInput';
+import { BulkDeleteRows } from '../../shared/components/BulkDeleteRows';
+import { SearchAutocompleteInput } from '../../shared/components/SearchInput';
 import { ProductPicker } from '../../shared/components/ProductPicker';
 import { useDebouncedText } from '../../shared/utils/server-list';
 import { ContractLine, PrLine, decimalInput, fromPickedProduct, fromSavedPrLine, positiveDecimal, prLineErrors } from './pr-lines';
@@ -25,6 +27,7 @@ import type { ActionResult } from '../../shared/components/ActionResultDialog';
 interface ContractOption {
   id: number; documentNumber: string; status: string; customerName: string; responsibleSalesUserId?: number; responsiblePmUserId?: number;
 }
+const contractLabel = (option: ContractOption) => option.documentNumber + ' · ' + option.customerName;
 interface Candidate { id: number; fullName: string; role?: string }
 interface Currency { id: number; code: string; exchangeRate: string; decimalPlaces: number }
 const today = () => {
@@ -72,7 +75,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
   const [editing, setEditing] = useState<{ lines: PrLine[]; strict: boolean; backendMessage?: string; fieldIssue?: ApiError['fieldIssue'] }>();
   const [tab, setTab] = useState('general');
   const [invalid, setInvalid] = useState('');
-  const [deletingLine, setDeletingLine] = useState<number | null>(null);
+  const [deletingLine, setDeletingLine] = useState<{ key: string; position: number; code: string; name: string } | null>(null);
   const [discard, setDiscard] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
   const state = JSON.stringify([validDates, contract, route, category, purpose, approver, receiver, lines, name, requisitionDate, requiredDate, description, currencyId, rate, manual, currencyTouched, refreshRate]);
@@ -84,6 +87,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
   const dirty = state !== initial.current;
   const [selected, setSelected] = useState<ContractOption | null>(null);
   const [contractText, setContractText] = useState('');
+  const [contractInput, setContractInput] = useState('');
   const contractQuery = useDebouncedText(contractText);
   const contracts = useQuery({ queryKey: ['pr-contracts', contractQuery], queryFn: ({ signal }) =>
     api<ContractOption[]>('/purchase-requisitions/catalog/contracts?' + new URLSearchParams({ q: contractQuery }), { signal }), enabled: !detail });
@@ -190,6 +194,12 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
     allowNavigation.current = false;
     work();
   }
+  function deleteRows(keys: ReadonlySet<string>) {
+    change(() => {
+      setLines(previous => previous.filter(line => !keys.has(line.key)));
+      setSelectedLines(new Set());
+    });
+  }
   const lockHint = t('prPhase.locked');
   const locked = lines.length > 0;
   const dateField = (field: 'requisitionDate' | 'requiredDate', value: string, set: (value: string) => void, index: number) =>
@@ -208,13 +218,19 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
         {['SALES_GOODS', 'MATERIAL'].map(value => <MenuItem key={value} value={value}>{t(`category.${value}`)}</MenuItem>)}
       </TextField></span></Tooltip>}</DocumentFormCell>
     <DocumentFormCell span={5}>{detail ? <PrReadonlyField label={t('gir.salesContract')} value={[detail.salesContractNumber, detail.customerName].filter(Boolean).join(' · ')} /> :
-      <Tooltip title={locked ? lockHint : ''}><span><Autocomplete id="pr-contract" disabled={locked} value={selected}
+      <Tooltip title={locked ? lockHint : ''}><span><Autocomplete id="pr-contract" disabled={locked} value={selected} inputValue={contractInput} clearText={t('common.clearSearch')}
         options={selected && !contracts.data?.some(item => item.id === selected.id) ? [selected, ...(contracts.data ?? [])] : contracts.data ?? []}
-        isOptionEqualToValue={(a,b) => a.id === b.id} getOptionLabel={option => option.documentNumber + ' · ' + option.customerName}
+        isOptionEqualToValue={(a,b) => a.id === b.id} getOptionLabel={contractLabel}
         filterOptions={options => options} loading={contracts.isFetching || contractText !== contractQuery}
-        onInputChange={(_, value, reason) => { if (reason === 'input' || reason === 'clear') setContractText(value); }}
+        onInputChange={(_, value, reason) => {
+          setContractInput(value);
+          if (reason === 'input' || reason === 'clear') setContractText(value);
+        }}
         onChange={(_, value) => change(() => { setSelected(value); setContract(String(value?.id ?? '')); setContractText(''); setApprover(''); setReceiver(''); setRoute(''); })}
-        renderInput={params => <TextField {...params} required label={t('gir.salesContract')} error={invalid === 'general' && !contract} />} /></span></Tooltip>}</DocumentFormCell>
+        renderInput={params => <SearchAutocompleteInput params={params} required label={t('gir.salesContract')} placeholder={t('searchFields.contract')}
+          keyword={selected && contractInput === contractLabel(selected) ? '' : contractInput}
+          onClear={() => { setContractInput(selected ? contractLabel(selected) : ''); setContractText(''); }}
+          error={invalid === 'general' && !contract} />} /></span></Tooltip>}</DocumentFormCell>
     <DocumentFormCell span={2}>{dateField('requisitionDate', requisitionDate, setRequisitionDate, 0)}</DocumentFormCell>
     <DocumentFormCell span={2}>{dateField('requiredDate', requiredDate, setRequiredDate, 1)}</DocumentFormCell>
     <DocumentFormCell><Stack direction="row" useFlexGap spacing={1.5} sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -267,9 +283,13 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
           value == null ? null : String(value)) as [string | null, string | null, string | null] : undefined}
         selected={selectedLines} onSelection={setSelectedLines}
         onEdit={save.isPending ? undefined : index => setEditing({ lines: [lines[index]], strict: false })}
-        onDelete={save.isPending ? undefined : setDeletingLine}
+        onDelete={save.isPending ? undefined : index => {
+          const row = lines[index];
+          setDeletingLine({ key: row.key, position: index + 1, code: row.partNumber, name: row.productName });
+        }}
         toolbar={<Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end', py: 0.5 }}>
           <Typography sx={{ flexGrow: 1, fontWeight: 700 }} color={invalid === 'lines' ? 'error' : undefined}>{t('prPhase.lines')}</Typography>
+          <BulkDeleteRows selected={selectedLines} disabled={save.isPending} onDelete={deleteRows} />
           <Button variant="outlined" startIcon={<Edit />} disabled={!selectedLines.size || save.isPending}
             onClick={() => setEditing({ lines: lines.filter(line => selectedLines.has(line.key)), strict: false })}>
             {t('pr.editGoods')} ({selectedLines.size})
@@ -308,8 +328,8 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
       })} />}
     {deletingLine !== null && <FormDialog title={t('pr.deleteGoods')} submitLabel={t('pr.deleteGoods')} submitColor="error"
       canSubmit pending={false} error={null} onClose={() => setDeletingLine(null)}
-      onSubmit={() => change(() => { setLines(previous => previous.filter((_, i) => i !== deletingLine)); setSelectedLines(new Set()); setDeletingLine(null); })}>
-      {t('pr.deleteGoodsConfirm', { row: deletingLine + 1, code: lines[deletingLine]?.partNumber, name: lines[deletingLine]?.productName })}
+      onSubmit={() => { deleteRows(new Set([deletingLine.key])); setDeletingLine(null); }}>
+      {t('pr.deleteGoodsConfirm', { row: deletingLine.position, code: deletingLine.code, name: deletingLine.name })}
     </FormDialog>}
   </>;
 }

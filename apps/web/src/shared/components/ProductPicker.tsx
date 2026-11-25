@@ -7,7 +7,8 @@ import Close from '@mui/icons-material/Close';
 import Refresh from '@mui/icons-material/Refresh';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api-client';
-import { DataTable, FilterToolbar, GridText } from './index';
+import { SearchInput } from './SearchInput';
+import { DataTable, GridText } from './index';
 import { useDebouncedText, useServerList } from '../utils/server-list';
 
 export interface PickerProduct {
@@ -64,16 +65,17 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
       <Tabs value={source} onChange={(_, value: Source) => setSource(value)} sx={{ mb: 1 }}>
         <Tab value="main" label={t('prPhase.main')} /><Tab value="temporary" label={t('prPhase.temporary')} />
       </Tabs>
-      <FilterToolbar>
-        <TextField label={t('prPhase.itemSearch')} size="small" value={f.q} onChange={e => change({ q: e.target.value, page: { ...f.page, page: 0 } })} sx={{ width: 260 }} />
+      <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <SearchInput label={t('common.search')} placeholder={t('searchFields.product')} value={f.q}
+          onChange={value => change({ q: value, page: { ...f.page, page: 0 } })} sx={{ flex: '2 1 195px', minWidth: 0 }} />
         {source === 'main' && <TextField select size="small" label={t('prPhase.brand')} value={f.brand}
-          onChange={e => change({ brand: e.target.value, page: { ...f.page, page: 0 } })} sx={{ width: 180 }}>
+          onChange={e => change({ brand: e.target.value, page: { ...f.page, page: 0 } })} sx={{ flex: '1 1 125px', minWidth: 0 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
           {brands.data?.map(b => <MenuItem key={b.id} value={String(b.id)}>{b.name}</MenuItem>)}
         </TextField>}
-        <Tooltip title={t('prPhase.refreshHint')}><Button startIcon={<Refresh />} variant="outlined" sx={{ ml: 'auto' }}
+        <Tooltip title={t('prPhase.refreshHint')}><Button startIcon={<Refresh />} variant="outlined" sx={{ ml: 'auto', flexShrink: 0, height: 40 }}
           onClick={() => { if (JSON.stringify(f) === JSON.stringify(defaults())) void rows.refetch(); change(defaults()); }}>{t('prPhase.refresh')}</Button></Tooltip>
-      </FilterToolbar>
+      </Stack>
       <Box sx={{ mt: 1.5, '& .MuiDataGrid-root': { height: 'min(48vh, 510px)' } }}>
         <DataTable columns={columns} rows={items} rowCount={rows.data?.total ?? 0} loading={rows.isFetching || q !== f.q}
           error={rows.error} sx={{ '& .picker-selection': { display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0, textOverflow: 'clip' } }} maxHeight="min(48vh, 510px)" paginationMode="server" sortingMode="server"

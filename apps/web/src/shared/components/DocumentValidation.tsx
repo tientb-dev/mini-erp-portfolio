@@ -10,7 +10,7 @@ export function ValidationTooltip(props: Pick<TooltipProps, 'title' | 'children'
 }
 
 export function ValidationMessage({ children, warning }: { children?: ReactNode; warning?: boolean }) {
-  return <Box role="status" sx={{ height: 34, mb: 0.5, px: 1, display: 'flex', alignItems: 'center', gap: 0.75,
+  return <Box role="status" sx={{ height: 34, px: 1, display: 'flex', alignItems: 'center', gap: 0.75,
     whiteSpace: 'nowrap', overflow: 'hidden', boxSizing: 'border-box', border: '1px solid',
     borderColor: warning ? 'error.main' : 'transparent', color: 'error.main', bgcolor: 'background.paper', borderRadius: 1 }}>
     {warning && <Warning fontSize="small" sx={{ flexShrink: 0 }} />}{children}

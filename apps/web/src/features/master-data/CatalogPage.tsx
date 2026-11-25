@@ -9,6 +9,7 @@ import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
 import { ActionResultDialog, DataTable, DetailPageLayout, FilterToolbar, FormDialog, GridText, ListPageLayout } from '../../shared/components';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { useMe } from '../identity';
+import { SearchInput } from '../../shared/components/SearchInput';
 import { CatalogEditor } from './CatalogEditor';
 import { Catalog, displayDecimal, Entry, entryCode, label, statusLabel } from './catalogs';
 
@@ -128,7 +129,8 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
           {t('master.create', { name: title.toLocaleLowerCase(i18n.language) })}
         </Button>}
         toolbar={<FilterToolbar active={Boolean(q || status || brand)} onClear={() => setParams({}, { replace: true })}>
-          <TextField size="small" label={t('master.search')} value={q} onChange={event => setFilter('q', event.target.value)} sx={{ width: { xs: '100%', sm: 280 } }} />
+          <SearchInput label={t('master.search')} placeholder={t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
+            value={q} onChange={value => setFilter('q', value)} sx={{ width: { xs: '100%', sm: 280 } }} />
           <TextField select size="small" label={t('common.status')} value={status || 'all'}
             onChange={event => setFilter('status', event.target.value === 'all' ? '' : event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
             <MenuItem value="all">{t('common.all')}</MenuItem>

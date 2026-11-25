@@ -2,6 +2,22 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 const vi = {
+  documentRows: {
+    bulkDelete: 'Xóa ({{count}})', deleteItems: 'Xóa hàng hóa',
+    confirmBulkDelete: 'Bạn có chắc chắn muốn xóa {{count}} dòng hàng hóa đã chọn?',
+  },
+  searchFields: {
+    pr: 'Nhập mã PR, tên PR, mã HĐ hoặc tên khách hàng...',
+    contract: 'Nhập mã HĐ hoặc tên khách hàng...',
+    product: 'Nhập mã hoặc tên hàng...', serial: 'Nhập số sê-ri...', codeOrName: 'Nhập mã hoặc tên...',
+    catalog: {
+      products: 'Nhập mã hoặc tên hàng...', temporaryProducts: 'Nhập mã hoặc tên hàng...',
+      brands: 'Nhập mã hoặc tên hãng...', unitsOfMeasure: 'Nhập mã hoặc tên đơn vị tính...',
+      warehouses: 'Nhập mã hoặc tên kho...', customers: 'Nhập mã hoặc tên khách hàng...',
+      suppliers: 'Nhập mã hoặc tên nhà cung cấp...', currencies: 'Nhập mã hoặc tên tiền tệ...',
+      taxRates: 'Nhập mã hoặc tên thuế suất...',
+    },
+  },
   prPhase: {
     number: 'Mã PR', name: 'Tên PR', requisitionDate: 'Ngày đề nghị', requiredDate: 'Ngày cần hàng', currency: 'Tiền tệ',
     from: 'Ngày đề nghị từ', to: 'Ngày đề nghị đến', invalidRange: 'Ngày bắt đầu không được sau ngày kết thúc.',
@@ -116,6 +132,7 @@ const vi = {
     products: "Mã chính", warehouses: "Kho", goodsReceipts: "Phiếu nhập kho", goodsIssueRequests: "Đề nghị xuất kho", goodsIssues: "Phiếu xuất kho", inventory: "Tồn kho", inventoryLots: "Truy vết lô tồn kho",
   },
   common: {
+    clearSearch: 'Xóa từ khóa tìm kiếm',
     actionSucceeded: 'Thành công', actionFailed: 'Không thành công', understood: 'Đã hiểu', resultAutoClose: 'Tự động đóng sau 3 giây',
     loadMoreRecords: 'Tải thêm',
     cancel: 'Hủy bỏ', yes: 'Có', no: 'Không', status: 'Trạng thái', active: 'Đang dùng', inactive: 'Ngừng dùng',
@@ -360,6 +377,22 @@ const vi = {
 };
 
 const en: typeof vi = {
+  documentRows: {
+    bulkDelete: 'Delete ({{count}})', deleteItems: 'Delete items',
+    confirmBulkDelete: 'Are you sure you want to delete the {{count}} selected item rows?',
+  },
+  searchFields: {
+    pr: 'Enter PR number, PR name, contract number or customer name...',
+    contract: 'Enter contract number or customer name...',
+    product: 'Enter item code or name...', serial: 'Enter serial number...', codeOrName: 'Enter code or name...',
+    catalog: {
+      products: 'Enter item code or name...', temporaryProducts: 'Enter item code or name...',
+      brands: 'Enter brand code or name...', unitsOfMeasure: 'Enter unit code or name...',
+      warehouses: 'Enter warehouse code or name...', customers: 'Enter customer code or name...',
+      suppliers: 'Enter supplier code or name...', currencies: 'Enter currency code or name...',
+      taxRates: 'Enter tax rate code or name...',
+    },
+  },
   prPhase: {
     number: 'PR number', name: 'PR name', requisitionDate: 'Requisition date', requiredDate: 'Required date', currency: 'Currency',
     from: 'Requisition date from', to: 'Requisition date to', invalidRange: 'Start date must be on or before the end date.',
@@ -474,6 +507,7 @@ const en: typeof vi = {
     products: "Main products", warehouses: "Warehouses", goodsReceipts: "Goods receipts", goodsIssueRequests: "Issue requests", goodsIssues: "Goods issues", inventory: "Inventory", inventoryLots: "Lot traceability",
   },
   common: {
+    clearSearch: 'Clear search',
     actionSucceeded: 'Success', actionFailed: 'Action failed', understood: 'Understood', resultAutoClose: 'Closes automatically after 3 seconds',
     loadMoreRecords: 'Load more',
     cancel: 'Cancel', yes: 'Yes', no: 'No', status: 'Status', active: 'Active', inactive: 'Inactive',

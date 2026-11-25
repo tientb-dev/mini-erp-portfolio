@@ -220,16 +220,18 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
         {t('prPhase.editor')}<IconButton color="inherit" onClick={onClose} aria-label={t('common.cancel')}><Close /></IconButton>
       </DialogTitle>
       <DialogContent dividers ref={grid} sx={{ p: 1.5, overflow: 'hidden' }}>
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography sx={{ fontWeight: 700 }}>{t('prPhase.lines')}</Typography>
-          <Button variant="contained" startIcon={<Add />} onClick={() => setPicker(true)}>{t('pr.addGoods')}</Button>
+        <Stack spacing={1}>
+          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography sx={{ fontWeight: 700 }}>{t('prPhase.lines')}</Typography>
+            <Button variant="contained" startIcon={<Add />} onClick={() => setPicker(true)}>{t('pr.addGoods')}</Button>
+          </Stack>
+          <ValidationMessage warning={Boolean(count || backendMessage)}>
+            {count ? <GridText value={t('prPhase.errorCount', { count })} /> : backendMessage && <GridText value={backendMessage} />}
+          </ValidationMessage>
+          {fetchError && <ErrorAlert error={fetchError} />}
+          <PrLineTable lines={lines} scale={scale} currency={currency} inputs={control}
+            onDelete={index => setRemove(lines[index].key)} />
         </Stack>
-        <ValidationMessage warning={Boolean(count || backendMessage)}>
-          {count ? <GridText value={t('prPhase.errorCount', { count })} /> : backendMessage && <GridText value={backendMessage} />}
-        </ValidationMessage>
-        {fetchError && <ErrorAlert error={fetchError} />}
-        <PrLineTable lines={lines} scale={scale} currency={currency} inputs={control}
-          onDelete={index => setRemove(lines[index].key)} />
       </DialogContent>
       <DialogActions><Button startIcon={<Close />} variant="outlined" onClick={onClose}>{t('common.cancel')}</Button>
         <Button startIcon={<Check />} variant="contained" disabled={!lines.length} onClick={confirm}>{t('prPhase.confirm')}</Button></DialogActions>

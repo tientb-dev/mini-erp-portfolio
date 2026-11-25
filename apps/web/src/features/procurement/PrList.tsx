@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Button, Checkbox, FormControlLabel, InputAdornment, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
+import { Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
 import Refresh from '@mui/icons-material/Refresh';
 import Add from '@mui/icons-material/Add';
-import Search from '@mui/icons-material/Search';
+import { SearchInput } from '../../shared/components/SearchInput';
 import { GridColDef } from '@mui/x-data-grid';
 import { ApprovalStatusChip, DataTable, FilterToolbar, GridText, ListPageLayout } from '../../shared/components';
 import { DocumentDatePicker } from '../../shared/components/DocumentDatePicker';
@@ -74,8 +74,8 @@ export function PrList() {
     toolbar={<FilterToolbar>
       <Stack spacing={1.5} sx={{ width: '100%' }}>
         <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <TextField size="small" label={t('prPhase.search')} value={q} slotProps={{ htmlInput: { maxLength: 200 },
-            input: { startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> } }} onChange={e => update({ q: e.target.value })} sx={{ flex: '2 1 220px', minWidth: 0 }} />
+          <SearchInput label={t('common.search')} placeholder={t('searchFields.pr')} value={q} maxLength={200}
+            onChange={value => update({ q: value })} sx={{ flex: '2 1 220px', minWidth: 0 }} />
           <TextField select size="small" label={t('pr.category')} value={params.get('category') ?? 'all'} onChange={e => update({ category: e.target.value === 'all' ? '' : e.target.value })} sx={{ flex: '1 1 145px', minWidth: 0 }}>
             <MenuItem value="all">{t('common.all')}</MenuItem>
             {['SALES_GOODS','MATERIAL'].map(value => <MenuItem key={value} value={value}>{t(`category.${value}`)}</MenuItem>)}

@@ -14,6 +14,8 @@ import { ErrorAlert } from '../../shared/components/ErrorAlert';
 import { DocumentFormCell, DocumentFormGrid } from '../../shared/components/DocumentFormGrid';
 import { trimDecimal } from '../../shared/utils/format';
 import { PrLineEditor, PrLineTable } from './PrLineTable';
+import { DocumentDatePicker } from '../../shared/components/DocumentDatePicker';
+import { DocumentNumericInput } from '../../shared/components/DocumentNumericInput';
 import { ProductPicker } from '../../shared/components/ProductPicker';
 import { useDebouncedText } from '../../shared/utils/server-list';
 import { ContractLine, PrLine, decimalInput, fromPickedProduct, fromSavedPrLine, positiveDecimal, prLineErrors } from './pr-lines';
@@ -51,7 +53,9 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
   const [route, setRoute] = useState('');
   const [category, setCategory] = useState(String(detail?.category ?? ''));
   const [name, setName] = useState(String(detail?.name ?? ''));
+  const [nameRequired, setNameRequired] = useState(false);
   const [requisitionDate, setRequisitionDate] = useState(String(detail ? detail.requisitionDate ?? '' : today()));
+  const [validDates, setValidDates] = useState([true, true]);
   const [requiredDate, setRequiredDate] = useState(String(detail?.requiredDate ?? ''));
   const [description, setDescription] = useState(String(detail?.description ?? ''));
   const [currencyId, setCurrencyId] = useState(String(detail?.currencyId ?? ''));
@@ -71,7 +75,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
   const [deletingLine, setDeletingLine] = useState<number | null>(null);
   const [discard, setDiscard] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
-  const state = JSON.stringify([contract, route, category, purpose, approver, receiver, lines, name, requisitionDate, requiredDate, description, currencyId, rate, manual, currencyTouched, refreshRate]);
+  const state = JSON.stringify([validDates, contract, route, category, purpose, approver, receiver, lines, name, requisitionDate, requiredDate, description, currencyId, rate, manual, currencyTouched, refreshRate]);
   const initial = useRef(state);
   const allowNavigation = useRef(false);
   const requestKey = useRef<{ payload: string; key: string } | undefined>(undefined);
@@ -164,8 +168,9 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty, save.isPending]);
   function validate(submit: boolean) {
+    setNameRequired(submit);
     const headerInvalid = !contract || !category || (dual && !route) || (submit && !name.trim())
-      || (manual && (!decimalInput(rate, 8) || !positiveDecimal(rate)));
+      || validDates.includes(false) || (manual && (!decimalInput(rate, 8) || !positiveDecimal(rate)));
     const invalidLines = lines.filter(line => Object.keys(prLineErrors(line, submit, category === 'SALES_GOODS')).length);
     if (!headerInvalid && invalidLines.length) {
       setTab('general');
@@ -178,7 +183,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
     if (!field) return true;
     setTab(field === 'approvers' ? 'approvers' : 'general');
     requestAnimationFrame(() => document.getElementById(field === 'lines' ? 'pr-lines' : field === 'general'
-      ? (!contract ? 'pr-contract' : !category ? 'pr-category' : dual && !route ? 'pr-route' : !name.trim() && submit ? 'pr-name' : 'pr-rate') : !validApprover ? 'pr-approver' : 'pr-receiver')?.focus());
+      ? (!contract ? 'pr-contract' : !category ? 'pr-category' : dual && !route ? 'pr-route' : !name.trim() && submit ? 'pr-name' : !validDates[0] ? 'pr-requisitionDate' : !validDates[1] ? 'pr-requiredDate' : 'pr-rate') : !validApprover ? 'pr-approver' : 'pr-receiver')?.focus());
     return false;
   }
   function change(work: () => void) {
@@ -187,13 +192,14 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
   }
   const lockHint = t('prPhase.locked');
   const locked = lines.length > 0;
-  const dateField = (label: string, value: string, set: (value: string) => void) =>
-    <TextField type="date" label={label} value={value} slotProps={{ inputLabel: { shrink: true } }} onChange={e => change(() => set(e.target.value))} />;
+  const dateField = (field: 'requisitionDate' | 'requiredDate', value: string, set: (value: string) => void, index: number) =>
+    <DocumentDatePicker id={'pr-' + field} label={t(`prPhase.${field}`)} value={value} onChange={value => change(() => set(value))}
+      onValidityChange={valid => { change(() => setValidDates(previous => previous.map((v, i) => i === index ? valid : v))); }} />;
   const general = <DocumentFormGrid compact>
     {invalid === 'general' && !editing && save.error instanceof ApiError && [400, 422].includes(save.error.status) && save.error.code !== 'PR_CANDIDATE_NOT_ELIGIBLE'
         && <DocumentFormCell><ErrorAlert error={save.error} /></DocumentFormCell>}
     <DocumentFormCell span={8}><TextField id="pr-name" label={t('prPhase.name')} value={name}
-      error={invalid === 'general' && !name.trim() && Boolean(contract && category)} onChange={e => change(() => setName(e.target.value))} /></DocumentFormCell>
+      error={nameRequired && !name.trim()} onChange={e => change(() => setName(e.target.value))} /></DocumentFormCell>
     <DocumentFormCell span={4}><PrReadonlyField label={t('pr.requester')} value={String(detail?.requesterName ?? detail?.createdByName ?? user.fullName ?? '')} /></DocumentFormCell>
     <DocumentFormCell span={3}>{detail ? <PrReadonlyField label={t('pr.category')} value={t(`category.${category}`)} /> :
       <Tooltip title={locked ? lockHint : ''}><span><TextField id="pr-category" select required disabled={locked} label={t('pr.category')}
@@ -209,22 +215,24 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
         onInputChange={(_, value, reason) => { if (reason === 'input' || reason === 'clear') setContractText(value); }}
         onChange={(_, value) => change(() => { setSelected(value); setContract(String(value?.id ?? '')); setContractText(''); setApprover(''); setReceiver(''); setRoute(''); })}
         renderInput={params => <TextField {...params} required label={t('gir.salesContract')} error={invalid === 'general' && !contract} />} /></span></Tooltip>}</DocumentFormCell>
-    <DocumentFormCell span={2}>{dateField(t('prPhase.requisitionDate'), requisitionDate, setRequisitionDate)}</DocumentFormCell>
-    <DocumentFormCell span={2}>{dateField(t('prPhase.requiredDate'), requiredDate, setRequiredDate)}</DocumentFormCell>
-    <DocumentFormCell span={3}><Tooltip title={locked ? lockHint : ''}><span><TextField size="small" select disabled={locked}
+    <DocumentFormCell span={2}>{dateField('requisitionDate', requisitionDate, setRequisitionDate, 0)}</DocumentFormCell>
+    <DocumentFormCell span={2}>{dateField('requiredDate', requiredDate, setRequiredDate, 1)}</DocumentFormCell>
+    <DocumentFormCell><Stack direction="row" useFlexGap spacing={1.5} sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <Tooltip title={locked ? lockHint : ''}><span style={{ width: 168 }}><TextField size="small" select disabled={locked}
       label={t('prPhase.currency')} value={currency?.id ?? ''} onChange={e => change(() => {
         const chosen = currencyOptions.data?.find(item => item.id === Number(e.target.value));
         setCurrencyId(e.target.value); setManual(false); setRate(trimDecimal(chosen?.exchangeRate ?? '1')); setCurrencyTouched(true); setRefreshRate(false);
       })}>
       {!currencyOptions.data?.length && <MenuItem value="">{currencyCode}</MenuItem>}
       {currencyOptions.data?.map(item => <MenuItem value={item.id} key={item.id}>{item.code}</MenuItem>)}
-    </TextField></span></Tooltip></DocumentFormCell>
-    <DocumentFormCell span={5}><FormControlLabel control={<Checkbox checked={manual} disabled={currencyCode === 'VND'}
+    </TextField></span></Tooltip>
+    <FormControlLabel sx={{ m: 0, height: 36 }} control={<Checkbox checked={manual} disabled={currencyCode === 'VND'}
       onChange={e => change(() => { setManual(e.target.checked); setCurrencyTouched(true); setRefreshRate(!e.target.checked);
-        if (!e.target.checked) setRate(trimDecimal(currency?.exchangeRate ?? '1')); })} />} label={t('prPhase.manual')} /></DocumentFormCell>
-    <DocumentFormCell span={4}><TextField id="pr-rate" label={t('prPhase.rate')} value={rate} slotProps={{ input: { readOnly: !manual }, htmlInput: { inputMode: 'decimal' } }}
+        if (!e.target.checked) setRate(trimDecimal(currency?.exchangeRate ?? '1')); })} />} label={t('prPhase.manual')} />
+    <DocumentNumericInput id="pr-rate" sx={{ width: 180 }} label={t('prPhase.rate')} value={rate} precision={8} readOnly={!manual}
       error={manual && invalid === 'general' && (!decimalInput(rate, 8) || !positiveDecimal(rate))}
-      onChange={e => change(() => { setRate(e.target.value); setCurrencyTouched(true); })} /></DocumentFormCell>
+      onChange={value => change(() => { setRate(value); setCurrencyTouched(true); })} />
+    </Stack></DocumentFormCell>
     <DocumentFormCell span={6}><TextField label={t('prPhase.purpose')} multiline minRows={2} value={purpose} onChange={e => change(() => setPurpose(e.target.value))} /></DocumentFormCell>
     <DocumentFormCell span={6}><TextField label={t('prPhase.description')} multiline minRows={2} value={description} onChange={e => change(() => setDescription(e.target.value))} /></DocumentFormCell>
     {dual && <DocumentFormCell span={3}><TextField id="pr-route" select required label={t('pr.route')} value={route} error={invalid === 'general' && !route}

@@ -51,7 +51,7 @@ function build(locale: 'vi' | 'en'): Theme {
     {
       palette: {
         primary: { main: tokens.primary, dark: tokens.primaryHover, light: tokens.primarySoft, contrastText: '#FFFFFF' },
-        error: { main: '#C4320A' },
+        error: { main: '#D32F2F' },
         warning: { main: '#B26A00' },
         success: { main: '#2E7D4F' },
         background: { default: tokens.canvas, paper: tokens.surface },

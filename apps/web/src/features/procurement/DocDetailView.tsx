@@ -25,13 +25,15 @@ import type { HistoryEntry, WorkflowActionContext } from "../workflow/types";
 import { DocAction, DocActionDialog, DocumentActivityDialog, DocumentHistoryTable, HistoryList } from '../workflow';
 import { DocConfig, DocDetail, DocLine } from './types';
 import { PrPageEditor, PrReadonlyField, type PrEditorModel } from './PrPageEditor';
+import { formatDocumentDate } from '../../shared/utils/document-date';
+import { displayDocumentNumber } from '../../shared/components/DocumentNumericInput';
 import { PrLineTable } from './PrLineTable';
 import { fromSavedPrLine } from './pr-lines';
 
 const stepTones = { future: 'neutral', pending: 'pending', completed: 'success', rejected: 'danger' } as const;
 
 export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number; onBack: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const me = useMe();
   const navigate = useNavigate();
@@ -149,11 +151,13 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
                   <DocumentFormCell span={4}><PrReadonlyField label={t('pr.requester')} value={String(d.requesterName ?? d.createdByName ?? '')} /></DocumentFormCell>
                   <DocumentFormCell span={3}><PrReadonlyField label={t('pr.category')} value={t(`category.${d.category}`)} /></DocumentFormCell>
                   <DocumentFormCell span={5}><PrReadonlyField label={t('gir.salesContract')} value={[d.salesContractNumber, d.customerName].filter(Boolean).join(' · ')} /></DocumentFormCell>
-                  <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requisitionDate')} value={String(d.requisitionDate ?? '').split('-').reverse().join('/')} /></DocumentFormCell>
-                  <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requiredDate')} value={String(d.requiredDate ?? '').split('-').reverse().join('/')} /></DocumentFormCell>
-                  <DocumentFormCell span={3}><PrReadonlyField label={t('prPhase.currency')} value={String(d.currencyCode ?? '')} /></DocumentFormCell>
-                  <DocumentFormCell span={5}><PrReadonlyField label={t('prPhase.rateSource')} value={d.exchangeRateSource ? t(d.exchangeRateSource === 'MANUAL' ? 'prPhase.manual' : 'prPhase.catalogRate') : ''} /></DocumentFormCell>
-                  <DocumentFormCell span={4}><PrReadonlyField label={t('prPhase.rate')} value={String(d.exchangeRate ?? '')} /></DocumentFormCell>
+                  <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requisitionDate')} value={formatDocumentDate(String(d.requisitionDate ?? ''), i18n.language)} /></DocumentFormCell>
+                  <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requiredDate')} value={formatDocumentDate(String(d.requiredDate ?? ''), i18n.language)} /></DocumentFormCell>
+                  <DocumentFormCell><Stack direction="row" useFlexGap spacing={1.5} sx={{ flexWrap: 'wrap', '& > *': { width: 168 } }}>
+                  <PrReadonlyField label={t('prPhase.currency')} value={String(d.currencyCode ?? '')} />
+                  <PrReadonlyField label={t('prPhase.rateSource')} value={d.exchangeRateSource ? t(d.exchangeRateSource === 'MANUAL' ? 'prPhase.manual' : 'prPhase.catalogRate') : ''} />
+                  <PrReadonlyField label={t('prPhase.rate')} value={displayDocumentNumber(String(d.exchangeRate ?? ''), i18n.language, 8, true)} />
+                  </Stack></DocumentFormCell>
                   <DocumentFormCell span={6}><PrReadonlyField label={t('prPhase.purpose')} value={String(d.purpose ?? '')} multiline /></DocumentFormCell>
                   <DocumentFormCell span={6}><PrReadonlyField label={t('prPhase.description')} value={String(d.description ?? '')} multiline /></DocumentFormCell>
                 </DocumentFormGrid> : <>

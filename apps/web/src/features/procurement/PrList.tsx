@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button, Checkbox, FormControlLabel, InputAdornment, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
@@ -6,17 +7,21 @@ import Add from '@mui/icons-material/Add';
 import Search from '@mui/icons-material/Search';
 import { GridColDef } from '@mui/x-data-grid';
 import { ApprovalStatusChip, DataTable, FilterToolbar, GridText, ListPageLayout } from '../../shared/components';
+import { DocumentDatePicker } from '../../shared/components/DocumentDatePicker';
+import { formatDocumentDate } from '../../shared/utils/document-date';
 import { useDebouncedText, useServerList } from '../../shared/utils/server-list';
 import { useMe } from '../identity';
 import { DocRow } from './types';
 import { formatDocumentAmount } from '../../shared/utils/document-money';
 
 const statuses = ['DRAFT','WAITING_FOR_APPROVE','WAITING_FOR_RECEIPT','DONE','REJECTED','CANCELED'];
-const dateLabel = (value?: string) => value?.split('-').reverse().join('/') ?? '';
 export function PrList() {
   const { t, i18n } = useTranslation();
   const me = useMe();
   const [params, setParams] = useSearchParams();
+  const latestParams = useRef(params);
+  latestParams.current = params;
+  const [dateReset, setDateReset] = useState(0);
   const q = params.get('q') ?? '';
   const delayed = useDebouncedText(q);
   const from = params.get('from') ?? '';
@@ -38,9 +43,10 @@ export function PrList() {
   query.set('size', String(pageSize));
   const list = useServerList<DocRow>('/purchase-requisitions', query, !invalid && q === delayed && Boolean(me.data));
   function update(fields: Record<string, string>, resetPage = true) {
-    const next = new URLSearchParams(params);
+    const next = new URLSearchParams(latestParams.current);
     if (resetPage) next.delete('page');
     for (const [key, value] of Object.entries(fields)) value ? next.set(key, value) : next.delete(key);
+    latestParams.current = next;
     setParams(next, { replace: true });
   }
   const columns: GridColDef<DocRow>[] = [
@@ -51,8 +57,8 @@ export function PrList() {
     { field: 'salesContractNumber', headerName: t('gir.salesContract'), width: 155 },
     { field: 'customerName', headerName: t('sc.customer'), width: 170 },
     { field: 'requesterName', headerName: t('pr.requester'), width: 155 },
-    { field: 'requisitionDate', headerName: t('prPhase.requisitionDate'), width: 138, valueFormatter: dateLabel },
-    { field: 'requiredDate', headerName: t('prPhase.requiredDate'), width: 140, valueFormatter: dateLabel },
+    { field: 'requisitionDate', headerName: t('prPhase.requisitionDate'), width: 138, valueFormatter: value => formatDocumentDate(String(value ?? ''), i18n.language) },
+    { field: 'requiredDate', headerName: t('prPhase.requiredDate'), width: 140, valueFormatter: value => formatDocumentDate(String(value ?? ''), i18n.language) },
     { field: 'total', headerName: t('prPhase.total'), width: 150, align: 'right', headerAlign: 'right', sortable: false,
       renderCell: p => formatDocumentAmount(p.value, Number(p.row.currencyDecimalPlaces ?? 0), i18n.language) },
     { field: 'currencyCode', headerName: t('prPhase.currency'), width: 110 },
@@ -60,31 +66,31 @@ export function PrList() {
     { field: 'assignedApproverName', headerName: t('prPhase.handler'), width: 170 },
   ];
   function date(key: 'from' | 'to') {
-    return <TextField type="date" size="small" label={t(`prPhase.${key}`)} value={params.get(key) ?? ''} error={invalid}
-      slotProps={{ inputLabel: { shrink: true } }} onChange={e => update({ [key]: e.target.value })} sx={{ width: 160 }} />;
+    return <DocumentDatePicker key={key + dateReset} label={t(`prPhase.${key}`)} value={params.get(key) ?? ''} error={invalid}
+      onChange={value => update({ [key]: value })} sx={{ width: 160 }} />;
   }
   return <ListPageLayout title={t('pr.title')} error={invalid ? new Error(t('prPhase.invalidRange')) : list.error}
     actions={me.data?.permissions.includes('PR.CREATE') && <Button component={Link} to={`/purchase-requisitions/new?${params}`} variant="contained" startIcon={<Add />}>{t('pr.create')}</Button>}
     toolbar={<FilterToolbar>
       <Stack spacing={1.5} sx={{ width: '100%' }}>
-        <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <TextField size="small" label={t('prPhase.search')} value={q} slotProps={{ htmlInput: { maxLength: 200 },
-            input: { startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> } }} onChange={e => update({ q: e.target.value })} sx={{ width: 260 }} />
-          <TextField select size="small" label={t('pr.category')} value={params.get('category') ?? 'all'} onChange={e => update({ category: e.target.value === 'all' ? '' : e.target.value })} sx={{ width: 150 }}>
+            input: { startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> } }} onChange={e => update({ q: e.target.value })} sx={{ flex: '2 1 220px', minWidth: 0 }} />
+          <TextField select size="small" label={t('pr.category')} value={params.get('category') ?? 'all'} onChange={e => update({ category: e.target.value === 'all' ? '' : e.target.value })} sx={{ flex: '1 1 145px', minWidth: 0 }}>
             <MenuItem value="all">{t('common.all')}</MenuItem>
             {['SALES_GOODS','MATERIAL'].map(value => <MenuItem key={value} value={value}>{t(`category.${value}`)}</MenuItem>)}
           </TextField>
-          <TextField select size="small" label={t('common.status')} value={params.get('status') ?? 'all'} onChange={e => update({ status: e.target.value === 'all' ? '' : e.target.value })} sx={{ width: 150 }}>
+          <TextField select size="small" label={t('common.status')} value={params.get('status') ?? 'all'} onChange={e => update({ status: e.target.value === 'all' ? '' : e.target.value })} sx={{ flex: '1 1 145px', minWidth: 0 }}>
             <MenuItem value="all">{t('common.all')}</MenuItem>
             {statuses.map(value => <MenuItem key={value} value={value}><ApprovalStatusChip status={value} /></MenuItem>)}
           </TextField>
-          <FormControlLabel sx={{ alignSelf: 'flex-end' }} control={<Checkbox checked={params.has('mine')}
+          <FormControlLabel sx={{ m: 0, height: 40, flex: 'none' }} control={<Checkbox checked={params.has('mine')}
             onChange={e => update({ mine: e.target.checked ? 'true' : '' })} />} label={t('prPhase.waiting')} />
         </Stack>
         <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
           {date('from')}{date('to')}
           <Tooltip title={t('prPhase.refreshHint')}><Button sx={{ ml: 'auto', bgcolor: 'background.paper', minHeight: 36 }} variant="outlined" startIcon={<Refresh />}
-            onClick={() => { if (!params.size) void list.refetch(); setParams({}, { replace: true }); }}>{t('prPhase.refresh')}</Button></Tooltip>
+            onClick={() => { setDateReset(n => n + 1); if (!params.size) void list.refetch(); setParams({}, { replace: true }); }}>{t('prPhase.refresh')}</Button></Tooltip>
         </Stack>
       </Stack>
     </FilterToolbar>}>
@@ -93,6 +99,8 @@ export function PrList() {
       paginationMode="server" sortingMode="server" sortingOrder={['asc', 'desc']} paginationModel={{ page, pageSize }}
       sortModel={sort ? [{ field: sort, sort: direction }] : []}
       onSortModelChange={model => update({ sort: model[0]?.field ?? '', direction: model[0]?.sort ?? '' })}
-      onPaginationModelChange={model => update({ page: String(model.page + 1), size: String(model.pageSize) }, false)} />
+      onPaginationModelChange={model => {
+        if (model.page !== page || model.pageSize !== pageSize) update({ page: String(model.page + 1), size: String(model.pageSize) }, false);
+      }} />
   </ListPageLayout>;
 }

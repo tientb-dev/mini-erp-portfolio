@@ -46,7 +46,7 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
     });
   }
   const columns: GridColDef<PickerProduct>[] = [
-    { field: 'selection', width: 54, sortable: false, headerName: '', renderHeader: () =>
+    { field: 'selection', width: 54, sortable: false, filterable: false, disableColumnMenu: true, headerName: '', align: 'center', headerAlign: 'center', cellClassName: 'picker-selection', renderHeader: () =>
       <Checkbox size="small" checked={count > 0 && count === items.length} indeterminate={count > 0 && count < items.length}
         slotProps={{ input: { 'aria-label': t('prPhase.selectPage') } }} disabled={!items.length} onChange={e => select(items, e.target.checked)} />,
       renderCell: p => <Checkbox size="small" checked={picked.has(keyOf(source, p.row.id))} onChange={e => select([p.row], e.target.checked)}
@@ -76,7 +76,7 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
       </FilterToolbar>
       <Box sx={{ mt: 1.5, '& .MuiDataGrid-root': { height: 'min(48vh, 510px)' } }}>
         <DataTable columns={columns} rows={items} rowCount={rows.data?.total ?? 0} loading={rows.isFetching || q !== f.q}
-          error={rows.error} maxHeight="min(48vh, 510px)" paginationMode="server" sortingMode="server"
+          error={rows.error} sx={{ '& .picker-selection': { display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0, textOverflow: 'clip' } }} maxHeight="min(48vh, 510px)" paginationMode="server" sortingMode="server"
           paginationModel={f.page} sortModel={f.sort} onPaginationModelChange={page => change({ page })}
           onSortModelChange={sort => change({ sort, page: { ...f.page, page: 0 } })} />
       </Box>

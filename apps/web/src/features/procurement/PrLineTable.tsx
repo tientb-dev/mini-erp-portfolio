@@ -11,6 +11,8 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../../services/api-client';
 import { ErrorAlert, GridText, ScrollTable } from '../../shared/components';
 import { DocumentTotals } from '../../shared/components/DocumentTotals';
+import { DocumentNumericInput, displayDocumentNumber } from '../../shared/components/DocumentNumericInput';
+import { ValidationMessage, ValidationTooltip } from '../../shared/components/DocumentValidation';
 import { ProductPicker } from '../../shared/components/ProductPicker';
 import { decimalFromMinor, formatDocumentAmount, previewDocumentLine } from '../../shared/utils/document-money';
 import { trimDecimal } from '../../shared/utils/format';
@@ -45,13 +47,9 @@ export function PrLineTable({ lines, scale = 0, currency = 'VND', official, sele
   const firstLeft = onSelection ? 46 : 0;
   const field = (line: PrLine, key: Field, fallback: string) => inputs?.(line, key, fallback) ?? <GridText value={fallback || '—'} />;
   const money = (value: unknown) => formatDocumentAmount(value, scale, i18n.language);
-  const displayDecimal = (value: string) => {
-    const trimmed = trimDecimal(value);
-    return /^\d+(\.\d+)?$/.test(trimmed)
-      ? formatDocumentAmount(trimmed, trimmed.split('.')[1]?.length ?? 0, i18n.language) : trimmed;
-  };
-  return <Stack id="pr-lines" tabIndex={-1} spacing={0.5} sx={{ minWidth: 0 }}>
-    {toolbar}
+
+  return <Stack id="pr-lines" tabIndex={-1} spacing={0.5} sx={{ minWidth: 0, px: inputs ? 0 : 2 }}>
+    {toolbar ?? (!inputs && <Typography sx={{ fontWeight: 700, py: 0.5 }}>{t('prPhase.lines')}</Typography>)}
     <ScrollTable label={t('prPhase.lines')} maxHeight={inputs ? 'min(55dvh, 600px)' : 'clamp(118px, 35dvh, 440px)'}
       stickyLeftWidth={firstLeft + widths[0] + widths[1] + widths[2]}
       columnWidths={[...(onSelection ? [46] : []), ...widths, ...(editable ? [95] : [])]}>
@@ -92,8 +90,8 @@ export function PrLineTable({ lines, scale = 0, currency = 'VND', official, sele
             <TableCell>{field(line, 'brandId', line.brandName ?? '')}</TableCell>
             <TableCell>{field(line, 'supplierId', line.supplierName ?? '')}</TableCell>
             <TableCell>{field(line, 'unitOfMeasureId', line.uom)}</TableCell>
-            <TableCell align="right">{field(line, 'quantity', displayDecimal(line.quantity))}</TableCell>
-            <TableCell align="right">{field(line, 'unitPrice', displayDecimal(line.unitPrice))}</TableCell>
+            <TableCell align="right">{field(line, 'quantity', displayDocumentNumber(line.quantity, i18n.language, 3, true))}</TableCell>
+            <TableCell align="right">{field(line, 'unitPrice', displayDocumentNumber(line.unitPrice, i18n.language, 4, true))}</TableCell>
             <TableCell align="right"><GridText value={derived('net', line.subtotal)} /></TableCell>
             <TableCell align="right">{field(line, 'taxRateId', line.taxRate ? trimDecimal(line.taxRate) + '%' : '')}</TableCell>
             <TableCell align="right"><GridText value={derived('tax', line.taxAmount)} /></TableCell>
@@ -161,20 +159,23 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
     const error = (errors.get(line.key) as RowErrors)?.[key];
     const common = { fullWidth: true, size: 'small' as const, error: Boolean(error),
       sx: { '& .MuiInputBase-root': { height: 36 }, '& .MuiSelect-select': { overflow: 'hidden', textOverflow: 'ellipsis' } } };
-    function select(value: number | null | undefined, choices: Choice[], onSelect: (choice?: Choice) => void, disabled = false) {
+    function select(value: number | null | undefined, choices: Choice[], onSelect: (choice?: Choice) => void, disabled = false, selectedLabel?: string) {
       const options = value && !choices.some(item => item.id === value) ? [{ id: value, name: fallback }, ...choices] : choices;
       return <TextField {...common} select disabled={disabled} value={value ?? ''} onChange={e => onSelect(options.find(c => c.id === Number(e.target.value)))}
-        slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { maxWidth: '75vw' } } } }, inputProps: { 'aria-label': t(`prPhase.${key}`) } } }}>
+        slotProps={{ select: { ...(selectedLabel && { renderValue: () => selectedLabel }), MenuProps: { slotProps: { paper: { sx: { maxWidth: '75vw' } } } }, inputProps: { 'aria-label': t(`prPhase.${key}`) } } }}>
         <MenuItem value="">{t('pr.noSelection')}</MenuItem>
         {options.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
       </TextField>;
     }
     let input: ReactNode;
     switch (key) {
-      case 'requirementDescription': case 'quantity': case 'unitPrice':
+      case 'requirementDescription':
         input = <TextField {...common} value={line[key]} onChange={e => patch(line, { [key]: e.target.value })}
-          slotProps={{ htmlInput: { 'aria-label': t(`prPhase.${key === 'requirementDescription' ? 'requirement' : key}`), inputMode: key === 'requirementDescription' ? 'text' : 'decimal' },
-            ...(key !== 'requirementDescription' && { input: { sx: { '& input': { textAlign: 'right' } } } }) }} />;
+          slotProps={{ htmlInput: { 'aria-label': t('prPhase.requirement') } }} />;
+        break;
+      case 'quantity': case 'unitPrice':
+        input = <DocumentNumericInput error={common.error} sx={common.sx} precision={key === 'quantity' ? 3 : 4}
+          value={line[key]} inputLabel={t(`prPhase.${key}`)} alignRight onChange={value => patch(line, { [key]: value })} />;
         break;
       case 'brandId':
         if (!line.temporaryProductId) return <GridText value={fallback} />;
@@ -192,7 +193,7 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
         input = select(line.taxRateId, (taxes.data ?? []).map(x => ({
           ...x, name: (x.id === line.taxRateId ? line.taxRate : trimDecimal(x.rate ?? '')) + '% · ' + x.name,
         })),
-          tax => patch(line, { taxRateId: tax?.id ?? null, taxRate: trimDecimal(tax?.rate ?? '') }));
+          tax => patch(line, { taxRateId: tax?.id ?? null, taxRate: trimDecimal(tax?.rate ?? '') }), false, line.taxRateId ? trimDecimal(line.taxRate) + '%' : undefined);
         break;
       case 'salesContractLineId':
         input = select(line.salesContractLineId, contractLines.map((c, i) => ({ id: c.id, name: `${i + 1} · ${c.itemCode} · ${c.itemName}${c.itemDescription ? ' · ' + c.itemDescription : ''} · ${trimDecimal(c.quantity ?? '')}` })),
@@ -200,9 +201,9 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
         break;
       default: return undefined;
     }
-    return <Tooltip title={error === 'server' ? backendMessage : error ? t(`prPhase.${error}`) : ''} describeChild>
+    return <ValidationTooltip title={error === 'server' ? backendMessage : error ? t(`prPhase.${error}`) : ''}>
       <Box data-pr-invalid={error ? '' : undefined}>{input}</Box>
-    </Tooltip>;
+    </ValidationTooltip>;
   }
   function confirm() {
     setValidated(true);
@@ -223,16 +224,11 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
           <Typography sx={{ fontWeight: 700 }}>{t('prPhase.lines')}</Typography>
           <Button variant="contained" startIcon={<Add />} onClick={() => setPicker(true)}>{t('pr.addGoods')}</Button>
         </Stack>
-        <Box role="status" sx={{ height: 34, mb: 0.5, px: 1, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap',
-          overflow: 'hidden', ...(count ? { bgcolor: 'error.light', color: 'error.contrastText', borderRadius: 1 } : {}) }}>
+        <ValidationMessage warning={Boolean(count || backendMessage)}>
           {count ? <GridText value={t('prPhase.errorCount', { count })} /> : backendMessage && <GridText value={backendMessage} />}
-        </Box>
+        </ValidationMessage>
         {fetchError && <ErrorAlert error={fetchError} />}
         <PrLineTable lines={lines} scale={scale} currency={currency} inputs={control}
-          onEdit={index => {
-            const row = grid.current?.querySelectorAll('tbody tr')[index];
-            row?.querySelector('input')?.focus();
-          }}
           onDelete={index => setRemove(lines[index].key)} />
       </DialogContent>
       <DialogActions><Button startIcon={<Close />} variant="outlined" onClick={onClose}>{t('common.cancel')}</Button>

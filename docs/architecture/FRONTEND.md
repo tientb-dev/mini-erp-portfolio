@@ -221,3 +221,9 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 **COMMON-EDITABLE-GRID-002.** Dành sẵn một hàng thông báo lỗi. Khi xác nhận, đánh dấu các ô lỗi và hiện nguyên nhân qua tooltip khi hover hoặc focus. Cuộn đến và focus ô lỗi đầu tiên theo thứ tự dòng/cột, chừa khoảng cho sticky header và các cột sticky. Sửa giá trị cập nhật số lỗi mà không tự cuộn lại. API có thể trả `fieldIssue` gồm chỉ số dòng và tên trường để mở editor tại ô tương ứng.
 
 **COMMON-DOC-TOTAL-001.** Một hàng dưới grid, bên trái là số dòng, bên phải là tổng trước thuế, tổng thuế và tổng thanh toán. Mã tiền tệ theo sau tổng thanh toán. Preview dùng số nguyên theo đơn vị tiền nhỏ nhất, làm tròn mỗi dòng theo DEC-19-07. Chứng từ đã lưu dùng số tiền do backend trả.
+
+**Nhập ngày và số trên chứng từ.** DocumentDatePicker hiển thị ngày và placeholder theo locale, dùng `dd/mm/yyyy` cho tiếng Việt và trao đổi chuỗi `YYYY-MM-DD` với API. Nhập và kiểm tra ngày theo lịch trực tiếp trên chuỗi để giữ nguyên ngày qua các múi giờ. DocumentNumericInput hiển thị phân cách hàng nghìn theo locale, giữ chuỗi thập phân chính xác và để nguyên phần vượt precision cho validation DEC-19-07.
+
+**Validation trên grid.** Dùng token `error.main` cho icon, chữ và đường viền ở input, message và tooltip lỗi. Message và tooltip nền trắng. Slot thông báo giữ chiều cao cố định và tooltip thường giữ style mặc định.
+
+**Căn lề PR.** Form, toolbar, grid và tổng tiền dùng cùng lề ngang của card. Tiêu đề hàng hóa hiển thị cả khi View. Tổng tiền dùng cỡ chữ 16px, tổng thanh toán 18px màu chủ đạo, với divider nhẹ giữa ba nhóm.

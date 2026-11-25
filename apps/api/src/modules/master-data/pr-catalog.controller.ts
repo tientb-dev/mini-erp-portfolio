@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { ArrayUnique, IsArray, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
-import { DataSource } from 'typeorm';
-import { RequirePermissions } from '../identity/auth';
+import { DataSource, EntityManager } from 'typeorm';
+import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { BusinessError } from '../workflow/workflow';
 
 class CatalogEntryDto {
@@ -11,6 +11,10 @@ class CatalogEntryDto {
 
 class BrandDto extends CatalogEntryDto {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(50) code!: string;
+}
+class UpdateBrandDto extends BrandDto {
+  @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true })
+  supplierIds?: number[];
 }
 class TemporaryProductDto extends CatalogEntryDto {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(100) code!: string;
@@ -48,20 +52,20 @@ export class PrCatalogController {
 
   @Patch('brands/:id')
   @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
-  updateBrand(@Param('id', ParseIntPipe) id: number, @Body() dto: BrandDto) {
-    return this.saveBrand(dto, id);
+  updateBrand(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateBrandDto, @Req() request: AuthedRequest) {
+    if (dto.supplierIds && !request.user.permissions.includes('SUPPLIER.VIEW')) throw new ForbiddenException();
+    return this.ds.transaction(async m => {
+      const [[brand]] = await m.query('UPDATE brands SET code = $2, name = $3 WHERE id = $1 RETURNING id, code, name',
+        [id, dto.code.trim(), dto.name.trim()]);
+      if (!brand) throw new NotFoundException();
+      if (dto.supplierIds) await this.replaceBrandSuppliers(m, id, dto.supplierIds);
+      return brand;
+    });
   }
 
-  private async saveBrand(dto: BrandDto, id?: number) {
-    const values = [dto.code.trim(), dto.name.trim()];
-    if (id === undefined) {
-      const [row] = await this.ds.query(`INSERT INTO brands (code, name)
-        VALUES ($1, $2) RETURNING id, code, name`, values);
-      return row;
-    }
-    const [[row]] = await this.ds.query(`UPDATE brands SET code = $1, name = $2
-      WHERE id = $3 RETURNING id, code, name`, [...values, id]);
-    if (!row) throw new NotFoundException();
+  private async saveBrand(dto: BrandDto) {
+    const [row] = await this.ds.query('INSERT INTO brands (code, name) VALUES ($1, $2) RETURNING id, code, name',
+      [dto.code.trim(), dto.name.trim()]);
     return row;
   }
 
@@ -208,8 +212,12 @@ export class PrCatalogController {
     return this.ds.transaction(async m => {
       const [brand] = await m.query('SELECT id FROM brands WHERE id = $1 FOR UPDATE', [id]);
       if (!brand) throw new NotFoundException();
-      await m.query('DELETE FROM brand_suppliers WHERE brand_id = $1', [id]);
-      await m.query('INSERT INTO brand_suppliers (brand_id, supplier_id) SELECT $1, unnest($2::int[])', [id, dto.supplierIds]);
+      await this.replaceBrandSuppliers(m, id, dto.supplierIds);
     });
+  }
+
+  private async replaceBrandSuppliers(m: EntityManager, id: number, supplierIds: number[]) {
+    await m.query('DELETE FROM brand_suppliers WHERE brand_id = $1', [id]);
+    await m.query('INSERT INTO brand_suppliers (brand_id, supplier_id) SELECT $1, unnest($2::int[])', [id, supplierIds]);
   }
 }

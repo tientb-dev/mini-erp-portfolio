@@ -80,7 +80,7 @@ Hướng cho phép: `app → features → (features khác qua index) → shared/
 
 | Component | Dùng khi | Ví dụ thật |
 |---|---|---|
-| `ListPageLayout` | Trang danh sách: `title`, `actions` (header), `toolbar` (tìm kiếm/lọc do feature tự làm), `error`, `breadcrumbs`, `children` (bảng) | `procurement/DocListPage.tsx`, `master-data/ProductsPage.tsx` |
+| `ListPageLayout` | Trang danh sách: `title`, `actions` (header), `toolbar` (tìm kiếm/lọc do feature tự làm), `error`, `breadcrumbs`, `children` (bảng) | `procurement/DocListPage.tsx`, `master-data/CatalogPage.tsx` |
 | `DataTable` | Bảng: DataGrid compact, sort/phân trang/empty/loading sẵn; `emptyHint` | mọi trang |
 | `DetailPageLayout` | Chi tiết chứng từ: `title` + `documentNumber`, `status`, `actions`, `notice`, `breadcrumbs`, `backTo` (mũi tên Back về route cố định, không dựa browser history); `loading` → thanh tiến trình, `error` khi tải lỗi | `procurement/DocDetailView.tsx` |
 | `DetailTabs` | Tab do feature cấp `{ key, label, content, hidden? }`; tự quản lý hoặc `value`/`onChange` theo key | `procurement/DocDetailView.tsx` |
@@ -184,6 +184,20 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 **COMMON-DOC-NAV-001, DOC-LINE-001, FE-VALIDATION-001.** Giữ tham số danh sách khi đi và quay lại. Cảnh báo khi rời trang có thay đổi. State sống ở editor nên chuyển tab và lỗi API giữ nội dung nhập. Lưu nháp và Gửi duyệt đều cần ít nhất một dòng hợp lệ. Gửi duyệt cần thêm ứng viên hợp lệ. Hiển thị validation cạnh trường và đánh dấu tab lỗi.
 
 **UI-15, UI-EVIDENCE-001.** Popup kết quả dùng chung chiều rộng 460px, chiều cao tối thiểu 260px và icon 64px nền tròn có dấu check hoặc X trắng. Nội dung dùng câu theo action và mã chứng từ. Thành công nêu trạng thái mới nếu thay đổi và tự đóng sau khoảng 3 giây. Thất bại hiển thị nguyên nhân dạng chữ và nút Đã hiểu. Kiểm tra trực tiếp Before/After trên Chromium với API và PostgreSQL test ở 1920×1080 và 1366×768.
+
+
+## COMMON-MASTER-DATA-001 — Danh mục
+
+- Mỗi danh mục có mục điều hướng riêng. List dùng ListPageLayout, FilterToolbar và DataTable với tìm kiếm theo mã/tên không phân biệt hoa thường, bộ lọc phù hợp, phân trang và các trạng thái tải/rỗng/lỗi. Giữ bộ lọc và phân trang trong URL. Mã là liên kết tới View, thao tác xóa nếu có đặt tại chi tiết.
+- Dùng cùng form cho Create, View và Edit. Create chưa có ID, View/Edit dùng cùng ID. Lưu Create về List, lưu hoặc hủy Edit về View, đóng View hoặc hủy Create về List. View chỉ đọc, hiện Chỉnh sửa theo quyền. Create/Edit dùng cùng validation, chỉ rõ lỗi tại trường tương ứng và xác nhận bỏ thay đổi chưa lưu.
+- Mã chính, Hãng, Khách hàng, NCC dùng full page với DetailPageLayout, lưới 12 cột và card chiều cao tự nhiên. Mã tạm, ĐVT, Kho, Tiền tệ và Thuế suất dùng FormDialog. View chuyển sang Edit trong cùng popup. Nút chính nằm bên phải nút phụ.
+- Hiển thị tỷ giá, thuế suất theo locale và bỏ số 0 cuối phần thập phân. Giá trị lưu giữ nguyên precision. Chỉ dùng tooltip cho giá trị bị cắt hoặc biểu tượng cần giải thích.
+
+## COMMON-MASTER-DATA-STATUS-001 — Trạng thái danh mục
+
+- Chỉ danh mục có trạng thái dùng MUI Switch trên List. Active dùng primary, Inactive dùng màu trung tính; hiển thị nhãn và khóa thao tác nếu thiếu quyền. Create mặc định Active. View đọc trạng thái, Edit tập trung vào thông tin danh mục.
+- Xác nhận trước khi chuyển Inactive, kích hoạt lại trực tiếp. Gửi trạng thái đích tới API, khóa Switch của bản ghi trong khi xử lý, cập nhật khi thành công và giữ giá trị hiện tại nếu lỗi. Dùng Snackbar để phản hồi.
+- Chỉ hiển thị lựa chọn hoạt động cho nghiệp vụ mới. Chứng từ và liên kết lịch sử giữ nguyên. Điều kiện nghiệp vụ phụ thuộc phải qua BA trước khi bổ sung; trạng thái không cascade.
 
 ## UI-EVIDENCE-001 — Kiểm chứng bằng trình duyệt
 

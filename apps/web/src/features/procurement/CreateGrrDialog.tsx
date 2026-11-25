@@ -17,7 +17,7 @@ export function CreateGrrDialog({ onClose, onCreated, edit }: CreateProps) {
   const [warehouseId, setWarehouseId] = useState(edit ? String(edit.warehouseId) : '');
   const [qty, setQty] = useState<Record<number, string>>(() => editQty(edit));
   const pos = useQuery({ queryKey: ['po', 'list', false], queryFn: () => api<DocRow[]>('/purchase-orders?assignedToMe=false') });
-  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/warehouses') });
+  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string; isActive?: boolean }[]>('/warehouses') });
   const lines = useQuery({ queryKey: ['po-lines-for-grr', poId], queryFn: () => api<SourceLine[]>(`/purchase-orders/${poId}/lines-available-for-grr`), enabled: Boolean(poId) });
   const picked = withEditLines(pickedLines(lines.data, qty), edit, lines.data);
   const create = useMutation({
@@ -34,7 +34,7 @@ export function CreateGrrDialog({ onClose, onCreated, edit }: CreateProps) {
         {approvedPos.map((p) => <MenuItem key={p.id} value={p.id}>{p.documentNumber}: {String(p.supplierName)}</MenuItem>)}
       </TextField>
       <TextField select disabled={Boolean(edit)} label={t('inventory.warehouse')} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
-        {(warehouses.data ?? []).filter((w) => me.data?.warehouseIds.includes(w.id)).map((w) => <MenuItem key={w.id} value={w.id}>{w.code}: {w.name}</MenuItem>)}
+        {(warehouses.data ?? []).filter((w) => me.data?.warehouseIds.includes(w.id) && (w.isActive !== false || w.id === edit?.warehouseId)).map((w) => <MenuItem key={w.id} value={w.id}>{w.code}: {w.name}</MenuItem>)}
       </TextField>
       {poId && lines.data?.length === 0 && <Typography variant="body2" color="text.secondary">{t('grr.noLines')}</Typography>}
       <SourceLinesPicker lines={lines.data ?? []} qty={qty} setQty={setQty} />

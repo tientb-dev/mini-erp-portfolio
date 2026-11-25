@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, MaxLength } from "class-validator";
+import { IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, Matches, MaxLength } from "class-validator";
 
 /** A line created from a source document line (PO from PR, GRR from PO, ...). */
 export class SourceLineDto {
@@ -17,8 +17,8 @@ export class ReasonDto {
 }
 
 export class CodeNameDto {
-  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(50) code!: string;
-  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(300) name!: string;
+  @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(50) code!: string;
+  @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(300) name!: string;
 }
 
 /** Cancel: reason optional for DRAFT/REJECTED, required by the service for APPROVED documents. */

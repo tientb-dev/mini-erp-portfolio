@@ -21,7 +21,7 @@ export function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; o
   const [warehouseId, setWarehouseId] = useState('');
   const [lines, setLines] = useState<Record<number, { productId: string; quantity: string }>>({});
   const contracts = useQuery({ queryKey: ['scs'], queryFn: () => api<{ id: number; documentNumber: string; status: string; customerName: string }[]>('/sales-contracts') });
-  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string; allowAvailableStockIssue: boolean }[]>('/warehouses') });
+  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string; isActive?: boolean; allowAvailableStockIssue: boolean }[]>('/warehouses') });
   const scLines = useQuery({ queryKey: ['sc-lines', scId], queryFn: () => api<ScLine[]>(`/sales-contracts/${scId}/lines`), enabled: Boolean(scId) });
   const isPr = issueType === 'PURCHASE_REQUISITION';
   const isD = !isPr && category === 'MATERIAL';
@@ -55,7 +55,7 @@ export function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; o
     }),
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['girs'] }); onCreated(r.id); },
   });
-  const allowedWarehouses = (warehouses.data ?? []).filter((w) => me.data?.warehouseIds.includes(w.id) && (issueType !== 'AVAILABLE_STOCK' || w.allowAvailableStockIssue));
+  const allowedWarehouses = (warehouses.data ?? []).filter((w) => me.data?.warehouseIds.includes(w.id) && w.isActive !== false && (issueType !== 'AVAILABLE_STOCK' || w.allowAvailableStockIssue));
   return (
     <FormDialog title={t('gir.create')} submitLabel={t('gir.create')} error={create.error} pending={create.isPending}
       canSubmit={Boolean(scId && warehouseId && (isPr ? prChosen.length : source && (isD ? dChosen.length && purpose.trim() : chosen.length)))}

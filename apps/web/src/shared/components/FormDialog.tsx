@@ -11,7 +11,7 @@ import { ErrorAlert } from './ErrorAlert';
  * errors, so the parent closes it only from the mutation's onSuccess.
  */
 export function FormDialog(props: {
-  title: string; submitLabel: string; error: unknown; pending: boolean; canSubmit: boolean; onSubmit: () => void; onClose: () => void; children: ReactNode;
+  title: string; submitLabel?: string; closeLabel?: string; error: unknown; pending: boolean; canSubmit: boolean; onSubmit: () => void; onClose: () => void; children: ReactNode;
   /** Unsaved input: closing asks for confirmation. */ dirty?: boolean;
   /** `error` for destructive actions (delete, cancel). */ submitColor?: 'primary' | 'error';
   /** One short line under the title (what to enter, what happens). */ description?: ReactNode;
@@ -54,9 +54,9 @@ export function FormDialog(props: {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button variant="outlined" onClick={requestClose} disabled={props.pending}>{t('common.cancel')}</Button>
-          <Button type="submit" variant={props.submitColor === 'error' ? 'outlined' : 'contained'} startIcon={props.submitIcon}
-            color={props.submitColor ?? 'primary'} disabled={!props.canSubmit || props.pending}>{props.submitLabel}</Button>
+          <Button variant="outlined" onClick={requestClose} disabled={props.pending}>{props.closeLabel ?? t('common.cancel')}</Button>
+          {props.submitLabel && <Button type="submit" variant={props.submitColor === 'error' ? 'outlined' : 'contained'} startIcon={props.submitIcon}
+            color={props.submitColor ?? 'primary'} disabled={!props.canSubmit || props.pending}>{props.submitLabel}</Button>}
         </DialogActions>
       </Dialog>
       {router && !props.pageGuardsNavigation && (props.dirty || props.pending)

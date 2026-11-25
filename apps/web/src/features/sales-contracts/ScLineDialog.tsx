@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, Box, MenuItem, TextField } from '@mui/material';
+import { Box, FormControl, FormControlLabel, FormLabel, MenuItem, Radio, RadioGroup, Stack, TextField } from '@mui/material';
 import { api } from '../../services/api-client';
-import { FormDialog } from '../../shared/components';
+import { DuplicateCodeWarning, findDuplicateCodeRows, FormDialog } from '../../shared/components';
 import { Product, Uom } from '../master-data';
 import { ScLine } from './types';
 
@@ -38,8 +38,7 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
     ? [...options, { id: Number(initial.catalogId), code: initial.itemCode, name: initial.itemName,
         description: initial.itemDescription, uom: initial.unitOfMeasureId }]
     : options;
-  const duplicate = Boolean(f.itemCode.trim()) && lines.some(other => other.id !== line?.id
-    && other.itemCode.trim().toLowerCase() === f.itemCode.trim().toLowerCase());
+  const duplicateRows = findDuplicateCodeRows(lines)(f.itemCode, line?.id);
   const save = useMutation({
     mutationFn: () => {
       const body = JSON.stringify({
@@ -58,12 +57,18 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
   return (
     <FormDialog title={t(line ? 'sc.editItem' : 'sc.addItem')} submitLabel={t(line ? 'doc.saveEdit' : 'sc.saveItem')} error={save.error ?? uoms.error ?? (f.source === 'main' ? products.error : f.source === 'temporary' ? temporary.error : null)} pending={save.isPending}
       canSubmit={Boolean(valid)} onSubmit={() => save.mutate()} onClose={onClose} dirty={dirty} description={t('sc.lineDialogHint')}>
-      {/* Layout rule: text fields take the full row; quantity and its unit share one row (read together, e.g. "4 Cái"). */}
-      <TextField select label={t('prCatalog.source')} value={f.source}
-        onChange={event => setF({ ...f, source: event.target.value, catalogId: '' })}>
-        {['free', 'main', 'temporary'].map(source => <MenuItem key={source} value={source}>{t(`prCatalog.${source}`)}</MenuItem>)}
-      </TextField>
-      {f.source !== 'free' && <TextField select required label={t('prCatalog.item')} value={shownOptions.some(item => String(item.id) === f.catalogId) ? f.catalogId : ''}
+      <FormControl>
+        <FormLabel id="sc-line-source">{t('prCatalog.source')}</FormLabel>
+        <RadioGroup row aria-labelledby="sc-line-source" value={f.source} onChange={event =>
+          setF({ ...f, source: event.target.value, catalogId: '' })}>
+          {['main', 'temporary', 'free'].map(source => <FormControlLabel key={source} value={source} control={<Radio size="small" />}
+            label={t(`prCatalog.${source}`)} />)}
+        </RadioGroup>
+      </FormControl>
+      <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
+        <Stack direction="row" sx={{ alignItems: 'center' }}>
+          {f.source === 'free' ? <TextField fullWidth size="small" label={t('sc.itemCode')} value={f.itemCode} onChange={set('itemCode')} required autoFocus /> :
+          <TextField fullWidth size="small" select required label={t('prCatalog.item')} value={shownOptions.some(item => String(item.id) === f.catalogId) ? f.catalogId : ''}
         onChange={event => {
           const item = shownOptions.find(option => String(option.id) === event.target.value);
           if (!item) return;
@@ -74,17 +79,17 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
         }}>
         {shownOptions.map(item => <MenuItem key={item.id} value={String(item.id)}>{item.code} - {item.name}</MenuItem>)}
       </TextField>}
-      {duplicate && <Alert severity="warning">{t('prCatalog.duplicate')}</Alert>}
-      <TextField label={t('sc.itemCode')} value={f.itemCode} onChange={set('itemCode')} disabled={f.source !== 'free'} required autoFocus />
-      <TextField label={t('sc.itemName')} value={f.itemName} onChange={set('itemName')} disabled={f.source !== 'free'} required />
-      <TextField label={t('prCatalog.description')} value={f.itemDescription} onChange={set('itemDescription')} disabled={f.source !== 'free'} multiline />
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
-        <TextField label={t('gr.quantity')} type="number" value={f.quantity} onChange={set('quantity')} required
+          <DuplicateCodeWarning rows={duplicateRows} />
+        </Stack>
+        <TextField size="small" label={t('sc.itemName')} value={f.itemName} onChange={set('itemName')}
+          slotProps={{ input: { readOnly: f.source !== 'free' } }} required />
+        <TextField size="small" label={t('gr.quantity')} type="number" value={f.quantity} onChange={set('quantity')} required
           slotProps={{ htmlInput: { min: 0, step: 'any', inputMode: 'decimal' } }} />
-        <TextField select label={t('sc.uom')} value={uoms.data?.some(uom => String(uom.id) === f.unitOfMeasureId) ? f.unitOfMeasureId : ''} onChange={set('unitOfMeasureId')} disabled={f.source === 'main'} required>
+        <TextField size="small" select label={t('sc.uom')} value={uoms.data?.some(uom => String(uom.id) === f.unitOfMeasureId) ? f.unitOfMeasureId : ''} onChange={set('unitOfMeasureId')} disabled={f.source === 'main'} required>
           {(uoms.data ?? []).map((u) => <MenuItem key={u.id} value={String(u.id)}>{u.name} ({u.code})</MenuItem>)}
         </TextField>
       </Box>
+      <TextField size="small" label={t('master.lineRequirement')} value={f.itemDescription} onChange={set('itemDescription')} multiline minRows={2} />
     </FormDialog>
   );
 }

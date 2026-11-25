@@ -222,12 +222,12 @@ export class SalesContractsService {
     };
     if (productId !== null || temporaryProductId !== null) {
       if (existing && productId === existing.productId && temporaryProductId === existing.temporaryProductId) {
-        snapshot = { code: existing.itemCode, name: existing.itemName, description: existing.itemDescription ?? null,
+        snapshot = { code: existing.itemCode, name: existing.itemName, description: snapshot.description,
           unitOfMeasureId: productId === null ? line.unitOfMeasureId : existing.unitOfMeasureId };
       } else {
         const item = await CatalogFacade.contractItem(m, productId, temporaryProductId);
         if (!item) throw new BusinessError('SC_LINE_CATALOG_ITEM_NOT_FOUND', 'Catalog item was not found or is inactive');
-        snapshot = { ...item, unitOfMeasureId: item.unitOfMeasureId ?? line.unitOfMeasureId };
+        snapshot = { ...item, description: line.itemDescription === undefined ? item.description : line.itemDescription, unitOfMeasureId: item.unitOfMeasureId ?? line.unitOfMeasureId };
         if (productId !== null) await ProductUsage.markUsed(m, productId, { stock: false });
       }
     }

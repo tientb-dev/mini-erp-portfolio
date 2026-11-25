@@ -28,7 +28,7 @@
 - GRR **không được Gửi duyệt** nếu UoM dòng GRR khác UoM hiện hành của mã chính; không có cơ chế xác nhận để vượt qua. Backend kiểm tra từng dòng GRR.
 - Điều chỉnh PO (đổi UoM/số lượng PO đã duyệt) và quy đổi UoM: **ngoài MVP**.
 - GRR Nháp được giữ mã tạm; **tất cả dòng GRR phải có mã chính trước Gửi duyệt**. GR, GIR, GI và Inventory chỉ dùng mã chính.
-- Dòng HĐ chọn mã chính, mã tạm hoặc nhập tự do. Tối đa một tham chiếu danh mục, có snapshot riêng. Product được phép giao quản lý riêng (§9.2).
+- Dòng HĐ chọn mã chính, mã tạm hoặc nhập tự do. Tối đa một tham chiếu danh mục, có snapshot riêng. Mô tả yêu cầu của dòng có thể khởi tạo từ danh mục và chỉnh sửa riêng trên HĐ nháp cho cả ba loại nguồn. Product được phép giao quản lý riêng (§9.2).
 - Mã tạm không có bản dịch trong MVP.
 - Auto Mapping hàng loạt: ngoài MVP.
 

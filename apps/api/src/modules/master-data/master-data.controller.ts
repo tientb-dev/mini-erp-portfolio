@@ -1,12 +1,20 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { Repository } from 'typeorm';
 import { CodeNameDto } from "../../common/dto";
 import { RequirePermissions } from '../identity/auth';
 import { Product, UnitOfMeasure, Warehouse } from './master-data.entities';
 import { ProductUsage } from './product-usage';
+
+class StatusDto {
+  @ApiProperty() @IsBoolean() isActive!: boolean;
+}
+class UomDto {
+  @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(20) code!: string;
+  @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(100) name!: string;
+}
 
 class CreateProductDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(100) partNumber!: string;
@@ -43,6 +51,20 @@ export class MasterDataController {
     return this.uoms.find({ order: { code: 'ASC' } });
   }
 
+  @Post('units-of-measure')
+  @RequirePermissions('UOM.MANAGE')
+  createUom(@Body() dto: UomDto) {
+    return this.uoms.save(this.uoms.create({ code: dto.code.trim(), name: dto.name.trim() }));
+  }
+
+  @Patch('units-of-measure/:id')
+  @HttpCode(204)
+  @RequirePermissions('UOM.MANAGE')
+  async updateUom(@Param('id', ParseIntPipe) id: number, @Body() dto: UomDto) {
+    const result = await this.uoms.update(id, { code: dto.code.trim(), name: dto.name.trim() });
+    if (!result.affected) throw new NotFoundException();
+  }
+
   @Get('products')
   @RequirePermissions('PRODUCT.VIEW')
   listProducts() {
@@ -67,6 +89,12 @@ export class MasterDataController {
     });
   }
 
+  @Patch('products/:id/status')
+  @RequirePermissions('PRODUCT.UPDATE')
+  updateProductStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return this.updateProduct(id, dto);
+  }
+
   @Get('customers')
   @RequirePermissions('CUSTOMER.VIEW')
   listCustomers() {
@@ -82,15 +110,35 @@ export class MasterDataController {
   @Post("customers")
   @RequirePermissions("CUSTOMER.CREATE")
   async createCustomer(@Body() dto: CodeNameDto) {
-    const [row] = await this.products.manager.query(`INSERT INTO customers (code, name) VALUES ($1, $2) RETURNING id`, [dto.code, dto.name]);
+    const [row] = await this.products.manager.query(`INSERT INTO customers (code, name) VALUES ($1, $2) RETURNING id`, [dto.code.trim(), dto.name.trim()]);
     return row;
   }
 
   @Post("suppliers")
   @RequirePermissions("SUPPLIER.CREATE")
   async createSupplier(@Body() dto: CodeNameDto) {
-    const [row] = await this.products.manager.query(`INSERT INTO suppliers (code, name) VALUES ($1, $2) RETURNING id`, [dto.code, dto.name]);
+    const [row] = await this.products.manager.query(`INSERT INTO suppliers (code, name) VALUES ($1, $2) RETURNING id`, [dto.code.trim(), dto.name.trim()]);
     return row;
+  }
+
+  @Patch('customers/:id')
+  @HttpCode(204)
+  @RequirePermissions('CUSTOMER.UPDATE')
+  async updateCustomer(@Param('id', ParseIntPipe) id: number, @Body() dto: CodeNameDto) {
+    const [, count] = await this.products.manager.query(
+      'UPDATE customers SET code = $2, name = $3 WHERE id = $1', [id, dto.code.trim(), dto.name.trim()],
+    );
+    if (!count) throw new NotFoundException();
+  }
+
+  @Patch('suppliers/:id')
+  @HttpCode(204)
+  @RequirePermissions('SUPPLIER.UPDATE')
+  async updateSupplier(@Param('id', ParseIntPipe) id: number, @Body() dto: CodeNameDto) {
+    const [, count] = await this.products.manager.query(
+      'UPDATE suppliers SET code = $2, name = $3 WHERE id = $1', [id, dto.code.trim(), dto.name.trim()],
+    );
+    if (!count) throw new NotFoundException();
   }
 
   @Get('warehouses')
@@ -108,8 +156,20 @@ export class MasterDataController {
   @Patch('warehouses/:id')
   @RequirePermissions('WAREHOUSE.UPDATE')
   async updateWarehouse(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateWarehouseDto) {
+    if (Object.keys(dto).length) {
+      const result = await this.warehouses.update(id, dto);
+      if (!result.affected) throw new NotFoundException();
+    }
     const warehouse = await this.warehouses.findOneBy({ id });
     if (!warehouse) throw new NotFoundException();
-    return this.warehouses.save(this.warehouses.merge(warehouse, dto));
+    return warehouse;
+  }
+
+  @Patch('warehouses/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('WAREHOUSE.UPDATE')
+  async updateWarehouseStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    const result = await this.warehouses.update(id, { isActive: dto.isActive });
+    if (!result.affected) throw new NotFoundException();
   }
 }

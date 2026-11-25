@@ -4,6 +4,7 @@ import type { CurrentUser } from '../identity/auth';
 import { InventoryFacade, normalizeSerial } from '../inventory/inventory.service';
 import { ProcurementFacade } from '../procurement/procurement.service';
 import { SalesContractFacade } from '../sales-contracts/sales-contracts.service';
+import { CatalogFacade } from '../master-data/catalog.facade';
 import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
@@ -51,6 +52,7 @@ export class InboundService {
     wf.assertWarehouse(user, warehouseId);
     wf.assertUniqueSourceLines(lines.map(line => line.sourceLineId));
     return this.ds.transaction(async (m) => {
+      await CatalogFacade.assertActiveWarehouse(m, warehouseId);
       const [po] = await m.query(`SELECT approval_status FROM purchase_orders WHERE id = $1 FOR SHARE`, [purchaseOrderId]);
       if (!po) throw new NotFoundException('PO not found');
       if (po.approval_status !== 'APPROVED') throw new BusinessError('SOURCE_NOT_APPROVED', 'GRR requires an APPROVED PO');

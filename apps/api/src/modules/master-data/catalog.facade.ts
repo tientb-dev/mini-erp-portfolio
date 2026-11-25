@@ -1,6 +1,12 @@
 import { EntityManager } from 'typeorm';
+import { BusinessError } from '../workflow/workflow';
 
 export class CatalogFacade {
+  static async assertActiveWarehouse(m: EntityManager, id: number) {
+    const [warehouse] = await m.query('SELECT id FROM warehouses WHERE id = $1 AND is_active FOR SHARE', [id]);
+    if (!warehouse) throw new BusinessError('WAREHOUSE_NOT_FOUND', 'Warehouse not found or inactive');
+  }
+
   static async contractItem(m: EntityManager, productId: number | null, temporaryProductId: number | null) {
     const [item] = productId !== null
       ? await m.query(`SELECT part_number AS code, name, description, unit_of_measure_id AS "unitOfMeasureId"

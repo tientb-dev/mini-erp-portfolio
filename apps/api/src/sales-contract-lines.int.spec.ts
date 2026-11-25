@@ -103,10 +103,43 @@ describe('Sales contract lines (integration)', () => {
     await post(sales, `/sales-contracts/${sc}/lines`, bad).expect(422);
     await expect(ds.query('UPDATE sales_contract_lines SET product_id=$2 WHERE id=$1',
       [temporaryLine.id, product.id])).rejects.toMatchObject({ code: '23514' });
-    await patch(sales, `/sales-contract-lines/${temporaryLine.id}`, { ...line('CHANGED', 2), temporaryProductId: temporary.id,
+    await patch(sales, `/sales-contract-lines/${temporaryLine.id}`, { ...line('CHANGED', 2), temporaryProductId: temporary.id, itemDescription: 'Contract requirement',
       version: detailBefore.version }).expect(204);
     const changed = (await get(sales, `/sales-contracts/${sc}`).expect(200)).body.lines[1];
-    expect(changed).toMatchObject({ id: temporaryLine.id, itemCode: 'MIXED', itemDescription: 'Original', quantity: '2.000' });
+    expect((await get(sales, '/temporary-products').expect(200)).body).toContainEqual(expect.objectContaining({ id: temporary.id, description: 'Updated' }));
+    expect(changed).toMatchObject({ id: temporaryLine.id, itemCode: 'MIXED', itemDescription: 'Contract requirement', quantity: '2.000' });
+  });
+
+  it('Phase 1.1: edits catalogs by permission and sets explicit active status', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const uom = (await post(admin, '/units-of-measure', { code: 'P11', name: 'Pack' }).expect(201)).body;
+    await patch(sales, `/units-of-measure/${uom.id}`, { code: 'P11', name: 'Pack 11' }).expect(403);
+    await patch(admin, `/units-of-measure/${uom.id}`, { code: 'P11', name: 'Pack 11' }).expect(204);
+    const customer = (await post(admin, '/customers', { code: 'C11', name: 'Customer 11' }).expect(201)).body;
+    await patch(sales, `/customers/${customer.id}`, { code: 'C11', name: 'Edited' }).expect(403);
+    await patch(admin, `/customers/${customer.id}`, { code: 'C11', name: 'Edited' }).expect(204);
+    const supplier = (await post(admin, '/suppliers', { code: 'S11', name: 'Supplier 11' }).expect(201)).body;
+    await patch(admin, `/suppliers/${supplier.id}`, { code: 'S11', name: 'Supplier edited' }).expect(204);
+    await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [supplier.id] }).expect(200);
+    await patch(admin, '/brands/1', { code: 'TEST', name: 'Rolled back', supplierIds: [999999] }).expect(409);
+    expect((await get(admin, '/brands').expect(200)).body).toContainEqual({ id: 1, code: 'TEST', name: 'Renamed' });
+    expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([{ id: supplier.id, code: 'S11', name: 'Supplier edited' }]);
+    await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [] }).expect(200);
+    expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([]);
+    expect((await get(admin, '/suppliers').expect(200)).body).toContainEqual({ id: supplier.id, code: 'S11', name: 'Supplier edited' });
+
+    const product = (await post(admin, '/products', {
+      partNumber: 'P11', name: 'Product 11', unitOfMeasureId: uom.id, brandId: 1,
+    }).expect(201)).body;
+    await patch(sales, `/products/${product.id}/status`, { isActive: false }).expect(403);
+    await patch(admin, `/products/${product.id}/status`, { isActive: 'false' }).expect(400);
+    for (const isActive of [false, false, true]) {
+      const result = await patch(admin, `/products/${product.id}/status`, { isActive }).expect(200);
+      expect(result.body).toMatchObject({ id: product.id, isActive, name: 'Product 11' });
+    }
+    const warehouse = (await post(admin, '/warehouses', { code: 'W11', name: 'Warehouse 11' }).expect(201)).body;
+    await patch(admin, `/warehouses/${warehouse.id}/status`, { isActive: false }).expect(204);
+    expect((await get(admin, '/warehouses').expect(200)).body).toContainEqual(expect.objectContaining({ id: warehouse.id, isActive: false }));
   });
 
   it('creates a header-only DRAFT; activation needs at least one line', async () => {

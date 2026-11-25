@@ -25,7 +25,6 @@ export interface Catalog {
   create: string;
   update: string;
   fullPage?: boolean;
-  status?: boolean;
   remove?: boolean;
   fields: FieldKey[];
   columns?: FieldKey[];
@@ -34,14 +33,14 @@ export interface Catalog {
 const manage = 'PROCUREMENT_CATALOG.MANAGE';
 export const catalogs = {
   products: { key: 'products', path: 'products', create: 'PRODUCT.CREATE', update: 'PRODUCT.UPDATE', fullPage: true,
-    status: true, fields: ['partNumber', 'name', 'brandId', 'unitOfMeasureId', 'isSerialTracked', 'description'],
+    fields: ['partNumber', 'name', 'brandId', 'unitOfMeasureId', 'isSerialTracked', 'description'],
     columns: ['brandId', 'unitOfMeasureId', 'isSerialTracked'] },
   temporaryProducts: { key: 'temporaryProducts', path: 'temporary-products', create: manage, update: manage,
     remove: true, fields: ['code', 'name', 'description'], columns: ['description'] },
   brands: { key: 'brands', path: 'brands', create: manage, update: manage, fullPage: true, remove: true, fields: ['code', 'name'] },
   unitsOfMeasure: { key: 'unitsOfMeasure', path: 'units-of-measure', create: 'UOM.MANAGE', update: 'UOM.MANAGE', fields: ['code', 'name'] },
   warehouses: { key: 'warehouses', path: 'warehouses', create: 'WAREHOUSE.CREATE', update: 'WAREHOUSE.UPDATE',
-    status: true, fields: ['code', 'name', 'allowAvailableStockIssue'], columns: ['allowAvailableStockIssue'] },
+    fields: ['code', 'name', 'allowAvailableStockIssue'], columns: ['allowAvailableStockIssue'] },
   customers: { key: 'customers', path: 'customers', create: 'CUSTOMER.CREATE', update: 'CUSTOMER.UPDATE', fullPage: true, fields: ['code', 'name'] },
   suppliers: { key: 'suppliers', path: 'suppliers', create: 'SUPPLIER.CREATE', update: 'SUPPLIER.UPDATE', fullPage: true, fields: ['code', 'name'] },
   currencies: { key: 'currencies', path: 'currencies', create: manage, update: manage, remove: true,

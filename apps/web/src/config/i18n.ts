@@ -41,6 +41,14 @@ const vi = {
     "editAction": "Chỉnh sửa",
     "search": "Tìm theo mã hoặc tên",
     "statusSaved": "Đã cập nhật trạng thái",
+    statusErrors: {
+      "CATALOG_HAS_ACTIVE_PRODUCTS": "Danh mục này vẫn còn mã chính đang sử dụng.",
+      "DEFAULT_CURRENCY_REQUIRED": "Tiền tệ mặc định VND phải luôn được sử dụng.",
+      "WAREHOUSE_HAS_STOCK": "Kho vẫn còn tồn hàng.",
+      "WAREHOUSE_HAS_UNFINISHED_DOCUMENTS": "Kho vẫn còn chứng từ chưa hoàn tất.",
+      "BRAND_NOT_FOUND": "Hãng không tồn tại hoặc đã ngừng sử dụng.",
+      "UOM_NOT_FOUND": "Đơn vị tính không tồn tại hoặc đã ngừng sử dụng."
+    },
     "active": "Đang sử dụng",
     "inactive": "Ngừng sử dụng",
     "disableTitle": "Ngừng sử dụng {{code}}?",
@@ -365,6 +373,14 @@ const en: typeof vi = {
     "editAction": "Edit",
     "search": "Search by code or name",
     "statusSaved": "Status updated",
+    statusErrors: {
+      "CATALOG_HAS_ACTIVE_PRODUCTS": "Active main products still use this record.",
+      "DEFAULT_CURRENCY_REQUIRED": "The default VND currency must remain active.",
+      "WAREHOUSE_HAS_STOCK": "This warehouse still has stock.",
+      "WAREHOUSE_HAS_UNFINISHED_DOCUMENTS": "This warehouse has unfinished warehouse documents.",
+      "BRAND_NOT_FOUND": "The brand is missing or inactive.",
+      "UOM_NOT_FOUND": "The unit of measure is missing or inactive."
+    },
     "active": "Active",
     "inactive": "Inactive",
     "disableTitle": "Deactivate {{code}}?",

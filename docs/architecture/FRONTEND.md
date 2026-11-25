@@ -195,9 +195,9 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 ## COMMON-MASTER-DATA-STATUS-001 — Trạng thái danh mục
 
-- Chỉ danh mục có trạng thái dùng MUI Switch trên List. Active dùng primary, Inactive dùng màu trung tính; hiển thị nhãn và khóa thao tác nếu thiếu quyền. Create mặc định Active. View đọc trạng thái, Edit tập trung vào thông tin danh mục.
+- Mọi Master Data dùng MUI Switch trên List và có bộ lọc mặc định Tất cả, kể cả danh mục bổ sung sau này. Active dùng primary, Inactive dùng màu trung tính; hiển thị nhãn và khóa thao tác nếu thiếu quyền. Create mặc định Active. View đọc trạng thái, Edit tập trung vào thông tin danh mục.
 - Xác nhận trước khi chuyển Inactive, kích hoạt lại trực tiếp. Gửi trạng thái đích tới API, khóa Switch của bản ghi trong khi xử lý, cập nhật khi thành công và giữ giá trị hiện tại nếu lỗi. Dùng Snackbar để phản hồi.
-- Chỉ hiển thị lựa chọn hoạt động cho nghiệp vụ mới. Chứng từ và liên kết lịch sử giữ nguyên. Điều kiện nghiệp vụ phụ thuộc phải qua BA trước khi bổ sung; trạng thái không cascade.
+- Dropdown gọi API lựa chọn Active. Khi sửa hiển thị thêm giá trị Inactive đã lưu; danh sách quản trị và dữ liệu lịch sử giữ đủ hai trạng thái. Backend kiểm tra theo quy tắc tại 03 §1d. Trạng thái không cascade.
 
 ## UI-EVIDENCE-001 — Kiểm chứng bằng trình duyệt
 

@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Box, Button, Link, MenuItem, Snackbar, Stack, Switch, TextField, Tooltip } from '@mui/material';
 import Add from '@mui/icons-material/Add';
 import type { GridColDef } from '@mui/x-data-grid';
-import { api } from '../../services/api-client';
+import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
 import { DataTable, DetailPageLayout, FilterToolbar, FormDialog, ListPageLayout } from '../../shared/components';
 import { useMe } from '../identity';
 import { CatalogEditor } from './CatalogEditor';
@@ -22,8 +22,12 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const catalogKey = [catalog.key === 'unitsOfMeasure' ? 'uoms' : catalog.path];
   const catalogQuery = useQuery({ queryKey: catalogKey, queryFn: () => api<Entry[]>(path) });
   const isProduct = catalog.key === 'products';
-  const brands = useQuery({ queryKey: ['brands'], queryFn: () => api<Entry[]>('/brands'), enabled: isProduct });
-  const uoms = useQuery({ queryKey: ['uoms'], queryFn: () => api<Entry[]>('/units-of-measure'), enabled: isProduct });
+  const entry = catalogQuery.data?.find(row => row.id === initialId);
+  const selecting = initialId !== undefined;
+  const brands = useQuery({ queryKey: ['brands', selecting ? 'selection' : 'list', entry?.brandId],
+    queryFn: () => api<Entry[]>(selecting ? catalogSelectionPath('/brands', entry?.brandId) : '/brands'), enabled: isProduct });
+  const uoms = useQuery({ queryKey: ['uoms', selecting ? 'selection' : 'list', entry?.unitOfMeasureId],
+    queryFn: () => api<Entry[]>(selecting ? catalogSelectionPath('/units-of-measure', entry?.unitOfMeasureId) : '/units-of-measure'), enabled: isProduct });
   const [confirmation, setConfirmation] = useState<Entry>();
   const [notice, setNotice] = useState<{ error: boolean; message: string }>();
   const [pending, setPending] = useState<number[]>([]);
@@ -33,14 +37,15 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
       api(`${path}/${id}/status`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
     onMutate: ({ id }) => setPending(ids => [...ids, id]),
     onSuccess: async (_response, { id, isActive }) => {
-      qc.setQueryData<Entry[]>([catalog.path], rows => rows?.map(row => row.id === id ? { ...row, isActive } : row));
-      await qc.invalidateQueries({ queryKey: [catalog.path] });
+      qc.setQueryData<Entry[]>(catalogKey, rows => rows?.map(row => row.id === id ? { ...row, isActive } : row));
+      await qc.invalidateQueries({ queryKey: catalogKey });
       setConfirmation(previous => previous?.id === id ? undefined : previous);
       setNotice({ error: false, message: t('master.statusSaved') });
     },
     onError: (error, { id }) => {
       setConfirmation(previous => previous?.id === id ? undefined : previous);
-      setNotice({ error: true, message: error.message });
+      const reason = error instanceof ApiError ? t('master.statusErrors.' + error.code, { defaultValue: error.message }) : error.message;
+      setNotice({ error: true, message: reason });
     },
     onSettled: (_data, _error, { id }) => setPending(ids => ids.filter(pendingId => pendingId !== id)),
   });
@@ -83,7 +88,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
       renderCell: ({ formattedValue }) => <ClippedValue value={String(formattedValue ?? '')} />,
     })),
   ];
-  if (catalog.status) columns.push({
+  columns.push({
     field: 'isActive', headerName: t('common.status'), minWidth: 198, sortable: false,
     renderCell: ({ row, tabIndex }) => (
       <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', height: '100%' }}>
@@ -94,11 +99,10 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
       </Stack>
     ),
   });
-  const entry = catalogQuery.data?.find(row => row.id === initialId);
   const close = () => navigate(listUrl);
   const opened = initialId !== undefined;
   const editor = opened && (initialId === 0 && canCreate || entry) && (
-    <CatalogEditor catalog={catalog} key={initialId} entry={entry} listUrl={listUrl} close={close} permissions={permissions}
+    <CatalogEditor catalog={catalog} key={initialId} entry={entry} close={close} permissions={permissions}
       brands={brands} uoms={uoms} />
   );
   const missing = opened && !editor;
@@ -115,15 +119,15 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
         </Button>}
         toolbar={<FilterToolbar active={Boolean(q || status || brand)} onClear={() => setParams({}, { replace: true })}>
           <TextField size="small" label={t('master.search')} value={q} onChange={event => setFilter('q', event.target.value)} sx={{ width: { xs: '100%', sm: 280 } }} />
-          {catalog.status && <TextField select size="small" label={t('common.status')} value={status}
-            onChange={event => setFilter('status', event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
-            <MenuItem value="">{t('common.all')}</MenuItem>
+          <TextField select size="small" label={t('common.status')} value={status || 'all'}
+            onChange={event => setFilter('status', event.target.value === 'all' ? '' : event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
+            <MenuItem value="all">{t('common.all')}</MenuItem>
             <MenuItem value="true">{statusLabel(t, true)}</MenuItem>
             <MenuItem value="false">{statusLabel(t, false)}</MenuItem>
-          </TextField>}
-          {isProduct && <TextField select size="small" label={label(t, 'brandId')} value={brands.data?.some(item => String(item.id) === brand) ? brand : ''}
-            onChange={event => setFilter('brand', event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
-            <MenuItem value="">{t('common.all')}</MenuItem>
+          </TextField>
+          {isProduct && <TextField select size="small" label={label(t, 'brandId')} value={brands.data?.some(item => String(item.id) === brand) ? brand : 'all'}
+            onChange={event => setFilter('brand', event.target.value === 'all' ? '' : event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
+            <MenuItem value="all">{t('common.all')}</MenuItem>
             {brands.data?.map(item => <MenuItem key={item.id} value={String(item.id)}>{item.name}</MenuItem>)}
           </TextField>}
         </FilterToolbar>}>

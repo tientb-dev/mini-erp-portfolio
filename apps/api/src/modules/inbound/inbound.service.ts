@@ -83,7 +83,7 @@ export class InboundService {
       [l.sourceLineId, purchaseOrderId],
     );
     if (!pol) throw new BusinessError("SOURCE_LINE_MISMATCH", `PO line ${l.sourceLineId} does not belong to the PO`);
-    await ProductUsage.markUsed(m, pol.product_id, { stock: true }); // product now appears on a GRR (03 §1b)
+    await ProductUsage.markUsed(m, pol.product_id, { stock: true, existingReference: true }); // product now appears on a GRR (03 §1b)
     await m.query(
       `INSERT INTO goods_receipt_request_lines (goods_receipt_request_id, purchase_order_line_id, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4)`,
       [grrId, l.sourceLineId, pol.unit_of_measure_id, l.quantity],
@@ -204,7 +204,7 @@ export class InboundService {
         [grrId],
       );
       for (const l of lines) {
-        await ProductUsage.markUsed(m, l.product_id, { stock: true });
+        await ProductUsage.markUsed(m, l.product_id, { stock: true, existingReference: true });
         const [grl] = await m.query(
           `INSERT INTO goods_receipt_lines (goods_receipt_id, goods_receipt_request_line_id, product_id, unit_of_measure_id, quantity)
            VALUES ($1, $2, $3, $4, $5) RETURNING id`,

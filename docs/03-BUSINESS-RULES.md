@@ -52,6 +52,15 @@
 - Backend bắt buộc kiểm tra; vi phạm trả `PRODUCT_UOM_LOCKED`.
 - Sửa UoM và mapping/thêm mã chính vào chứng từ không được chạy chen nhau làm mất hiệu lực kiểm tra (cơ chế: ADR-0008).
 
+## 1d. Active/Inactive của Master Data
+
+- Tất cả Master Data mới mặc định Active. Ngừng sử dụng giữ nguyên ID, lịch sử và liên kết. Không áp bộ lọc Active toàn cục lên danh sách quản trị hay dữ liệu lịch sử.
+- Chỉ chọn bản ghi Active khi gán mới hoặc đổi tham chiếu. Khi sửa có thể giữ giá trị Inactive đã lưu. Chứng từ nguồn hợp lệ tiếp tục truyền tham chiếu đã lưu qua chuỗi nghiệp vụ. Backend xác định từ bản ghi đang sửa hoặc nguồn đã xác thực trong transaction.
+- Mã chính, mã tạm, khách hàng, NCC và thuế suất được phép Inactive dù đã được dùng. Hãng và ĐVT bị chặn khi còn mã chính Active. Kích hoạt lại mã chính yêu cầu cả Hãng và ĐVT Active.
+- Kho bị chặn nếu có tồn thực tế dương hoặc chứng từ kho chưa hoàn tất. GRR còn mở khi chưa hủy và chưa có GR Đã duyệt; GR và GI đóng ở Đã duyệt hoặc Đã hủy; GIR đóng khi hoàn tất xuất hoặc bị hủy.
+- Tiền tệ mặc định VND luôn Active. Chuyển trạng thái danh mục không cascade.
+- Khi kiểm tra gán mới và chuyển trạng thái đồng thời, dùng khóa hàng trên bản ghi danh mục. Tạo hoặc kích hoạt mã chính khóa Hãng và ĐVT để tuần tự với kiểm tra ngừng sử dụng.
+
 ## 2. GR và chi tiết — đã chốt
 - Một GRR Đã duyệt có tối đa một GR không Hủy; có thể tạo GR thay thế nếu GR cũ đã Hủy.
 - GR kế thừa toàn bộ dòng, PN, số lượng và kho từ GRR, không tự chỉnh số lượng.

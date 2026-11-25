@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGenerat
 
 @Entity('units_of_measure')
 export class UnitOfMeasure {
+  @Column({ name: 'is_active', default: true }) isActive!: boolean;
   @PrimaryGeneratedColumn() id!: number;
   @Column({ unique: true }) code!: string;
   @Column() name!: string;

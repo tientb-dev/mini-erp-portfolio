@@ -3,8 +3,8 @@ import { Link as RouterLink, UNSAFE_DataRouterContext } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, IconButton, Link, MenuItem, Paper, Stack, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
-import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
-import { api, ApiError } from '../../services/api-client';
+import LinkOff from '@mui/icons-material/LinkOff';
+import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
 import { DetailPageLayout, ErrorAlert, FormDialog, PageBreadcrumbs, ScrollTable } from '../../shared/components';
 import { DocumentFormCell, DocumentFormGrid } from '../../shared/components/DocumentFormGrid';
 import { DiscardDialog, RouteDiscardGuard } from '../../shared/components/FormDialog';
@@ -15,8 +15,8 @@ const booleans = new Set<FieldKey>(['isSerialTracked', 'allowAvailableStockIssue
 const integers = new Set<FieldKey>(['brandId', 'unitOfMeasureId', 'decimalPlaces']);
 const defaults: Partial<Record<FieldKey, string>> = { isSerialTracked: 'true', allowAvailableStockIssue: 'false', decimalPlaces: '0', rate: '0' };
 
-export function CatalogEditor({ catalog, entry, listUrl, close, permissions, brands, uoms }: {
-  catalog: Catalog; entry?: Entry; listUrl: string; close: () => void; permissions: string[]; brands: Options; uoms: Options;
+export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms }: {
+  catalog: Catalog; entry?: Entry; close: () => void; permissions: string[]; brands: Options; uoms: Options;
 }) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
@@ -33,10 +33,10 @@ export function CatalogEditor({ catalog, entry, listUrl, close, permissions, bra
   const canRemove = Boolean(entry && canEdit && catalog.remove && !(catalog.key === 'currencies' && entry.code === 'VND'));
   const showSupplierLinks = catalog.key === 'brands' && Boolean(entry) && permissions.includes('SUPPLIER.VIEW');
   const linked = useQuery({ queryKey: [path + '/suppliers'], queryFn: () => api<Entry[]>(path + '/suppliers'), enabled: showSupplierLinks });
-  const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: () => api<Entry[]>('/suppliers'), enabled: showSupplierLinks && editing });
+  const suppliers = useQuery({ queryKey: ['suppliers', 'selection'], queryFn: () => api<Entry[]>(catalogSelectionPath('/suppliers')), enabled: showSupplierLinks && editing });
   const linkedIds = linked.data?.map(item => item.id) ?? [];
   const shownSuppliers = (changedSuppliers ?? linkedIds).flatMap(id => {
-    const supplier = (suppliers.data ?? linked.data)?.find(item => item.id === id);
+    const supplier = linked.data?.find(item => item.id === id) ?? suppliers.data?.find(item => item.id === id);
     return supplier ? [supplier] : [];
   });
   const initial = (field: FieldKey) => {
@@ -138,7 +138,7 @@ export function CatalogEditor({ catalog, entry, listUrl, close, permissions, bra
       <Typography variant="h2">{t('master.linkedSuppliers')}</Typography>
       <ErrorAlert error={linked.error ?? suppliers.error} />
       {editing && linked.isSuccess && suppliers.isSuccess && (
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'flex-end' } }}>
           <TextField select size="small" fullWidth label={t('master.chooseSupplier')} value={newSupplier} onChange={event => setNewSupplier(event.target.value)}>
             <MenuItem value="">{t('master.chooseSupplier')}</MenuItem>
             {suppliers.data.filter(item => !(changedSuppliers ?? linkedIds).includes(item.id))
@@ -146,7 +146,7 @@ export function CatalogEditor({ catalog, entry, listUrl, close, permissions, bra
           </TextField>
           <Button variant="contained" disabled={!newSupplier} onClick={() => {
             setChangedSuppliers([...(changedSuppliers ?? linkedIds), Number(newSupplier)]); setNewSupplier('');
-          }} sx={{ whiteSpace: 'nowrap' }}>{t('master.addSupplier')}</Button>
+          }} sx={{ whiteSpace: 'nowrap', height: 40, flexShrink: 0 }}>{t('master.addSupplier')}</Button>
         </Stack>
       )}
       {linked.isPending ? <Typography>{t('common.loading')}</Typography> : shownSuppliers.length === 0 ? <Typography>{t('common.empty')}</Typography> :
@@ -159,7 +159,7 @@ export function CatalogEditor({ catalog, entry, listUrl, close, permissions, bra
             <TableCell>{item.name}</TableCell>
             {editing && <TableCell align="right"><Tooltip title={t('master.unlinkSupplier')}>
               <IconButton aria-label={`${t('master.unlinkSupplier')} ${item.code}`} color="error" size="small"
-                onClick={() => setChangedSuppliers((changedSuppliers ?? linkedIds).filter(id => id !== item.id))}><DeleteOutlined fontSize="small" /></IconButton>
+                onClick={() => setChangedSuppliers((changedSuppliers ?? linkedIds).filter(id => id !== item.id))}><LinkOff fontSize="small" /></IconButton>
             </Tooltip></TableCell>}
           </TableRow>)}</TableBody>
         </ScrollTable>}
@@ -167,7 +167,7 @@ export function CatalogEditor({ catalog, entry, listUrl, close, permissions, bra
   );
   const fieldsContent = <DocumentFormGrid>
     {catalog.fields.map(renderField)}
-    {catalog.status && !editing && <DocumentFormCell span={4}>
+    {!editing && <DocumentFormCell span={4}>
       <TextField fullWidth size="small" label={t('common.status')} value={statusLabel(t, Boolean(entry?.isActive))}
         slotProps={{ input: { readOnly: true } }} />
     </DocumentFormCell>}
@@ -193,7 +193,7 @@ export function CatalogEditor({ catalog, entry, listUrl, close, permissions, bra
     </>
   );
   const maybeCancel = () => dirty ? setDiscard(true) : cancel();
-  const crumbs = <PageBreadcrumbs items={[{ label: t('nav.masterData') }, { label: title, to: listUrl },
+  const crumbs = <PageBreadcrumbs items={[{ label: t('nav.masterData') }, { label: title },
     { label: entry ? entryCode(entry) : editorTitle }]} />;
   return (
     <>

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MenuItem, TextField, Typography } from '@mui/material';
-import { api } from '../../services/api-client';
+import { api, catalogSelectionPath } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 import { useMe } from '../identity';
 import { CreateProps, DocRow } from './types';
@@ -17,7 +17,7 @@ export function CreateGrrDialog({ onClose, onCreated, edit }: CreateProps) {
   const [warehouseId, setWarehouseId] = useState(edit ? String(edit.warehouseId) : '');
   const [qty, setQty] = useState<Record<number, string>>(() => editQty(edit));
   const pos = useQuery({ queryKey: ['po', 'list', false], queryFn: () => api<DocRow[]>('/purchase-orders?assignedToMe=false') });
-  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string; isActive?: boolean }[]>('/warehouses') });
+  const warehouses = useQuery({ queryKey: ['warehouses', 'selection', edit?.warehouseId], queryFn: () => api<{ id: number; code: string; name: string; isActive?: boolean }[]>(catalogSelectionPath('/warehouses', edit?.warehouseId)) });
   const lines = useQuery({ queryKey: ['po-lines-for-grr', poId], queryFn: () => api<SourceLine[]>(`/purchase-orders/${poId}/lines-available-for-grr`), enabled: Boolean(poId) });
   const picked = withEditLines(pickedLines(lines.data, qty), edit, lines.data);
   const create = useMutation({

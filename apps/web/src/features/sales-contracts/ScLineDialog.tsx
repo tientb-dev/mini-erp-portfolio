@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Box, FormControl, FormControlLabel, FormLabel, MenuItem, Radio, RadioGroup, Stack, TextField } from '@mui/material';
-import { api } from '../../services/api-client';
+import { api, catalogSelectionPath } from '../../services/api-client';
 import { DuplicateCodeWarning, findDuplicateCodeRows, FormDialog } from '../../shared/components';
 import { Product, Uom } from '../master-data';
 import { ScLine } from './types';
@@ -24,10 +24,10 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
   };
   const [f, setF] = useState(initial);
   const set = (k: keyof typeof initial) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
-  const uoms = useQuery({ queryKey: ['uoms'], queryFn: () => api<Uom[]>('/units-of-measure') });
-  const products = useQuery({ queryKey: ['products'], queryFn: () => api<Product[]>('/products'), enabled: f.source === 'main' });
-  const temporary = useQuery({ queryKey: ['temporary-products'], enabled: f.source === 'temporary',
-    queryFn: () => api<{ id: number; code: string; name: string; description?: string | null }[]>('/temporary-products') });
+  const uoms = useQuery({ queryKey: ['uoms', 'selection', line?.unitOfMeasureId], queryFn: () => api<Uom[]>(catalogSelectionPath('/units-of-measure', line?.unitOfMeasureId)) });
+  const products = useQuery({ queryKey: ['products', 'selection', line?.productId], queryFn: () => api<Product[]>(catalogSelectionPath('/products', line?.productId)), enabled: f.source === 'main' });
+  const temporary = useQuery({ queryKey: ['temporary-products', 'selection', line?.temporaryProductId], enabled: f.source === 'temporary',
+    queryFn: () => api<{ id: number; code: string; name: string; description?: string | null }[]>(catalogSelectionPath('/temporary-products', line?.temporaryProductId)) });
   const options = f.source === 'main'
     ? (products.data ?? []).filter(product => product.isActive).map(product => ({
         id: product.id, code: product.partNumber, name: product.name, description: product.description,
@@ -65,7 +65,7 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
             label={t(`prCatalog.${source}`)} />)}
         </RadioGroup>
       </FormControl>
-      <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
+      <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) minmax(0, 1.25fr)' } }}>
         <Stack direction="row" sx={{ alignItems: 'center' }}>
           {f.source === 'free' ? <TextField fullWidth size="small" label={t('sc.itemCode')} value={f.itemCode} onChange={set('itemCode')} required autoFocus /> :
           <TextField fullWidth size="small" select required label={t('prCatalog.item')} value={shownOptions.some(item => String(item.id) === f.catalogId) ? f.catalogId : ''}
@@ -83,7 +83,7 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
         </Stack>
         <TextField size="small" label={t('sc.itemName')} value={f.itemName} onChange={set('itemName')}
           slotProps={{ input: { readOnly: f.source !== 'free' } }} required />
-        <TextField size="small" label={t('gr.quantity')} type="number" value={f.quantity} onChange={set('quantity')} required
+        <TextField size="small" sx={{ maxWidth: { sm: 144 } }} label={t('gr.quantity')} type="number" value={f.quantity} onChange={set('quantity')} required
           slotProps={{ htmlInput: { min: 0, step: 'any', inputMode: 'decimal' } }} />
         <TextField size="small" select label={t('sc.uom')} value={uoms.data?.some(uom => String(uom.id) === f.unitOfMeasureId) ? f.unitOfMeasureId : ''} onChange={set('unitOfMeasureId')} disabled={f.source === 'main'} required>
           {(uoms.data ?? []).map((u) => <MenuItem key={u.id} value={String(u.id)}>{u.name} ({u.code})</MenuItem>)}

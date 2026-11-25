@@ -27,3 +27,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   return (res.status === 204 ? undefined : res.json()) as Promise<T>;
 }
+
+// Active options plus the one stored value needed when editing an existing record.
+export function catalogSelectionPath(path: string, existingId?: unknown) {
+  return path + '?activeOnly=true' + (typeof existingId === 'number' && Number.isSafeInteger(existingId) && existingId > 0 ? '&includeId=' + existingId : '');
+}

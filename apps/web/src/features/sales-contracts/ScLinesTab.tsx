@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, IconButton, Stack, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import { Button, Chip, IconButton, Stack, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import AddTaskOutlined from '@mui/icons-material/AddTaskOutlined';
 import DeleteOutline from '@mui/icons-material/DeleteOutlined';
@@ -9,6 +9,9 @@ import { DuplicateCodeWarning, findDuplicateCodeRows, ScrollTable, StatusChip } 
 import { StatusTone } from '../../config/theme';
 import { fmtDate, num } from '../../shared/utils/format';
 import { Proposal, ScDetail, ScLine } from './types';
+
+const pinnedActions = { position: 'sticky', right: 0, zIndex: 1, minWidth: 116,
+  whiteSpace: 'nowrap', bgcolor: 'background.paper', borderLeft: 1, borderColor: 'divider' } as const;
 
 const proposalTone: Record<string, StatusTone> = { PENDING: 'pending', APPROVED: 'success', REJECTED: 'danger' };
 
@@ -43,7 +46,7 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                 <TableCell align="right" sx={{ width: 96 }}>{t('gr.quantity')}</TableCell>
                 <TableCell sx={{ width: 96 }}>{t('sc.uom')}</TableCell>
                 <TableCell>{t('sc.allowedProducts')}</TableCell>
-                {(editable || canPropose) && <TableCell align="right" sx={{ width: 128 }}>{t('common.actions')}</TableCell>}
+                {(editable || canPropose) && <TableCell align="right" sx={{ ...pinnedActions, zIndex: 3, bgcolor: 'background.default' }}>{t('common.actions')}</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -51,8 +54,10 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                 <Fragment key={l.id}>
                   <TableRow hover>
                     <TableCell>{i + 1}</TableCell>
-                    <TableCell><StatusChip label={t(l.productId ? 'prCatalog.main' : l.temporaryProductId ? 'prCatalog.temporary' : 'prCatalog.free')}
-                      tone={l.productId ? 'pending' : l.temporaryProductId ? 'success' : 'neutral'} /></TableCell>
+                    <TableCell>{l.productId ? <Chip size="small" label={t('prCatalog.main')}
+                      sx={{ bgcolor: 'action.selected', color: 'primary.dark', fontWeight: 600, borderRadius: 1 }} />
+                      : <StatusChip label={t(l.temporaryProductId ? 'prCatalog.temporary' : 'prCatalog.free')}
+                        tone={l.temporaryProductId ? 'success' : 'neutral'} />}</TableCell>
                     <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{l.itemCode}<DuplicateCodeWarning rows={duplicateRows(l.itemCode, l.id)} /></TableCell>
                     <TableCell>{l.itemName}</TableCell>
                     <TableCell sx={{ overflowWrap: 'anywhere' }}>{l.itemDescription}</TableCell>
@@ -60,7 +65,7 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                     <TableCell>{l.uomName}</TableCell>
                     <TableCell>{l.products.length ? t('sc.proposals', { count: l.products.length }) : <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{t('sc.noProductsShort')}</Typography>}</TableCell>
                     {(editable || canPropose) && (
-                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      <TableCell align="right" sx={pinnedActions}>
                         {canPropose && icon(t('sc.propose'), AddTaskOutlined, () => onAction({ kind: 'propose', line: l }))}
                         {editable && icon(t('sc.editItem'), EditOutlined, () => onAction({ kind: 'edit', line: l }))}
                         {editable && icon(t('sc.deleteItem'), DeleteOutline, () => onAction({ kind: 'delete', line: l }), 'error')}

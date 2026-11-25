@@ -30,7 +30,7 @@ Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệ
 
 Quyền xem PR cho phép đọc và thêm ghi chú ở mọi trạng thái, kể cả Hoàn tất (ADR-0016).
 
-Danh mục hãng, mã tạm, tiền tệ và thuế dùng `PRODUCT.VIEW` để đọc và `PROCUREMENT_CATALOG.MANAGE` để quản lý. Xem NCC theo hãng cần `SUPPLIER.VIEW`; thay quan hệ hãng–NCC cần cả quyền đọc NCC lẫn quyền quản lý danh mục. Quản lý ĐVT dùng `UOM.MANAGE` và đọc ĐVT giữ `PRODUCT.VIEW`. Sửa khách hàng và NCC lần lượt dùng `CUSTOMER.UPDATE` và `SUPPLIER.UPDATE`. Cập nhật trạng thái Product và Kho dùng quyền cập nhật tương ứng.
+Danh mục hãng, mã tạm, tiền tệ và thuế dùng `PRODUCT.VIEW` để đọc và `PROCUREMENT_CATALOG.MANAGE` để quản lý. Xem NCC theo hãng cần `SUPPLIER.VIEW`; thay quan hệ hãng–NCC cần cả quyền đọc NCC lẫn quyền quản lý danh mục. Quản lý ĐVT dùng `UOM.MANAGE` và đọc ĐVT giữ `PRODUCT.VIEW`. Sửa khách hàng và NCC lần lượt dùng `CUSTOMER.UPDATE` và `SUPPLIER.UPDATE`. Các endpoint `PATCH /<danh-mục>/:id/status` dùng quyền cập nhật hoặc quản lý tương ứng của từng danh mục, giữ nguyên quyền đọc.
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.
 - Người duyệt mặc định cấu hình theo role hoặc bước duyệt, không dùng một flag chung cho mọi nghiệp vụ.
 - Không có mặc định và có nhiều người hợp lệ → người tạo phải chọn.

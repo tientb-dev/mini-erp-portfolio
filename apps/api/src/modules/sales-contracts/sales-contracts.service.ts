@@ -112,8 +112,7 @@ export class SalesContractsService {
 
   create(user: CurrentUser, customerId: number, responsibleSalesUserId: number | null, lines: ScLineInput[]) {
     return this.ds.transaction(async (m) => {
-      const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
-      if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
+      await CatalogFacade.assertActive(m, 'customer', customerId);
       await this.assertResponsibleSales(m, responsibleSalesUserId);
       const number = await wf.nextDocumentNumber(m, 'SC');
       const [sc] = await m.query(
@@ -135,8 +134,8 @@ export class SalesContractsService {
   update(user: CurrentUser, id: number, version: number, customerId: number, responsibleSalesUserId: number | null | undefined, lines?: ScLineInput[]) {
     return this.ds.transaction(async (m) => {
       await this.lockDraft(m, id, version);
-      const [customer] = await m.query(`SELECT 1 FROM customers WHERE id = $1`, [customerId]);
-      if (!customer) throw new BusinessError('CUSTOMER_NOT_FOUND', `Customer ${customerId} not found`);
+      const [current] = await m.query('SELECT customer_id FROM sales_contracts WHERE id = $1', [id]);
+      if (current.customer_id !== customerId) await CatalogFacade.assertActive(m, 'customer', customerId);
       if (responsibleSalesUserId !== undefined) await this.assertResponsibleSales(m, responsibleSalesUserId);
       if (lines) {
         await wf.deleteOmittedLines(m, 'sales_contract_lines', 'sales_contract_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
@@ -201,12 +200,6 @@ export class SalesContractsService {
     return m.query(`UPDATE sales_contracts SET version = version + 1, updated_by = $2, updated_at = now() WHERE id = $1`, [id, user.id]);
   }
 
-  /** A clear business error before the FK would reject an unknown UoM (the FK alone maps to a generic RECORD_IN_USE). */
-  private async assertUom(m: EntityManager, unitOfMeasureId: number) {
-    const [u] = await m.query(`SELECT 1 FROM units_of_measure WHERE id = $1`, [unitOfMeasureId]);
-    if (!u) throw new BusinessError('UOM_NOT_FOUND', `Unit of measure ${unitOfMeasureId} not found`);
-  }
-
   private async lineValues(m: EntityManager, line: ScLineInput, existing?: ScLineInput) {
     const keepSource = line.productId === undefined && line.temporaryProductId === undefined;
     const productId = (keepSource ? existing?.productId : line.productId) ?? null;
@@ -231,7 +224,7 @@ export class SalesContractsService {
         if (productId !== null) await ProductUsage.markUsed(m, productId, { stock: false });
       }
     }
-    await this.assertUom(m, snapshot.unitOfMeasureId);
+    if (existing?.unitOfMeasureId !== snapshot.unitOfMeasureId) await CatalogFacade.assertActive(m, 'uom', snapshot.unitOfMeasureId);
     return [snapshot.code, snapshot.name, snapshot.description, snapshot.unitOfMeasureId, line.quantity, productId, temporaryProductId];
   }
 
@@ -344,7 +337,7 @@ export class SalesContractsService {
       `SELECT l.id, l.item_code AS "itemCode", l.item_name AS "itemName", l.item_description AS "itemDescription", l.product_id AS "productId",
               l.temporary_product_id AS "temporaryProductId", l.unit_of_measure_id AS "unitOfMeasureId", uom.name AS "uomName",
               uom.code AS "uomCode", l.quantity,
-              COALESCE((SELECT json_agg(json_build_object('id', x.id, 'productId', p.id, 'partNumber', p.part_number, 'name', p.name,
+              COALESCE((SELECT json_agg(json_build_object('id', x.id, 'productId', p.id, 'partNumber', p.part_number, 'name', p.name, 'isActive', p.is_active,
                                                           'status', x.status, 'reason', x.reason, 'decisionNote', x.decision_note,
                                                           'proposedByName', pu.full_name, 'decidedByName', du.full_name, 'decidedAt', x.decided_at) ORDER BY x.id)
                           FROM sales_contract_line_products x JOIN products p ON p.id = x.product_id
@@ -365,7 +358,7 @@ export class SalesContractsService {
       );
       if (!line) throw new NotFoundException('Sales contract line not found');
       if (line.status === 'CANCELED') throw new BusinessError('SALES_CONTRACT_CANCELED', 'The sales contract is canceled');
-      const [p] = await m.query(`SELECT 1 FROM products WHERE id = $1 AND is_active`, [productId]);
+      const [p] = await m.query(`SELECT 1 FROM products WHERE id = $1 AND is_active FOR SHARE`, [productId]);
       if (!p) throw new BusinessError('PRODUCT_NOT_FOUND', `Product ${productId} not found or inactive`);
       const [{ id }] = await m.query(
         `INSERT INTO sales_contract_line_products (sales_contract_line_id, product_id, reason, proposed_by) VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -382,7 +375,7 @@ export class SalesContractsService {
       if (!x) throw new NotFoundException('Proposal not found');
       if (x.status !== 'PENDING') throw new BusinessError('INVALID_STATUS', `Proposal is ${x.status}`, HttpStatus.CONFLICT);
       // An approved proposal counts as product usage (H5: pending/rejected do not).
-      if (approve) await ProductUsage.markUsed(m, x.product_id, { stock: false });
+      if (approve) await ProductUsage.markUsed(m, x.product_id, { stock: false, existingReference: true });
       await m.query(
         `UPDATE sales_contract_line_products SET status = $2, decided_by = $3, decided_at = now(), decision_note = $4 WHERE id = $1`,
         [proposalId, approve ? 'APPROVED' : 'REJECTED', user.id, note ?? null],

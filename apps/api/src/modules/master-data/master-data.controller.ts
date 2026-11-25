@@ -1,16 +1,15 @@
-import { Body, Controller, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
 import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { CodeNameDto } from "../../common/dto";
 import { RequirePermissions } from '../identity/auth';
 import { Product, UnitOfMeasure, Warehouse } from './master-data.entities';
+import { CatalogFacade } from './catalog.facade';
+import { assertWarehouseCanDeactivate, CatalogSelectionDto, selectionFilter, selectionParams, StatusDto, updateCatalogStatus } from './catalog-status';
 import { ProductUsage } from './product-usage';
 
-class StatusDto {
-  @ApiProperty() @IsBoolean() isActive!: boolean;
-}
 class UomDto {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(20) code!: string;
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(100) name!: string;
@@ -35,6 +34,12 @@ class CreateWarehouseDto {
 }
 class UpdateWarehouseDto extends PartialType(CreateWarehouseDto) {}
 
+function selectionWhere<T extends { id: number; isActive: boolean }>(query: CatalogSelectionDto) {
+  if (!query.activeOnly) return undefined;
+  const where = [{ isActive: true }];
+  return (query.includeId ? [...where, { id: query.includeId }] : where) as FindOptionsWhere<T>[];
+}
+
 @ApiTags('master-data')
 @ApiBearerAuth()
 @Controller()
@@ -47,8 +52,8 @@ export class MasterDataController {
 
   @Get('units-of-measure')
   @RequirePermissions('PRODUCT.VIEW')
-  listUoms() {
-    return this.uoms.find({ order: { code: 'ASC' } });
+  listUoms(@Query() query: CatalogSelectionDto) {
+    return this.uoms.find({ where: selectionWhere<UnitOfMeasure>(query), order: { code: 'ASC' } });
   }
 
   @Post('units-of-measure')
@@ -65,26 +70,44 @@ export class MasterDataController {
     if (!result.affected) throw new NotFoundException();
   }
 
+  @Patch('units-of-measure/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('UOM.MANAGE')
+  setUomStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return updateCatalogStatus(this.uoms.manager, 'units_of_measure', id, dto.isActive);
+  }
+
   @Get('products')
   @RequirePermissions('PRODUCT.VIEW')
-  listProducts() {
-    return this.products.find({ relations: { unitOfMeasure: true }, order: { partNumber: 'ASC' } });
+  listProducts(@Query() query: CatalogSelectionDto) {
+    return this.products.find({ where: selectionWhere<Product>(query), relations: { unitOfMeasure: true }, order: { partNumber: 'ASC' } });
   }
 
   @Post('products')
   @RequirePermissions('PRODUCT.CREATE')
   createProduct(@Body() dto: CreateProductDto) {
-    return this.products.save(this.products.create(dto));
+    return this.products.manager.transaction(async m => {
+      await CatalogFacade.assertActive(m, 'brand', dto.brandId);
+      await CatalogFacade.assertActive(m, 'uom', dto.unitOfMeasureId);
+      return m.getRepository(Product).save(m.getRepository(Product).create(dto));
+    });
   }
 
   @Patch('products/:id')
   @RequirePermissions('PRODUCT.UPDATE')
   updateProduct(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateProductDto) {
     return this.products.manager.transaction(async (m) => {
-      // FOR UPDATE: waits for document transactions holding FOR SHARE via ProductUsage.markUsed.
+      // Serialize identity edits and status changes with document references.
       const product = await m.getRepository(Product).findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
       if (!product) throw new NotFoundException();
       ProductUsage.assertEditable(product, dto);
+      const reactivating = dto.isActive === true && !product.isActive;
+      if (reactivating || (dto.brandId !== undefined && dto.brandId !== product.brandId)) {
+        await CatalogFacade.assertActive(m, 'brand', dto.brandId ?? product.brandId);
+      }
+      if (reactivating || (dto.unitOfMeasureId !== undefined && dto.unitOfMeasureId !== product.unitOfMeasureId)) {
+        await CatalogFacade.assertActive(m, 'uom', dto.unitOfMeasureId ?? product.unitOfMeasureId);
+      }
       return m.getRepository(Product).save(m.getRepository(Product).merge(product, dto));
     });
   }
@@ -97,14 +120,30 @@ export class MasterDataController {
 
   @Get('customers')
   @RequirePermissions('CUSTOMER.VIEW')
-  listCustomers() {
-    return this.products.manager.query(`SELECT id, code, name FROM customers ORDER BY code`);
+  listCustomers(@Query() query: CatalogSelectionDto) {
+    return this.products.manager.query(`SELECT id, code, name, is_active AS "isActive" FROM customers
+      WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
+  }
+
+  @Patch('customers/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('CUSTOMER.UPDATE')
+  setCustomersStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return updateCatalogStatus(this.products.manager, 'customers', id, dto.isActive);
   }
 
   @Get('suppliers')
   @RequirePermissions('SUPPLIER.VIEW')
-  listSuppliers() {
-    return this.products.manager.query(`SELECT id, code, name FROM suppliers ORDER BY code`);
+  listSuppliers(@Query() query: CatalogSelectionDto) {
+    return this.products.manager.query(`SELECT id, code, name, is_active AS "isActive" FROM suppliers
+      WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
+  }
+
+  @Patch('suppliers/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('SUPPLIER.UPDATE')
+  setSuppliersStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return updateCatalogStatus(this.products.manager, 'suppliers', id, dto.isActive);
   }
 
   @Post("customers")
@@ -143,8 +182,8 @@ export class MasterDataController {
 
   @Get('warehouses')
   @RequirePermissions('WAREHOUSE.VIEW')
-  listWarehouses() {
-    return this.warehouses.find({ order: { code: 'ASC' } });
+  listWarehouses(@Query() query: CatalogSelectionDto) {
+    return this.warehouses.find({ where: selectionWhere<Warehouse>(query), order: { code: 'ASC' } });
   }
 
   @Post('warehouses')
@@ -156,20 +195,20 @@ export class MasterDataController {
   @Patch('warehouses/:id')
   @RequirePermissions('WAREHOUSE.UPDATE')
   async updateWarehouse(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateWarehouseDto) {
-    if (Object.keys(dto).length) {
-      const result = await this.warehouses.update(id, dto);
-      if (!result.affected) throw new NotFoundException();
-    }
-    const warehouse = await this.warehouses.findOneBy({ id });
-    if (!warehouse) throw new NotFoundException();
-    return warehouse;
+    return this.warehouses.manager.transaction(async m => {
+      const repo = m.getRepository(Warehouse);
+      const warehouse = await repo.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!warehouse) throw new NotFoundException();
+      if (dto.isActive === false && warehouse.isActive) await assertWarehouseCanDeactivate(m, id);
+      if (Object.keys(dto).length) await repo.update(id, dto);
+      return repo.merge(warehouse, dto);
+    });
   }
 
   @Patch('warehouses/:id/status')
   @HttpCode(204)
   @RequirePermissions('WAREHOUSE.UPDATE')
   async updateWarehouseStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
-    const result = await this.warehouses.update(id, { isActive: dto.isActive });
-    if (!result.affected) throw new NotFoundException();
+    await this.updateWarehouse(id, dto);
   }
 }

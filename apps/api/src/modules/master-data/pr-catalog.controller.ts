@@ -1,8 +1,10 @@
-import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Req } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { ArrayUnique, IsArray, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
+import { CatalogFacade } from './catalog.facade';
+import { CatalogSelectionDto, selectionFilter, selectionParams, StatusDto, updateCatalogStatus } from './catalog-status';
 import { BusinessError } from '../workflow/workflow';
 
 class CatalogEntryDto {
@@ -40,8 +42,16 @@ export class PrCatalogController {
 
   @Get('brands')
   @RequirePermissions('PRODUCT.VIEW')
-  listBrand() {
-    return this.ds.query(`SELECT id, code, name FROM brands ORDER BY code`);
+  listBrand(@Query() query: CatalogSelectionDto) {
+    return this.ds.query(`SELECT id, code, name, is_active AS "isActive" FROM brands
+      WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
+  }
+
+  @Patch('brands/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
+  setBrandStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return updateCatalogStatus(this.ds.manager, 'brands', id, dto.isActive);
   }
 
   @Post('brands')
@@ -71,8 +81,16 @@ export class PrCatalogController {
 
   @Get('temporary-products')
   @RequirePermissions('PRODUCT.VIEW')
-  listTemporaryProduct() {
-    return this.ds.query(`SELECT id, code, name, description FROM temporary_products ORDER BY code`);
+  listTemporaryProduct(@Query() query: CatalogSelectionDto) {
+    return this.ds.query(`SELECT id, code, name, description, is_active AS "isActive" FROM temporary_products
+      WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
+  }
+
+  @Patch('temporary-products/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
+  setTemporaryProductStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return updateCatalogStatus(this.ds.manager, 'temporary_products', id, dto.isActive);
   }
 
   @Post('temporary-products')
@@ -102,8 +120,16 @@ export class PrCatalogController {
 
   @Get('currencies')
   @RequirePermissions('PRODUCT.VIEW')
-  listCurrency() {
-    return this.ds.query(`SELECT id, code, name, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces" FROM currencies ORDER BY code`);
+  listCurrency(@Query() query: CatalogSelectionDto) {
+    return this.ds.query(`SELECT id, code, name, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces", is_active AS "isActive" FROM currencies
+      WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
+  }
+
+  @Patch('currencies/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
+  setCurrencyStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return updateCatalogStatus(this.ds.manager, 'currencies', id, dto.isActive);
   }
 
   @Post('currencies')
@@ -136,8 +162,16 @@ export class PrCatalogController {
 
   @Get('tax-rates')
   @RequirePermissions('PRODUCT.VIEW')
-  listTaxRate() {
-    return this.ds.query(`SELECT id, code, name, rate FROM tax_rates ORDER BY code`);
+  listTaxRate(@Query() query: CatalogSelectionDto) {
+    return this.ds.query(`SELECT id, code, name, rate, is_active AS "isActive" FROM tax_rates
+      WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
+  }
+
+  @Patch('tax-rates/:id/status')
+  @HttpCode(204)
+  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
+  setTaxRateStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: StatusDto) {
+    return updateCatalogStatus(this.ds.manager, 'tax_rates', id, dto.isActive);
   }
 
   @Post('tax-rates')
@@ -217,6 +251,11 @@ export class PrCatalogController {
   }
 
   private async replaceBrandSuppliers(m: EntityManager, id: number, supplierIds: number[]) {
+    const linked: { supplier_id: number }[] = await m.query('SELECT supplier_id FROM brand_suppliers WHERE brand_id = $1', [id]);
+    const previous = new Set(linked.map(row => row.supplier_id));
+    for (const supplierId of [...supplierIds].sort((a, b) => a - b)) {
+      if (!previous.has(supplierId)) await CatalogFacade.assertActive(m, 'supplier', supplierId);
+    }
     await m.query('DELETE FROM brand_suppliers WHERE brand_id = $1', [id]);
     await m.query('INSERT INTO brand_suppliers (brand_id, supplier_id) SELECT $1, unnest($2::int[])', [id, supplierIds]);
   }

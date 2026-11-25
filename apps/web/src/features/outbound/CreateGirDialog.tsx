@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MenuItem, Stack, TextField, Typography } from '@mui/material';
-import { api } from '../../services/api-client';
+import { api, catalogSelectionPath } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 import { num } from '../../shared/utils/format';
 import { useMe } from '../identity';
@@ -21,7 +21,7 @@ export function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; o
   const [warehouseId, setWarehouseId] = useState('');
   const [lines, setLines] = useState<Record<number, { productId: string; quantity: string }>>({});
   const contracts = useQuery({ queryKey: ['scs'], queryFn: () => api<{ id: number; documentNumber: string; status: string; customerName: string }[]>('/sales-contracts') });
-  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: () => api<{ id: number; code: string; name: string; isActive?: boolean; allowAvailableStockIssue: boolean }[]>('/warehouses') });
+  const warehouses = useQuery({ queryKey: ['warehouses', 'selection'], queryFn: () => api<{ id: number; code: string; name: string; isActive?: boolean; allowAvailableStockIssue: boolean }[]>(catalogSelectionPath('/warehouses')) });
   const scLines = useQuery({ queryKey: ['sc-lines', scId], queryFn: () => api<ScLine[]>(`/sales-contracts/${scId}/lines`), enabled: Boolean(scId) });
   const isPr = issueType === 'PURCHASE_REQUISITION';
   const isD = !isPr && category === 'MATERIAL';
@@ -118,10 +118,10 @@ export function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; o
             <Typography variant="body2" color="text.secondary">{t('gir.quotaHint', { contract: num(l.quantity), remaining })}</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               <TextField select fullWidth label={t('gir.product')} value={v.productId}
-                helperText={!l.products.some((p) => p.status === 'APPROVED') ? t('gir.noConfirmedProduct')
+                helperText={!l.products.some((p) => p.status === 'APPROVED' && p.isActive !== false) ? t('gir.noConfirmedProduct')
                   : v.productId ? t('gir.sourceAvailable', { available: availableOf(Number(v.productId)) }) : undefined} onChange={(e) => setLines({ ...lines, [l.id]: { ...v, productId: e.target.value } })}>
                 {/* Only products Sales confirmed for this line (03 §9.2) */}
-                {l.products.filter((p) => p.status === 'APPROVED').map((p) => <MenuItem key={p.productId} value={p.productId}>{p.partNumber}: {p.name}</MenuItem>)}
+                {l.products.filter((p) => p.status === 'APPROVED' && p.isActive !== false).map((p) => <MenuItem key={p.productId} value={p.productId}>{p.partNumber}: {p.name}</MenuItem>)}
               </TextField>
               <TextField label={t('gr.quantity')} type="number" value={v.quantity} sx={{ maxWidth: { sm: 160 } }}
                 slotProps={{ htmlInput: { min: 0, max: remaining } }}

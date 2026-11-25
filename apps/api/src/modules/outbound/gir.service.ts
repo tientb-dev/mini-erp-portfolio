@@ -69,8 +69,10 @@ export class GirService {
       wf.assertCreator(doc, user);
       wf.assertStatus(doc, ['DRAFT', 'REJECTED']);
       wf.assertVersion(doc, version);
+      const previous: { productId: number; salesContractLineId: number | null }[] = await m.query(
+        'SELECT product_id AS "productId", sales_contract_line_id AS "salesContractLineId" FROM goods_issue_request_lines WHERE goods_issue_request_id = $1', [id]);
       await m.query(`DELETE FROM goods_issue_request_lines WHERE goods_issue_request_id = $1`, [id]);
-      await this.insertLines(m, id, resolved.lines);
+      await this.insertLines(m, id, resolved.lines, previous);
       const newPurpose = await this.resolvePurpose(m, doc.issue_type, resolved.category, purpose ?? doc.purpose ?? undefined, resolved.lines);
       await m.query(`UPDATE goods_issue_requests SET category = $2, purpose = $3, version = version + 1, updated_at = now() WHERE id = $1`, [
         id, resolved.category, newPurpose,
@@ -463,14 +465,17 @@ export class GirService {
     }
     await this.checkQuota(m, doc.id);
     if (doc.issue_type === 'AVAILABLE_STOCK') {
-      await this.assertWarehouseAllowed(m, doc.issue_type, doc.warehouse_id);
+      await this.assertWarehouseAllowed(m, doc.issue_type, doc.warehouse_id, true);
       await this.checkAvailable(m, doc);
     }
   }
 
-  private async insertLines(m: EntityManager, girId: number, lines: ResolvedLine[]) {
+  private async insertLines(m: EntityManager, girId: number, lines: ResolvedLine[],
+    previous: { productId: number; salesContractLineId: number | null }[] = []) {
     for (const l of lines) {
-      await ProductUsage.markUsed(m, l.productId, { stock: true });
+      const existingReference = l.purchaseRequisitionLineId !== null ||
+        previous.some(line => line.productId === l.productId && line.salesContractLineId === l.salesContractLineId);
+      await ProductUsage.markUsed(m, l.productId, { stock: true, existingReference });
       await m.query(
         `INSERT INTO goods_issue_request_lines (goods_issue_request_id, purchase_requisition_line_id, sales_contract_line_id, product_id, quantity)
          VALUES ($1, $2, $3, $4, $5)`,
@@ -479,9 +484,9 @@ export class GirService {
     }
   }
 
-  private async assertWarehouseAllowed(m: EntityManager, issueType: IssueType, warehouseId: number) {
-    const [w] = await m.query(`SELECT is_active, allow_available_stock_issue FROM warehouses WHERE id = $1`, [warehouseId]);
-    if (!w?.is_active) throw new BusinessError('WAREHOUSE_NOT_FOUND', 'Warehouse not found or inactive');
+  private async assertWarehouseAllowed(m: EntityManager, issueType: IssueType, warehouseId: number, existingReference = false) {
+    const [w] = await m.query(`SELECT is_active, allow_available_stock_issue FROM warehouses WHERE id = $1 FOR SHARE`, [warehouseId]);
+    if (!w || (!w.is_active && !existingReference)) throw new BusinessError('WAREHOUSE_NOT_FOUND', 'Warehouse not found or inactive');
     if (issueType === 'AVAILABLE_STOCK' && !w.allow_available_stock_issue) {
       throw new BusinessError('WAREHOUSE_NOT_ALLOWED_FOR_AVAILABLE_STOCK', 'This warehouse is not configured for available-stock issues');
     }

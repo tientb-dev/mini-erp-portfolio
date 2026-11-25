@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
+import { CatalogFacade } from '../master-data/catalog.facade';
 import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
 import * as prWorkflow from './pr-workflow';
@@ -174,13 +175,19 @@ export class ProcurementService {
   }
 
   /**
-   * Inserts a PR line, or updates line `l.id` in place. Snapshot and UoM always follow the chosen main product (03 §1a).
+   * Inserts a PR line, or updates line `l.id` in place. Snapshot and UoM are captured when selecting a main product (03 §1a).
    * A line referenced by a (canceled) PO line keeps its product: that PO still shows it.
    */
   private async writePrLine(m: EntityManager, prId: number, l: PrLineInput) {
-    // Locks the product for share and marks it used: code/name/UoM become immutable (03 §1c, T9).
-    await ProductUsage.markUsed(m, l.productId, { stock: false });
-    const [p] = await m.query(`SELECT part_number, name, description, unit_of_measure_id FROM products WHERE id = $1`, [l.productId]);
+    const [existing] = l.id ? await m.query(
+      `SELECT product_id, snapshot_code AS part_number, snapshot_name AS name, snapshot_description AS description, unit_of_measure_id
+       FROM purchase_requisition_lines WHERE id = $1 AND purchase_requisition_id = $2`, [l.id, prId],
+    ) : [];
+    const keepProduct = existing?.product_id === l.productId;
+    await ProductUsage.markUsed(m, l.productId, { stock: false, existingReference: keepProduct });
+    const [p] = keepProduct ? [existing] : await m.query(
+      'SELECT part_number, name, description, unit_of_measure_id FROM products WHERE id = $1', [l.productId],
+    );
     const values = [prId, l.salesContractLineId ?? null, l.productId, p.part_number, p.name, p.description, p.unit_of_measure_id, l.quantity];
     if (!l.id) {
       await m.query(
@@ -271,6 +278,7 @@ export class ProcurementService {
   createPurchaseOrder(user: CurrentUser, supplierId: number, lines: SourceLineInput[]) {
     wf.assertUniqueSourceLines(lines.map((l) => l.sourceLineId));
     return this.ds.transaction(async (m) => {
+      await CatalogFacade.assertActive(m, 'supplier', supplierId);
       const number = await wf.nextDocumentNumber(m, 'PO');
       const [po] = await m.query(`INSERT INTO purchase_orders (document_number, supplier_id, created_by) VALUES ($1, $2, $3) RETURNING id`, [
         number, supplierId, user.id,
@@ -308,6 +316,8 @@ export class ProcurementService {
     return this.ds.transaction(async (m) => {
       const doc = await wf.lockDocument(m, 'PO', id);
       wf.assertEditable(doc, user, version);
+      const [current] = await m.query('SELECT supplier_id FROM purchase_orders WHERE id = $1', [id]);
+      if (current.supplier_id !== supplierId) await CatalogFacade.assertActive(m, 'supplier', supplierId);
       await wf.deleteOmittedLines(m, 'purchase_order_lines', 'purchase_order_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
       for (const l of lines) await this.writePoLine(m, id, l);
       await m.query(`UPDATE purchase_orders SET supplier_id = $2 WHERE id = $1`, [id, supplierId]);

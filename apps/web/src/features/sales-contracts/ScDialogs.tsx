@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MenuItem, TextField, Typography } from '@mui/material';
-import { api } from '../../services/api-client';
+import { api, catalogSelectionPath } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 import { Product } from '../master-data';
 import { Proposal, ScLine } from './types';
@@ -34,7 +34,7 @@ export function ProposeDialog({ line, onClose, onDone }: { line: ScLine; onClose
   const { t } = useTranslation();
   const [productId, setProductId] = useState('');
   const [reason, setReason] = useState('');
-  const products = useQuery({ queryKey: ['products'], queryFn: () => api<Product[]>('/products') });
+  const products = useQuery({ queryKey: ['products', 'selection'], queryFn: () => api<Product[]>(catalogSelectionPath('/products')) });
   const taken = new Set(line.products.filter((p) => p.status !== 'REJECTED').map((p) => p.productId));
   const run = useMutation({
     mutationFn: () => api(`/sales-contract-lines/${line.id}/product-proposals`, { method: 'POST', body: JSON.stringify({ productId: Number(productId), reason }) }),

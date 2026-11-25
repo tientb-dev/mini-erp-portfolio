@@ -5,7 +5,7 @@ import { Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import Send from '@mui/icons-material/Send';
 import Save from '@mui/icons-material/Save';
 import { useTranslation } from 'react-i18next';
-import { api, ApiError } from '../../services/api-client';
+import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 import { DiscardDialog, RouteDiscardGuard } from '../../shared/components/FormDialog';
 import { ErrorAlert } from '../../shared/components/ErrorAlert';
@@ -217,22 +217,23 @@ function PrLineItemDialog({ line, material, contract, occupied, saveLine, onClos
   const [productId, setProductId] = useState(line?.productId ?? 0);
   const [sourceId, setSourceId] = useState(line?.salesContractLineId ?? 0);
   const [quantity, setQuantity] = useState(line?.quantity ?? '');
-  const products = useQuery({ queryKey: ['products'], queryFn: () => api<Product[]>('/products') });
+  const products = useQuery({ queryKey: ['products', 'selection', line?.productId], queryFn: () => api<Product[]>(catalogSelectionPath('/products', line?.productId)) });
   const contractLines = useQuery({ queryKey: ['sc-lines', contract], queryFn: () => api<ContractLine[]>(`/sales-contracts/${contract}/lines`) });
-  const product = products.data?.find(item => item.id === productId && item.isActive);
+  const product = products.data?.find(item => item.id === productId && (item.isActive || item.id === line?.productId));
   const source = contractLines.data?.find(item => item.id === sourceId && !occupied.includes(item.id));
   const valid = Boolean(product && (source || (material && !sourceId)) && Number.isFinite(Number(quantity)) && Number(quantity) > 0);
   return <FormDialog title={t(line ? 'pr.editGoods' : 'pr.addGoods')} submitLabel={t('pr.saveLine')} submitIcon={<Save />}
     error={products.error ?? contractLines.error} pending={false} canSubmit={valid} onClose={onClose}
     onSubmit={() => { if (valid && product) saveLine({ id: line?.id, productId, salesContractLineId: source?.id,
-      ref: source?.itemName ?? '', partNumber: product.partNumber, productName: product.name, uom: product.unitOfMeasure.code, quantity }); }}>
+      ref: source?.itemName ?? '', partNumber: product.id === line?.productId ? line.partNumber : product.partNumber,
+      productName: product.id === line?.productId ? line.productName : product.name, uom: product.unitOfMeasure.code, quantity }); }}>
     <TextField select required={!material} label={t('pr.lineRef')} value={source?.id ?? 0} onChange={e => setSourceId(Number(e.target.value))}>
       <MenuItem value={0}>{t('pr.noSelection')}</MenuItem>
       {contractLines.data?.filter(item => !occupied.includes(item.id)).map(item => <MenuItem key={item.id} value={item.id}>{item.itemCode} · {item.itemName}</MenuItem>)}
     </TextField>
     <TextField select label={t('pr.product')} value={product?.id ?? 0} onChange={e => setProductId(Number(e.target.value))}>
       <MenuItem value={0}>{t('pr.noSelection')}</MenuItem>
-      {products.data?.filter(item => item.isActive).map(item => <MenuItem key={item.id} value={item.id}>{item.partNumber} · {item.name}</MenuItem>)}
+      {products.data?.filter(item => item.isActive || item.id === line?.productId).map(item => <MenuItem key={item.id} value={item.id}>{item.partNumber} · {item.name}</MenuItem>)}
     </TextField>
     <DocumentFormGrid>
       <DocumentFormCell span={8}><PrReadonlyField label={t('product.name')} value={product?.name ?? ''} /></DocumentFormCell>

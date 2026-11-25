@@ -50,7 +50,7 @@ describe('Sales contract lines (integration)', () => {
       await http().put(`/brands/${id}/suppliers`).set(as(admin)).send({ supplierIds: [supplier.id] }).expect(204);
       expect((await get(admin, `/brands/${id}/suppliers`).expect(200)).body).toEqual([expect.objectContaining({ id: supplier.id })]);
     }
-    await http().put(`/brands/${brand.id}/suppliers`).set(as(admin)).send({ supplierIds: [999999] }).expect(409);
+    await http().put(`/brands/${brand.id}/suppliers`).set(as(admin)).send({ supplierIds: [999999] }).expect(422);
     expect((await get(admin, `/brands/${brand.id}/suppliers`).expect(200)).body).toHaveLength(1);
     await get(sales, `/brands/${brand.id}/suppliers`).expect(403);
     await post(admin, '/products', { partNumber: 'B19-P', name: 'Missing brand', unitOfMeasureId: pcs }).expect(400);
@@ -121,12 +121,12 @@ describe('Sales contract lines (integration)', () => {
     const supplier = (await post(admin, '/suppliers', { code: 'S11', name: 'Supplier 11' }).expect(201)).body;
     await patch(admin, `/suppliers/${supplier.id}`, { code: 'S11', name: 'Supplier edited' }).expect(204);
     await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [supplier.id] }).expect(200);
-    await patch(admin, '/brands/1', { code: 'TEST', name: 'Rolled back', supplierIds: [999999] }).expect(409);
-    expect((await get(admin, '/brands').expect(200)).body).toContainEqual({ id: 1, code: 'TEST', name: 'Renamed' });
+    await patch(admin, '/brands/1', { code: 'TEST', name: 'Rolled back', supplierIds: [999999] }).expect(422);
+    expect((await get(admin, '/brands').expect(200)).body).toContainEqual({ id: 1, code: 'TEST', name: 'Renamed', isActive: true });
     expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([{ id: supplier.id, code: 'S11', name: 'Supplier edited' }]);
     await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [] }).expect(200);
     expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([]);
-    expect((await get(admin, '/suppliers').expect(200)).body).toContainEqual({ id: supplier.id, code: 'S11', name: 'Supplier edited' });
+    expect((await get(admin, '/suppliers').expect(200)).body).toContainEqual({ id: supplier.id, code: 'S11', name: 'Supplier edited', isActive: true });
 
     const product = (await post(admin, '/products', {
       partNumber: 'P11', name: 'Product 11', unitOfMeasureId: uom.id, brandId: 1,
@@ -140,6 +140,78 @@ describe('Sales contract lines (integration)', () => {
     const warehouse = (await post(admin, '/warehouses', { code: 'W11', name: 'Warehouse 11' }).expect(201)).body;
     await patch(admin, `/warehouses/${warehouse.id}/status`, { isActive: false }).expect(204);
     expect((await get(admin, '/warehouses').expect(200)).body).toContainEqual(expect.objectContaining({ id: warehouse.id, isActive: false }));
+  });
+
+  it('maintains active-only selections, status guards and inactive historical references', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const add = async (path: string, fields: object) => (await post(admin, path, fields).expect(201)).body.id as number;
+    const setStatus = (path: string, id: number, isActive: boolean, status = 204) =>
+      patch(admin, `${path}/${id}/status`, { isActive }).expect(status);
+
+    const brand = await add('/brands', { code: 'STATUS-B', name: 'Brand' });
+    const uom = await add('/units-of-measure', { code: 'STATUS-U', name: 'Unit' });
+    const product = await add('/products', { partNumber: 'STATUS-P', name: 'Main', brandId: brand, unitOfMeasureId: uom });
+    const temp = await add('/temporary-products', { code: 'STATUS-T', name: 'Temporary' });
+    const customer = await add('/customers', { code: 'STATUS-C', name: 'Customer' });
+    const supplier = await add('/suppliers', { code: 'STATUS-S', name: 'Supplier' });
+    const rate = await add('/tax-rates', { code: 'STATUS-TAX', name: 'Tax', rate: '0' });
+    const currency = await add('/currencies', { code: 'ZUA', name: 'Foreign', exchangeRate: '2', decimalPlaces: 2 });
+    const warehouse = await add('/warehouses', { code: 'STATUS-W', name: 'Warehouse' });
+    const sc = (await post(sales, '/sales-contracts', { customerId: customer, lines: [
+      { ...line('STATUS-P', 1, uom), productId: product },
+      { ...line('STATUS-T', 1, uom), temporaryProductId: temp },
+    ] }).expect(201)).body.id;
+    expect((await setStatus('/brands', brand, false, 422)).body.code).toBe('CATALOG_HAS_ACTIVE_PRODUCTS');
+    expect((await setStatus('/units-of-measure', uom, false, 422)).body.code).toBe('CATALOG_HAS_ACTIVE_PRODUCTS');
+    const vnd = (await get(admin, '/currencies').expect(200)).body.find((row: { code: string }) => row.code === 'VND');
+    expect((await setStatus('/currencies', vnd.id, false, 422)).body.code).toBe('DEFAULT_CURRENCY_REQUIRED');
+    await patch(sales, `/temporary-products/${temp}/status`, { isActive: false }).expect(403);
+
+    for (const [path, id, status] of [
+      ['/products', product, 200], ['/brands', brand, 204], ['/units-of-measure', uom, 204],
+      ['/temporary-products', temp, 204], ['/customers', customer, 204], ['/suppliers', supplier, 204],
+      ['/tax-rates', rate, 204], ['/currencies', currency, 204], ['/warehouses', warehouse, 204],
+    ] as const) {
+      await setStatus(path, id, false, status);
+      expect((await get(admin, path).expect(200)).body).toContainEqual(expect.objectContaining({ id, isActive: false }));
+      expect((await get(admin, path + '?activeOnly=true').expect(200)).body).not.toContainEqual(expect.objectContaining({ id }));
+      expect((await get(admin, path + '?activeOnly=true&includeId=' + id).expect(200)).body).toContainEqual(expect.objectContaining({ id, isActive: false }));
+    }
+
+    await setStatus('/products', product, true, 422);
+    await setStatus('/brands', brand, true);
+    await setStatus('/products', product, true, 422);
+    await setStatus('/units-of-measure', uom, true);
+    await setStatus('/products', product, true, 200);
+    await setStatus('/products', product, false, 200);
+    expect((await post(sales, '/sales-contracts', { customerId: customer }).expect(422)).body.code).toBe('CUSTOMER_NOT_FOUND');
+    await patch(sales, `/sales-contracts/${sc}`, { customerId: customer, version: await version(sc) }).expect(204);
+    const detail = (await get(sales, `/sales-contracts/${sc}`).expect(200)).body;
+    expect(detail.lines).toHaveLength(2);
+    await patch(sales, `/sales-contract-lines/${detail.lines[0].id}`, {
+      ...line('STATUS-P', 2, uom), productId: product, version: detail.version,
+    }).expect(204);
+    await post(sales, `/sales-contracts/${sc}/lines`, {
+      ...line('STATUS-T', 1, uom), temporaryProductId: temp, version: await version(sc),
+    }).expect(422);
+    await post(sales, `/sales-contracts/${sc}/lines`, {
+      ...line('STATUS-P', 1, uom), productId: product, version: await version(sc),
+    }).expect(422);
+  });
+
+  it('serializes assigning a brand with deactivating that brand', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const brand = (await post(admin, '/brands', { code: 'CONCURRENT-B', name: 'Concurrent brand' }).expect(201)).body.id;
+    const [create, deactivate] = await Promise.all([
+      post(admin, '/products', { partNumber: 'CONCURRENT-P', name: 'Concurrent product', brandId: brand, unitOfMeasureId: pcs }),
+      patch(admin, `/brands/${brand}/status`, { isActive: false }),
+    ]);
+    expect([[201, 422], [422, 204]]).toContainEqual([create.status, deactivate.status]);
+    const [[current], [product]] = await Promise.all([
+      ds.query('SELECT is_active FROM brands WHERE id = $1', [brand]),
+      ds.query("SELECT is_active FROM products WHERE part_number = 'CONCURRENT-P'"),
+    ]);
+    expect(Boolean(product?.is_active) && !current.is_active).toBe(false);
   });
 
   it('creates a header-only DRAFT; activation needs at least one line', async () => {

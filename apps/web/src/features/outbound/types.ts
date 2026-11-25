@@ -30,4 +30,4 @@ export interface GiDetail extends GiRow {
   lines: { id: number; goodsIssueRequestLineId: number; partNumber: string; productName: string; isSerialTracked: boolean; uom: string; quantity: string; serials: { goodsReceiptDetailId: number; serialNumber: string }[] }[];
   history: HistoryEntry[];
 }
-export interface ScLine { id: number; itemName: string; quantity: string; products: { productId: number; partNumber: string; name: string; status: string }[] }
+export interface ScLine { id: number; itemName: string; quantity: string; products: { productId: number; partNumber: string; name: string; status: string; isActive?: boolean }[] }

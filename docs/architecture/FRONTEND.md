@@ -173,7 +173,7 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 **COMMON-DOC-FORM-001.** DocumentFormGrid có 12 cột, khoảng cách ngang 16px và dọc 12px. Trường ngắn dùng 2–3 cột, trung bình 4–6 cột, dài 6–12 cột. Màn hình hẹp xếp một trường mỗi hàng. Label semibold nằm trên input cao khoảng 36–40px. Textarea mặc định hai dòng và tự giãn. Đặt trường bắt buộc lên trước và dùng cùng bố cục cho Tạo, Sửa, Xem.
 
-**COMMON-DOC-TABS-001, COMMON-DOC-GRID-001.** Tạo chỉ hiện ba tab đầu. Hồ sơ dùng DocumentEmptyState với icon và nhãn Chưa có hồ sơ. ScrollTable giữ header khi cuộn dọc, hỗ trợ cuộn ngang, giới hạn chiều cao theo viewport và giữ toolbar cùng tổng số dòng ngoài vùng cuộn. Chế độ Tạo/Sửa luôn hiển thị nút Thêm hàng hóa và nêu lý do khi nút bị khóa. Popup thêm, sửa, xóa cập nhật state cục bộ. Dòng hàng lấy tên và ĐVT từ hàng hóa; PR #18 chưa có đơn giá hoặc tiền tệ để tính tổng.
+**COMMON-DOC-TABS-001.** Tạo chỉ hiện ba tab đầu. Hồ sơ dùng DocumentEmptyState với icon và nhãn Chưa có hồ sơ. ScrollTable giữ header khi cuộn dọc, hỗ trợ cuộn ngang, giới hạn chiều cao theo viewport và giữ toolbar cùng tổng số dòng ngoài vùng cuộn. Chế độ Tạo/Sửa luôn hiển thị nút Thêm hàng hóa và nêu lý do khi nút bị khóa. Popup thêm, sửa, xóa cập nhật state cục bộ. Dòng hàng lấy tên và ĐVT từ hàng hóa; PR #18 chưa có đơn giá hoặc tiền tệ để tính tổng.
 
 **COMMON-WORKFLOW-CARD-001.** Stepper dùng vòng 38px, đường nối 2px, nhãn 14px. Tạo mới và Nháp đều hiển thị ba chấm trắng trên nền #1F5FC4 ở bước Khởi tạo. Gửi duyệt thành công chuyển bước Khởi tạo sang dấu check trên nền #2E7D32. Bước tương lai có viền xám và bước từ chối dùng dấu X trên nền #D32F2F. Card chia đều chiều rộng, xếp label semibold trên value và đặt dropdown vào đúng card khi có quyền sửa. Vai trò lấy từ ứng viên hoặc snapshot của bước xử lý. Chuỗi dài hiển thị một dòng với tooltip chỉ khi bị cắt. Action footer căn phải, nút 32px và chỉ chiếm chỗ khi hàng card có thao tác.
 
@@ -183,20 +183,26 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 **COMMON-DOC-NAV-001, DOC-LINE-001, FE-VALIDATION-001.** Giữ tham số danh sách khi đi và quay lại. Cảnh báo khi rời trang có thay đổi. State sống ở editor nên chuyển tab và lỗi API giữ nội dung nhập. Lưu nháp và Gửi duyệt đều cần ít nhất một dòng hợp lệ. Gửi duyệt cần thêm ứng viên hợp lệ. Hiển thị validation cạnh trường và đánh dấu tab lỗi.
 
-**UI-15, UI-EVIDENCE-001.** Popup kết quả dùng chung chiều rộng 460px, chiều cao tối thiểu 260px và icon 64px nền tròn có dấu check hoặc X trắng. Nội dung dùng câu theo action và mã chứng từ. Thành công nêu trạng thái mới nếu thay đổi và tự đóng sau khoảng 3 giây. Thất bại hiển thị nguyên nhân dạng chữ và nút Đã hiểu. Kiểm tra trực tiếp Before/After trên Chromium với API và PostgreSQL test ở 1920×1080 và 1366×768.
+**UI-15, UI-EVIDENCE-001.** Popup kết quả dùng chung chiều rộng 460px, chiều cao tối thiểu 260px và icon 64px nền tròn có dấu check hoặc X trắng. Áp dụng cho thao tác nghiệp vụ trên chứng từ và Master Data. Tiêu đề nêu thao tác và kết quả; nội dung nêu chứng từ hoặc danh mục tương ứng. Snackbar dành cho thông báo nhẹ. Thành công nêu trạng thái mới nếu thay đổi và tự đóng sau khoảng 3 giây. Thất bại hiển thị nguyên nhân dạng chữ và nút Đã hiểu. Kiểm tra trực tiếp Before/After trên Chromium với API và PostgreSQL test ở 1920×1080 và 1366×768.
 
+
+## COMMON-DOC-GRID-001 — Bảng chứng từ và danh mục
+
+- DataTable và ScrollTable dùng độ rộng cột theo loại dữ liệu và chiều cao dòng nhất quán. Mã, tên, mô tả và văn bản dài hiển thị một dòng với ellipsis. GridText mở tooltip đầy đủ khi rê chuột hoặc dùng bàn phím nếu nội dung thực sự bị cắt. Giữ nguyên giá trị gốc.
+- Số lượng và giá trị tiền căn phải. Header giữ vị trí khi cuộn dọc. Cột thao tác giữ vị trí bên phải khi cuộn ngang; bảng phải cuộn được tới cột và dòng cuối. Toolbar và tổng số dòng nằm ngoài vùng bảng cuộn.
+- Giữ biểu tượng cảnh báo trùng cạnh mã, kể cả khi phần chữ của mã bị cắt.
 
 ## COMMON-MASTER-DATA-001 — Danh mục
 
 - Mỗi danh mục có mục điều hướng riêng. List dùng ListPageLayout, FilterToolbar và DataTable với tìm kiếm theo mã/tên không phân biệt hoa thường, bộ lọc phù hợp, phân trang và các trạng thái tải/rỗng/lỗi. Giữ bộ lọc và phân trang trong URL. Mã là liên kết tới View, thao tác xóa nếu có đặt tại chi tiết.
 - Dùng cùng form cho Create, View và Edit. Create chưa có ID, View/Edit dùng cùng ID. Lưu Create về List, lưu hoặc hủy Edit về View, đóng View hoặc hủy Create về List. View chỉ đọc, hiện Chỉnh sửa theo quyền. Create/Edit dùng cùng validation, chỉ rõ lỗi tại trường tương ứng và xác nhận bỏ thay đổi chưa lưu.
 - Mã chính, Hãng, Khách hàng, NCC dùng full page với DetailPageLayout, lưới 12 cột và card chiều cao tự nhiên. Mã tạm, ĐVT, Kho, Tiền tệ và Thuế suất dùng FormDialog. View chuyển sang Edit trong cùng popup. Nút chính nằm bên phải nút phụ.
-- Hiển thị tỷ giá, thuế suất theo locale và bỏ số 0 cuối phần thập phân. Giá trị lưu giữ nguyên precision. Chỉ dùng tooltip cho giá trị bị cắt hoặc biểu tượng cần giải thích.
+- Hiển thị tỷ giá, thuế suất theo locale và bỏ số 0 cuối phần thập phân. Giá trị lưu giữ nguyên precision. Áp dụng COMMON-DOC-GRID-001. Kết quả tạo, sửa, xóa dùng Action Result Dialog theo UI-15. Lỗi của trường tiếp tục hiển thị cạnh trường.
 
 ## COMMON-MASTER-DATA-STATUS-001 — Trạng thái danh mục
 
 - Mọi Master Data dùng MUI Switch trên List và có bộ lọc mặc định Tất cả, kể cả danh mục bổ sung sau này. Active dùng primary, Inactive dùng màu trung tính; hiển thị nhãn và khóa thao tác nếu thiếu quyền. Create mặc định Active. View đọc trạng thái, Edit tập trung vào thông tin danh mục.
-- Xác nhận trước khi chuyển Inactive, kích hoạt lại trực tiếp. Gửi trạng thái đích tới API, khóa Switch của bản ghi trong khi xử lý, cập nhật khi thành công và giữ giá trị hiện tại nếu lỗi. Dùng Snackbar để phản hồi.
+- Xác nhận trước khi chuyển Inactive, kích hoạt lại trực tiếp. Gửi trạng thái đích tới API, khóa Switch của bản ghi trong khi xử lý, cập nhật khi thành công và giữ giá trị hiện tại nếu lỗi. Dùng Action Result Dialog cho kết quả nghiệp vụ sau khi API phản hồi. Đóng dialog xác nhận trước khi hiển thị kết quả.
 - Dropdown gọi API lựa chọn Active. Khi sửa hiển thị thêm giá trị Inactive đã lưu; danh sách quản trị và dữ liệu lịch sử giữ đủ hai trạng thái. Backend kiểm tra theo quy tắc tại 03 §1d. Trạng thái không cascade.
 
 ## UI-EVIDENCE-001 — Kiểm chứng bằng trình duyệt

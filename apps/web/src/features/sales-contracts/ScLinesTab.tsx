@@ -5,13 +5,10 @@ import AddIcon from '@mui/icons-material/Add';
 import AddTaskOutlined from '@mui/icons-material/AddTaskOutlined';
 import DeleteOutline from '@mui/icons-material/DeleteOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
-import { DuplicateCodeWarning, findDuplicateCodeRows, ScrollTable, StatusChip } from '../../shared/components';
+import { DuplicateCodeWarning, findDuplicateCodeRows, GridText, ScrollTable, StatusChip } from '../../shared/components';
 import { StatusTone } from '../../config/theme';
 import { fmtDate, num } from '../../shared/utils/format';
 import { Proposal, ScDetail, ScLine } from './types';
-
-const pinnedActions = { position: 'sticky', right: 0, zIndex: 1, minWidth: 116,
-  whiteSpace: 'nowrap', bgcolor: 'background.paper', borderLeft: 1, borderColor: 'divider' } as const;
 
 const proposalTone: Record<string, StatusTone> = { PENDING: 'pending', APPROVED: 'success', REJECTED: 'danger' };
 
@@ -23,6 +20,8 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
   const duplicateRows = findDuplicateCodeRows(d.lines);
   const editable = d.status === 'DRAFT' && can('SALES_CONTRACT.CREATE');
   const canPropose = d.status !== 'CANCELED' && can('SALES_CONTRACT.PROPOSE_PRODUCT');
+  const canConfirm = can('SALES_CONTRACT.CONFIRM_PRODUCT');
+  const hasActions = editable || canPropose || (canConfirm && d.lines.some(line => line.products.some(p => p.status === 'PENDING')));
   const icon = (label: string, Icon: typeof EditOutlined, onClick: () => void, color?: 'error') => (
     <Tooltip title={label}><IconButton size="small" aria-label={label} onClick={onClick} color={color}><Icon fontSize="small" /></IconButton></Tooltip>
   );
@@ -35,18 +34,19 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
       {d.lines.length === 0 ? (
         <Typography variant="body2" color="text.secondary">{t(editable ? 'sc.noLinesEdit' : 'sc.noLines')}</Typography>
       ) : (
-        <ScrollTable label={t('sc.tabLines')} minWidth={760}>
+        <ScrollTable label={t('sc.tabLines')} columnWidths={[42, 110, 174, 200, 190, 85, 92, 166, ...(hasActions ? [160] : [])]}
+          maxHeight="clamp(170px, calc(100dvh - 515px), 440px)">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: 48 }}>#</TableCell>
+                <TableCell>#</TableCell>
                 <TableCell>{t('master.sourceType')}</TableCell>
                 <TableCell>{t('sc.itemCode')}</TableCell>
-                <TableCell sx={{ minWidth: 175 }}>{t('sc.itemName')}</TableCell>
-                <TableCell sx={{ minWidth: 150 }}>{t('master.lineRequirement')}</TableCell>
-                <TableCell align="right" sx={{ width: 96 }}>{t('gr.quantity')}</TableCell>
-                <TableCell sx={{ width: 96 }}>{t('sc.uom')}</TableCell>
+                <TableCell>{t('sc.itemName')}</TableCell>
+                <TableCell>{t('master.lineRequirement')}</TableCell>
+                <TableCell align="right">{t('gr.quantity')}</TableCell>
+                <TableCell>{t('sc.uom')}</TableCell>
                 <TableCell>{t('sc.allowedProducts')}</TableCell>
-                {(editable || canPropose) && <TableCell align="right" sx={{ ...pinnedActions, zIndex: 3, bgcolor: 'background.default' }}>{t('common.actions')}</TableCell>}
+                {hasActions && <TableCell align="right" data-grid-actions>{t('common.actions')}</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -58,14 +58,14 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                       sx={{ bgcolor: 'action.selected', color: 'primary.dark', fontWeight: 600, borderRadius: 1 }} />
                       : <StatusChip label={t(l.temporaryProductId ? 'prCatalog.temporary' : 'prCatalog.free')}
                         tone={l.temporaryProductId ? 'success' : 'neutral'} />}</TableCell>
-                    <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{l.itemCode}<DuplicateCodeWarning rows={duplicateRows(l.itemCode, l.id)} /></TableCell>
-                    <TableCell>{l.itemName}</TableCell>
-                    <TableCell sx={{ overflowWrap: 'anywhere' }}>{l.itemDescription}</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}><GridText value={l.itemCode} trailing={<DuplicateCodeWarning rows={duplicateRows(l.itemCode, l.id)} />} /></TableCell>
+                    <TableCell><GridText value={l.itemName} /></TableCell>
+                    <TableCell><GridText value={l.itemDescription ?? ''} /></TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{num(l.quantity)}</TableCell>
-                    <TableCell>{l.uomName}</TableCell>
+                    <TableCell><GridText value={l.uomName} /></TableCell>
                     <TableCell>{l.products.length ? t('sc.proposals', { count: l.products.length }) : <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{t('sc.noProductsShort')}</Typography>}</TableCell>
-                    {(editable || canPropose) && (
-                      <TableCell align="right" sx={pinnedActions}>
+                    {hasActions && (
+                      <TableCell align="right" data-grid-actions>
                         {canPropose && icon(t('sc.propose'), AddTaskOutlined, () => onAction({ kind: 'propose', line: l }))}
                         {editable && icon(t('sc.editItem'), EditOutlined, () => onAction({ kind: 'edit', line: l }))}
                         {editable && icon(t('sc.deleteItem'), DeleteOutline, () => onAction({ kind: 'delete', line: l }), 'error')}
@@ -75,28 +75,23 @@ export function ScLinesTab({ d, can, onAction }: { d: ScDetail; can: (p: string)
                   {l.products.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell />
-                      <TableCell colSpan={(editable || canPropose) ? 8 : 7}>
-                        <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 1, alignItems: { md: 'center' } }}>
-                          <Stack sx={{ flex: 1, minWidth: 0 }}>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.partNumber}: {p.name}</Typography>
-                              <StatusChip label={t(`sc.proposal.${p.status}`)} tone={proposalTone[p.status]} />
-                            </Stack>
-                            <Typography variant="body2" color="text.secondary">{t('sc.proposedBy', { name: p.proposedByName, reason: p.reason })}</Typography>
-                            {p.decidedByName && (
-                              <Typography variant="body2" color="text.secondary">
-                                {t('sc.decidedBy', { name: p.decidedByName, at: fmtDate(p.decidedAt!) })}{p.decisionNote ? `. ${p.decisionNote}` : ''}
-                              </Typography>
-                            )}
-                          </Stack>
-                          {p.status === 'PENDING' && can('SALES_CONTRACT.CONFIRM_PRODUCT') && (
-                            <Stack direction="row" spacing={1}>
-                              <Button size="small" color="error" onClick={() => onAction({ kind: 'reject', proposal: p })}>{t('doc.reject')}</Button>
-                              <Button size="small" variant="contained" onClick={() => onAction({ kind: 'approve', proposal: p })}>{t('gir.confirm')}</Button>
-                            </Stack>
-                          )}
+                      <TableCell colSpan={7}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                          <StatusChip label={t(`sc.proposal.${p.status}`)} tone={proposalTone[p.status]} />
+                          <GridText value={`${p.partNumber}: ${p.name}`} />
+                          <GridText value={t('sc.proposedBy', { name: p.proposedByName, reason: p.reason })} />
+                          {p.decidedByName && <GridText value={t('sc.decidedBy', { name: p.decidedByName, at: fmtDate(p.decidedAt!) })
+                            + (p.decisionNote ? '. ' + p.decisionNote : '')} />}
                         </Stack>
                       </TableCell>
+                      {hasActions && <TableCell align="right" data-grid-actions>
+                        {p.status === 'PENDING' && canConfirm && (
+                          <>
+                            <Button size="small" color="error" onClick={() => onAction({ kind: 'reject', proposal: p })}>{t('doc.reject')}</Button>
+                            <Button size="small" onClick={() => onAction({ kind: 'approve', proposal: p })}>{t('gir.confirm')}</Button>
+                          </>
+                        )}
+                      </TableCell>}
                     </TableRow>
                   ))}
                 </Fragment>

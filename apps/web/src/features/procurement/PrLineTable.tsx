@@ -3,7 +3,7 @@ import Add from '@mui/icons-material/Add';
 import Edit from '@mui/icons-material/Edit';
 import Delete from '@mui/icons-material/Delete';
 import { useTranslation } from 'react-i18next';
-import { ScrollTable } from '../../shared/components';
+import { GridText, ScrollTable } from '../../shared/components';
 import type { DocLine } from './types';
 
 export type PrDisplayLine = Pick<DocLine, 'partNumber' | 'productName' | 'uom' | 'quantity' | 'ref' | 'usedQuantity'>;
@@ -27,25 +27,25 @@ export function PrLineTable({ lines, onAdd, onEdit, onDelete, invalid, addDisabl
           </Stack>}
         </Stack>
         {invalid && <Typography role="alert" color="error">{t('errors.PR_LINES_REQUIRED')}</Typography>}
-        <ScrollTable label={t('pr.goods')} minWidth={620} maxHeight="clamp(160px, calc(100dvh - 570px), 360px)">
+        <ScrollTable label={t('pr.goods')} columnWidths={[42, 144, 200, 152, 86, 76, ...(hasUsed ? [100] : []), ...(onEdit ? [88] : [])]} maxHeight="clamp(160px, calc(100dvh - 570px), 360px)">
           <TableHead><TableRow>
             <TableCell>#</TableCell><TableCell>{t('product.partNumber')}</TableCell>
             <TableCell>{t('product.name')}</TableCell><TableCell>{t('pr.lineRef')}</TableCell>
             <TableCell align="right">{t('gr.quantity')}</TableCell><TableCell>{t('product.uom')}</TableCell>
             {hasUsed && <TableCell align="right">{t('pr.used')}</TableCell>}
-            {onEdit && <TableCell>{t('pr.lineActions')}</TableCell>}
+            {onEdit && <TableCell data-grid-actions>{t('pr.lineActions')}</TableCell>}
           </TableRow></TableHead>
           <TableBody>
-            {!lines.length && <TableRow><TableCell colSpan={onEdit ? 7 : 6} align="center" sx={{ py: { xs: 3, xl: 4 } }}>
+            {!lines.length && <TableRow><TableCell colSpan={6 + Number(hasUsed) + Number(Boolean(onEdit))} align="center" sx={{ py: { xs: 3, xl: 4 } }}>
               {t('pr.noGoods')}
             </TableCell></TableRow>}
             {lines.map((line, index) => (
               <TableRow key={index}>
-                <TableCell>{index + 1}</TableCell><TableCell>{line.partNumber}</TableCell>
-                <TableCell sx={{ overflowWrap: 'anywhere' }}>{line.productName}</TableCell><TableCell>{line.ref || '—'}</TableCell>
-                <TableCell align="right">{Number(line.quantity).toLocaleString()}</TableCell><TableCell>{line.uom}</TableCell>
+                <TableCell>{index + 1}</TableCell><TableCell><GridText value={line.partNumber} /></TableCell>
+                <TableCell><GridText value={line.productName} /></TableCell><TableCell><GridText value={line.ref || '—'} /></TableCell>
+                <TableCell align="right">{Number(line.quantity).toLocaleString()}</TableCell><TableCell><GridText value={line.uom} /></TableCell>
                 {hasUsed && <TableCell align="right">{line.usedQuantity == null ? '—' : Number(line.usedQuantity).toLocaleString()}</TableCell>}
-                {onEdit && <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                {onEdit && <TableCell data-grid-actions>
                   <Tooltip title={t('doc.edit')}><IconButton size="small" color="primary" aria-label={t('pr.editGoodsAt', { row: index + 1 })} onClick={() => onEdit(index)}><Edit fontSize="small" /></IconButton></Tooltip>
                   <Tooltip title={t('pr.deleteGoods')}><IconButton size="small" color="error" aria-label={t('pr.deleteGoodsAt', { row: index + 1 })} onClick={() => onDelete?.(index)}><Delete fontSize="small" /></IconButton></Tooltip>
                 </TableCell>}

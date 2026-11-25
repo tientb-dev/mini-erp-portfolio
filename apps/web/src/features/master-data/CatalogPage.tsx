@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Box, Button, Link, MenuItem, Snackbar, Stack, Switch, TextField, Tooltip } from '@mui/material';
+import { Button, MenuItem, Stack, Switch, TextField } from '@mui/material';
 import Add from '@mui/icons-material/Add';
 import type { GridColDef } from '@mui/x-data-grid';
 import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
-import { DataTable, DetailPageLayout, FilterToolbar, FormDialog, ListPageLayout } from '../../shared/components';
+import { ActionResultDialog, DataTable, DetailPageLayout, FilterToolbar, FormDialog, GridText, ListPageLayout } from '../../shared/components';
+import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { useMe } from '../identity';
 import { CatalogEditor } from './CatalogEditor';
 import { Catalog, displayDecimal, Entry, entryCode, label, statusLabel } from './catalogs';
@@ -17,7 +18,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const navigate = useNavigate();
   const permissions = useMe().data?.permissions ?? [];
   const path = `/${catalog.path}`;
-  const { search } = useLocation();
+  const { search, state } = useLocation();
   const listUrl = path + search;
   const catalogKey = [catalog.key === 'unitsOfMeasure' ? 'uoms' : catalog.path];
   const catalogQuery = useQuery({ queryKey: catalogKey, queryFn: () => api<Entry[]>(path) });
@@ -29,25 +30,34 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const uoms = useQuery({ queryKey: ['uoms', selecting ? 'selection' : 'list', entry?.unitOfMeasureId],
     queryFn: () => api<Entry[]>(selecting ? catalogSelectionPath('/units-of-measure', entry?.unitOfMeasureId) : '/units-of-measure'), enabled: isProduct });
   const [confirmation, setConfirmation] = useState<Entry>();
-  const [notice, setNotice] = useState<{ error: boolean; message: string }>();
+  const [result, setResult] = useState<ActionResult | undefined>(state?.catalogResult);
+  const dismissResult = useCallback(() => setResult(undefined), []);
+  useEffect(() => {
+    if (state?.catalogResult) navigate(listUrl, { replace: true, state: null });
+  }, [listUrl, navigate, state]);
   const [pending, setPending] = useState<number[]>([]);
   const qc = useQueryClient();
   const updateStatus = useMutation({
-    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
-      api(`${path}/${id}/status`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
-    onMutate: ({ id }) => setPending(ids => [...ids, id]),
-    onSuccess: async (_response, { id, isActive }) => {
+    mutationFn: ({ row, isActive }: { row: Entry; isActive: boolean }) =>
+      api(`${path}/${row.id}/status`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
+    onMutate: ({ row }) => setPending(ids => [...ids, row.id]),
+    onSuccess: async (_response, { row, isActive }) => {
+      const { id } = row;
       qc.setQueryData<Entry[]>(catalogKey, rows => rows?.map(row => row.id === id ? { ...row, isActive } : row));
       await qc.invalidateQueries({ queryKey: catalogKey });
       setConfirmation(previous => previous?.id === id ? undefined : previous);
-      setNotice({ error: false, message: t('master.statusSaved') });
+      setResult({ success: true, title: t('master.resultSuccess', { action: t(isActive ? 'master.activate' : 'master.disable') }),
+        message: t('master.resultTarget', { name: row.name, code: entryCode(row) }), status: statusLabel(t, isActive) });
     },
-    onError: (error, { id }) => {
-      setConfirmation(previous => previous?.id === id ? undefined : previous);
+    onError: (error, { row, isActive }) => {
+      setConfirmation(undefined);
       const reason = error instanceof ApiError ? t('master.statusErrors.' + error.code, { defaultValue: error.message }) : error.message;
-      setNotice({ error: true, message: reason });
+      setResult({ success: false, error: { message: reason },
+        title: t('master.resultFailure', { action: t(isActive ? 'master.activate' : 'master.disable') }),
+        message: t('master.resultTarget', { name: row.name, code: entryCode(row) }),
+        hint: error instanceof ApiError && error.code === 'CATALOG_HAS_ACTIVE_PRODUCTS' ? t('master.activeProductsHint') : undefined });
     },
-    onSettled: (_data, _error, { id }) => setPending(ids => ids.filter(pendingId => pendingId !== id)),
+    onSettled: () => setPending([]),
   });
   const q = params.get('q') ?? '';
   const status = params.get('status') ?? '';
@@ -71,8 +81,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const columns: GridColDef<Entry>[] = [
     { field: isProduct ? 'partNumber' : 'code', headerName: label(t, isProduct ? 'partNumber' : 'code'), minWidth: 145, flex: 0.75,
       renderCell: ({ row, tabIndex }) => <CatalogRecordLink path={path} row={row} tabIndex={tabIndex} /> },
-    { field: 'name', headerName: label(t, 'name'), flex: 1.5, minWidth: 200,
-      renderCell: ({ row }) => <ClippedValue value={row.name} /> },
+    { field: 'name', headerName: label(t, 'name'), flex: 1.5, minWidth: 200 },
     ...(catalog.columns ?? []).map((field): GridColDef<Entry> => ({
       field, headerName: label(t, field), minWidth: 135, flex: 1,
       valueGetter: (_value, row) => {
@@ -85,28 +94,29 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
         if (typeof value === 'string' && (field === 'exchangeRate' || field === 'rate')) return displayDecimal(value, i18n.language);
         return value ?? '';
       },
-      renderCell: ({ formattedValue }) => <ClippedValue value={String(formattedValue ?? '')} />,
+      ...(['exchangeRate', 'decimalPlaces', 'rate'].includes(field) ? { align: 'right', headerAlign: 'right' } : {}),
     })),
   ];
   columns.push({
     field: 'isActive', headerName: t('common.status'), minWidth: 198, sortable: false,
     renderCell: ({ row, tabIndex }) => (
       <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', height: '100%' }}>
-        <Switch size="small" checked={Boolean(row.isActive)} disabled={!canEdit || pending.includes(row.id)}
+        <Switch size="small" checked={Boolean(row.isActive)} disabled={!canEdit || pending.length > 0 || Boolean(result)}
           slotProps={{ input: { role: 'switch', 'aria-label': `${t('common.status')} ${entryCode(row)}`, tabIndex } }}
-          onChange={(_event, isActive) => isActive ? updateStatus.mutate({ id: row.id, isActive }) : setConfirmation(row)} />
+          onChange={(_event, isActive) => isActive ? updateStatus.mutate({ row, isActive }) : setConfirmation(row)} />
         {statusLabel(t, Boolean(row.isActive))}
       </Stack>
     ),
   });
-  const close = () => navigate(listUrl);
+  const close = (catalogResult?: ActionResult) => navigate(listUrl, { state: catalogResult ? { catalogResult } : null });
+  const resultDialog = result && <ActionResultDialog result={result} onClose={dismissResult} />;
   const opened = initialId !== undefined;
   const editor = opened && (initialId === 0 && canCreate || entry) && (
-    <CatalogEditor catalog={catalog} key={initialId} entry={entry} close={close} permissions={permissions}
+    <CatalogEditor catalog={catalog} key={initialId} entry={entry} close={close} report={setResult} showingResult={Boolean(result)} permissions={permissions}
       brands={brands} uoms={uoms} />
   );
   const missing = opened && !editor;
-  if (catalog.fullPage && opened) return editor || (
+  if (catalog.fullPage && opened) return editor ? <>{editor}{resultDialog}</> : (
     <DetailPageLayout title={title} loading={catalogQuery.isPending} error={catalogQuery.error} backTo={listUrl} naturalFlow>
       {t('common.notFound')}
     </DetailPageLayout>
@@ -131,7 +141,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
             {brands.data?.map(item => <MenuItem key={item.id} value={String(item.id)}>{item.name}</MenuItem>)}
           </TextField>}
         </FilterToolbar>}>
-        <DataTable rows={filtered} columns={columns} loading={catalogQuery.isPending} error={catalogQuery.error}
+        <DataTable rows={filtered} columns={columns} maxHeight="clamp(310px, calc(100dvh - 235px), 680px)" loading={catalogQuery.isPending} error={catalogQuery.error}
           paginationModel={{ page, pageSize }}
           onPaginationModelChange={model => {
             if (catalogQuery.isPending || (model.page === page && model.pageSize === pageSize)) return;
@@ -145,31 +155,19 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
       </ListPageLayout>
       {editor}
       {missing && !catalogQuery.isPending && <FormDialog title={title} pending={false} canSubmit={false}
-        closeLabel={t('common.close')} error={catalogQuery.error} onSubmit={() => {}} onClose={close}>{t('common.notFound')}</FormDialog>}
+        closeLabel={t('common.close')} error={catalogQuery.error} onSubmit={() => {}} onClose={() => close()}>{t('common.notFound')}</FormDialog>}
       {confirmation && <FormDialog title={t('master.disableTitle', { code: entryCode(confirmation) })}
         submitLabel={t('master.disable')} pending={pending.includes(confirmation.id)}
         canSubmit error={null} onClose={() => setConfirmation(undefined)}
-        onSubmit={() => updateStatus.mutate({ id: confirmation.id, isActive: false })}>
+        onSubmit={() => updateStatus.mutate({ row: confirmation, isActive: false })}>
         {t('master.disableHint')}
       </FormDialog>}
-      <Snackbar open={Boolean(notice)} autoHideDuration={notice?.error ? 6500 : 3500} onClose={() => setNotice(undefined)}>
-        {notice && <Alert severity={notice.error ? 'error' : 'success'} onClose={() => setNotice(undefined)}>{notice.message}</Alert>}
-      </Snackbar>
+      {resultDialog}
     </>
   );
 }
 
 function CatalogRecordLink({ path, row, tabIndex }: { path: string; row: Entry; tabIndex: number }) {
   const { search } = useLocation();
-  return <Link component={RouterLink} to={path + '/' + row.id + search} tabIndex={tabIndex} sx={{ display: 'block' }}>
-    <ClippedValue value={entryCode(row)} />
-  </Link>;
-}
-
-function ClippedValue({ value }: { value: string }) {
-  const [clipped, setClipped] = useState(false);
-  return <Tooltip title={clipped ? value : ''}>
-    <Box component="span" onMouseEnter={event => setClipped(event.currentTarget.scrollWidth > event.currentTarget.clientWidth)}
-      sx={{ display: 'block', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{value}</Box>
-  </Tooltip>;
+  return <GridText to={path + '/' + row.id + search} tabIndex={tabIndex} value={entryCode(row)} />;
 }

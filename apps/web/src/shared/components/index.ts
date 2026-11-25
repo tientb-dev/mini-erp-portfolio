@@ -14,3 +14,6 @@ export { PageBreadcrumbs } from './PageBreadcrumbs';
 export { ScrollTable } from './ScrollTable';
 
 export { DuplicateCodeWarning, findDuplicateCodeRows } from './DuplicateCodeWarning';
+
+export { GridText } from './GridText';
+export { ActionResultDialog } from './ActionResultDialog';

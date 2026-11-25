@@ -1,11 +1,12 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { Link as RouterLink, UNSAFE_DataRouterContext } from 'react-router-dom';
+import { UNSAFE_DataRouterContext } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, IconButton, Link, MenuItem, Paper, Stack, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
+import { Button, IconButton, MenuItem, Paper, Stack, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import LinkOff from '@mui/icons-material/LinkOff';
 import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
-import { DetailPageLayout, ErrorAlert, FormDialog, PageBreadcrumbs, ScrollTable } from '../../shared/components';
+import { DetailPageLayout, ErrorAlert, FormDialog, GridText, PageBreadcrumbs, ScrollTable } from '../../shared/components';
+import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { DocumentFormCell, DocumentFormGrid } from '../../shared/components/DocumentFormGrid';
 import { DiscardDialog, RouteDiscardGuard } from '../../shared/components/FormDialog';
 import { Catalog, displayDecimal, Entry, entryCode, FieldKey, label, statusLabel } from './catalogs';
@@ -15,8 +16,8 @@ const booleans = new Set<FieldKey>(['isSerialTracked', 'allowAvailableStockIssue
 const integers = new Set<FieldKey>(['brandId', 'unitOfMeasureId', 'decimalPlaces']);
 const defaults: Partial<Record<FieldKey, string>> = { isSerialTracked: 'true', allowAvailableStockIssue: 'false', decimalPlaces: '0', rate: '0' };
 
-export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms }: {
-  catalog: Catalog; entry?: Entry; close: () => void; permissions: string[]; brands: Options; uoms: Options;
+export function CatalogEditor({ catalog, entry, close, report, showingResult, permissions, brands, uoms }: {
+  catalog: Catalog; entry?: Entry; close: (result?: ActionResult) => void; report: (result: ActionResult) => void; showingResult: boolean; permissions: string[]; brands: Options; uoms: Options;
 }) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
@@ -48,6 +49,16 @@ export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms
   const dirty = editing && (catalog.fields.some(field => value(field) !== initial(field)) ||
     (changedSuppliers !== undefined && [...changedSuppliers].sort().join() !== [...linkedIds].sort().join()));
   const vnd = catalog.key === 'currencies' && value('code') === 'VND';
+  const resultFor = (action: string, success: boolean, error?: unknown): ActionResult => ({
+    ...(success ? { success: true as const } : { success: false as const, error }),
+    title: t(success ? 'master.resultSuccess' : 'master.resultFailure', { action }),
+    message: t('master.resultTarget', { name: value('name'), code: value(catalog.key === 'products' ? 'partNumber' : 'code') }),
+  });
+  const inlineField = (error: unknown) => error instanceof ApiError
+    ? (({ INVALID_EXCHANGE_RATE: 'exchangeRate', INVALID_TAX_RATE: 'rate', PRODUCT_UOM_LOCKED: 'unitOfMeasureId',
+        PRODUCT_IDENTITY_LOCKED: 'partNumber', SERIAL_TRACKING_LOCKED: 'isSerialTracked', DUPLICATE_VALUE: catalog.key === 'products' ? 'partNumber' : 'code' }) as Record<string, FieldKey>)[error.code]
+    : undefined;
+  const saveAction = t(entry ? 'doc.saveEdit' : 'master.addAction');
   const save = useMutation({
     mutationFn: () => {
       const body = Object.fromEntries(catalog.fields.map(field => {
@@ -60,13 +71,20 @@ export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: [catalog.key === 'unitsOfMeasure' ? 'uoms' : catalog.path] });
       if (showSupplierLinks) await qc.invalidateQueries({ queryKey: [path + '/suppliers'] });
-      if (entry) resetEditor();
-      else { allowNavigation.current = true; close(); }
+      const result = resultFor(saveAction, true);
+      if (entry) { resetEditor(); report(result); }
+      else { allowNavigation.current = true; close(result); }
     },
+    onError: error => { if (!inlineField(error)) report(resultFor(saveAction, false, error)); },
   });
   const remove = useMutation({
     mutationFn: () => api(path, { method: 'DELETE' }),
-    onSuccess: async () => { await qc.invalidateQueries({ queryKey: [catalog.path] }); allowNavigation.current = true; close(); },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [catalog.path] });
+      allowNavigation.current = true;
+      close(resultFor(t('prCatalog.delete'), true));
+    },
+    onError: error => { setDeleting(false); report(resultFor(t('prCatalog.delete'), false, error)); },
   });
   const pending = save.isPending || remove.isPending;
   useEffect(() => {
@@ -104,10 +122,7 @@ export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms
     if (maxLength && raw.length > maxLength) fieldErrors[field] = t('master.tooLong', { count: maxLength });
   }
   const submitReady = Object.keys(fieldErrors).length === 0;
-  const apiField = save.error instanceof ApiError
-    ? (({ INVALID_EXCHANGE_RATE: 'exchangeRate', INVALID_TAX_RATE: 'rate', PRODUCT_UOM_LOCKED: 'unitOfMeasureId',
-        PRODUCT_IDENTITY_LOCKED: 'partNumber', SERIAL_TRACKING_LOCKED: 'isSerialTracked', DUPLICATE_VALUE: entry?.partNumber !== undefined || catalog.key === 'products' ? 'partNumber' : 'code' }) as Record<string, FieldKey>)[save.error.code]
-    : undefined;
+  const apiField = inlineField(save.error);
   const renderField = (field: FieldKey) => {
     const raw = value(field);
     const options = field === 'brandId' ? brands.data : field === 'unitOfMeasureId' ? uoms.data : undefined;
@@ -150,14 +165,14 @@ export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms
         </Stack>
       )}
       {linked.isPending ? <Typography>{t('common.loading')}</Typography> : shownSuppliers.length === 0 ? <Typography>{t('common.empty')}</Typography> :
-        <ScrollTable label={t('master.linkedSuppliers')} minWidth={370}>
+        <ScrollTable label={t('master.linkedSuppliers')} columnWidths={[140, 235, ...(editing ? [96] : [])]} maxHeight="330px">
           <TableHead><TableRow><TableCell>{label(t, 'code')}</TableCell><TableCell>{label(t, 'name')}</TableCell>
-            {editing && <TableCell align="right">{t('common.actions')}</TableCell>}
+            {editing && <TableCell align="right" data-grid-actions>{t('common.actions')}</TableCell>}
           </TableRow></TableHead>
           <TableBody>{shownSuppliers.map(item => <TableRow key={item.id}>
-            <TableCell><Link component={RouterLink} to={`/suppliers/${item.id}`}>{item.code}</Link></TableCell>
-            <TableCell>{item.name}</TableCell>
-            {editing && <TableCell align="right"><Tooltip title={t('master.unlinkSupplier')}>
+            <TableCell><GridText to={`/suppliers/${item.id}`} value={item.code ?? ''} /></TableCell>
+            <TableCell><GridText value={item.name} /></TableCell>
+            {editing && <TableCell align="right" data-grid-actions><Tooltip title={t('master.unlinkSupplier')}>
               <IconButton aria-label={`${t('master.unlinkSupplier')} ${item.code}`} color="error" size="small"
                 onClick={() => setChangedSuppliers((changedSuppliers ?? linkedIds).filter(id => id !== item.id))}><LinkOff fontSize="small" /></IconButton>
             </Tooltip></TableCell>}
@@ -172,7 +187,7 @@ export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms
         slotProps={{ input: { readOnly: true } }} />
     </DocumentFormCell>}
   </DocumentFormGrid>;
-  const error = (apiField ? null : save.error) ?? remove.error ?? brands.error ?? uoms.error;
+  const error = brands.error ?? uoms.error;
   const action = deleting ? t('prCatalog.delete') : editing ? t(entry ? 'doc.saveEdit' : 'prCatalog.save') : canEdit ? t('master.editAction') : undefined;
   const submit = () => {
     if (deleting) remove.mutate();
@@ -182,13 +197,13 @@ export function CatalogEditor({ catalog, entry, close, permissions, brands, uoms
   const deleteHint = t('prCatalog.deleteEntry', { name: entry?.name });
   if (!catalog.fullPage) return (
     <>
-    <FormDialog pageGuardsNavigation title={deleting ? deleteHint : editorTitle} submitLabel={action}
+    {!showingResult && <FormDialog pageGuardsNavigation title={deleting ? deleteHint : editorTitle} submitLabel={action}
       closeLabel={!editing && !deleting ? t('common.close') : undefined}
       error={error} pending={pending} canSubmit={!editing || submitReady} onSubmit={submit} onClose={cancel}
       dirty={dirty} submitColor={deleting ? 'error' : 'primary'}>
       {!deleting && fieldsContent}
       {deleteAction}
-    </FormDialog>
+    </FormDialog>}
     {router && <RouteDiscardGuard dirty={dirty} pending={pending} allowNavigation={() => allowNavigation.current} />}
     </>
   );

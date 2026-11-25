@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Box, FormControl, FormControlLabel, FormLabel, MenuItem, Radio, RadioGroup, Stack, TextField } from '@mui/material';
-import { api, catalogSelectionPath } from '../../services/api-client';
-import { DuplicateCodeWarning, findDuplicateCodeRows, FormDialog } from '../../shared/components';
+import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
+import { ActionResultDialog, DuplicateCodeWarning, findDuplicateCodeRows, FormDialog } from '../../shared/components';
+import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { Product, Uom } from '../master-data';
 import { ScLine } from './types';
 
@@ -12,7 +13,7 @@ import { ScLine } from './types';
  * The UoM is picked from the catalog (no free text).
  */
 export function ScLineDialog({ contractId, version, line, lines, onClose, onSaved }: {
-  contractId: number; version: number; line?: ScLine; lines: ScLine[]; onClose: () => void; onSaved: () => void;
+  contractId: number; version: number; line?: ScLine; lines: ScLine[]; onClose: () => void; onSaved: (result: ActionResult) => void;
 }) {
   const { t } = useTranslation();
   const initial = {
@@ -23,6 +24,9 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
     unitOfMeasureId: line ? String(line.unitOfMeasureId) : '', quantity: line ? String(Number(line.quantity)) : '',
   };
   const [f, setF] = useState(initial);
+  const [failure, setFailure] = useState<ActionResult>();
+  const action = t(line ? 'doc.saveEdit' : 'sc.addItem');
+  const message = () => t('master.resultTarget', { code: f.itemCode, name: f.itemName });
   const set = (k: keyof typeof initial) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const uoms = useQuery({ queryKey: ['uoms', 'selection', line?.unitOfMeasureId], queryFn: () => api<Uom[]>(catalogSelectionPath('/units-of-measure', line?.unitOfMeasureId)) });
   const products = useQuery({ queryKey: ['products', 'selection', line?.productId], queryFn: () => api<Product[]>(catalogSelectionPath('/products', line?.productId)), enabled: f.source === 'main' });
@@ -50,10 +54,16 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
         ? api(`/sales-contract-lines/${line.id}`, { method: 'PATCH', body })
         : api(`/sales-contracts/${contractId}/lines`, { method: 'POST', body });
     },
-    onSuccess: onSaved,
+    onSuccess: () => onSaved({ success: true, title: t('master.resultSuccess', { action }), message: message() }),
+    onError: error => {
+      if (!(error instanceof ApiError && error.status === 400)) {
+        setFailure({ success: false, title: t('master.resultFailure', { action }), message: message(), error });
+      }
+    },
   });
   const valid = (f.source === 'free' || f.catalogId) && f.itemCode.trim() && f.itemName.trim() && f.unitOfMeasureId && Number(f.quantity) > 0;
   const dirty = (Object.keys(initial) as (keyof typeof initial)[]).some((k) => f[k] !== initial[k]);
+  if (failure) return <ActionResultDialog result={failure} onClose={() => { setFailure(undefined); save.reset(); }} />;
   return (
     <FormDialog title={t(line ? 'sc.editItem' : 'sc.addItem')} submitLabel={t(line ? 'doc.saveEdit' : 'sc.saveItem')} error={save.error ?? uoms.error ?? (f.source === 'main' ? products.error : f.source === 'temporary' ? temporary.error : null)} pending={save.isPending}
       canSubmit={Boolean(valid)} onSubmit={() => save.mutate()} onClose={onClose} dirty={dirty} description={t('sc.lineDialogHint')}>

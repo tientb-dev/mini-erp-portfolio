@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
-import { prContext, prSubmission } from './test-utils';
+import { pricedPr, prContext, prSubmission } from './test-utils';
 
 /** PR #17 / ADR-0014: without PR.VIEW, the responsible sales of a contract may read (only read) that contract's PRs. */
 describe('PR read scope for the responsible sales (integration)', () => {
@@ -18,7 +18,7 @@ describe('PR read scope for the responsible sales (integration)', () => {
   const http = () => request(app.getHttpServer());
   const as = (t: string) => ({ Authorization: `Bearer ${t}` });
   const get = (t: string, url: string) => http().get(url).set(as(t));
-  const post = (t: string, url: string, body: object = {}) => http().post(url).set(as(t)).send(body);
+  const post = (t: string, url: string, body: object = {}) => http().post(url).set(as(t)).send((url === '/purchase-requisitions' && 'lines' in body && Array.isArray(body.lines) ? pricedPr({ ...body, lines: body.lines }) : body));
   const patch = (t: string, url: string, body: object) => http().patch(url).set(as(t)).send(body);
 
   beforeAll(async () => {

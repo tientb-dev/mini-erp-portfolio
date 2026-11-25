@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
+import { DOCUMENT_MONEY_PRECISION, nonNegativeDecimal } from '../../common/document-money';
 import type { CurrentUser } from '../identity/auth';
 import { CatalogFacade } from '../master-data/catalog.facade';
 import { ProductUsage } from '../master-data/product-usage';
 import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
+import { assertDecimal, PR_AMOUNTS, PR_TOTALS, PrCommercialHeader, savePrCommercialHeader } from './pr-commercial';
 import * as prWorkflow from './pr-workflow';
 import { configurePool, listCandidates, PR_POOLS, PrPool } from './pr-eligibility';
 import { ActionContext, assertActionContext } from '../workflow/action-context';
@@ -12,9 +14,19 @@ import { documentPage, insertNote, latestRoundActivity } from '../document-recor
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
-/** `id` set = existing line being edited. */
-/** SALES_GOODS lines must reference their HĐ line; MATERIAL lines may (ADR-0012). */
-export interface PrLineInput { id?: number; salesContractLineId?: number | null; productId: number; quantity: number }
+export interface PrLineInput {
+  id?: number;
+  salesContractLineId?: number | null;
+  productId?: number | null;
+  temporaryProductId?: number | null;
+  quantity: number;
+  requirementDescription?: string | null;
+  brandId?: number | null;
+  supplierId?: number | null;
+  unitOfMeasureId?: number | null;
+  unitPrice?: string;
+  taxRateId?: number | null;
+}
 export type LineCategory = 'SALES_GOODS' | 'MATERIAL';
 
 /** A PR line as seen by a GIR (A/C): its PR, HĐ, category and approved PO coverage. */
@@ -23,18 +35,27 @@ export interface PrLineForIssue {
   salesContractLineId: number | null; productId: number; quantity: number; poDone: boolean;
 }
 
-function assertPrLines(category: LineCategory, lines: PrLineInput[]) {
+function assertPrLines(lines: PrLineInput[]) {
   if (!lines.length) throw new BusinessError('PR_LINES_REQUIRED', 'Add at least one valid line');
-  if (lines.some(line => !Number.isInteger(line.productId) || line.productId <= 0 || !Number.isFinite(line.quantity) || line.quantity <= 0)) {
-    throw new BusinessError('PR_INVALID_LINE', 'Every entered line needs a valid product and positive quantity');
+  wf.assertUniqueSourceLines(lines.flatMap(line => line.id == null ? [] : [line.id]));
+  for (const line of lines) {
+    const sources = [line.productId, line.temporaryProductId].filter(id => id != null);
+    if (sources.length !== 1 || !Number.isInteger(sources[0]) || (sources[0] ?? 0) <= 0
+      || !nonNegativeDecimal(String(line.quantity), DOCUMENT_MONEY_PRECISION.quantity) || !(line.quantity > 0 && line.quantity < 1e15)) {
+      throw new BusinessError('PR_INVALID_LINE', 'Choose exactly one catalog item and enter a positive quantity with up to three decimal places');
+    }
+    if (line.unitPrice !== undefined) assertDecimal(line.unitPrice, DOCUMENT_MONEY_PRECISION.unitPrice, 'PR_INVALID_UNIT_PRICE');
   }
-  if (category === 'SALES_GOODS' && lines.some((l) => !l.salesContractLineId)) {
-    throw new BusinessError('SALES_CONTRACT_LINE_REQUIRED', 'Every sales-goods PR line must reference its HĐ line');
-  }
-  wf.assertUniqueSourceLines(lines.flatMap((l) => (l.salesContractLineId ? [l.salesContractLineId] : [])));
 }
 const scLineIds = (lines: PrLineInput[]) => lines.flatMap((l) => (l.salesContractLineId ? [l.salesContractLineId] : []));
 export interface SourceLineInput { id?: number; sourceLineId: number; quantity: number }
+
+const PR_DETAILS = `d.name, d.purpose, d.description, d.created_by AS "requesterId", requester.full_name AS "requesterName",
+  d.requisition_date::text AS "requisitionDate", d.required_date::text AS "requiredDate",
+  d.currency_id AS "currencyId", d.currency_code AS "currencyCode",
+  d.currency_decimal_places AS "currencyDecimalPlaces", trim_scale(d.exchange_rate) AS "exchangeRate",
+  d.exchange_rate_source AS "exchangeRateSource", totals.net AS "subtotal",
+  totals.tax AS "taxTotal", totals.net + totals.tax AS "total"`;
 
 /** PO receipt status from line aggregates (03 §1, CT12); a PO with nothing received (or no lines) is NOT_RECEIVED. */
 const RECEIPT_STATUS_SQL = `CASE
@@ -42,17 +63,21 @@ const RECEIPT_STATUS_SQL = `CASE
     WHEN NOT EXISTS (SELECT 1 FROM purchase_order_lines x WHERE x.purchase_order_id = d.id AND x.received_quantity < x.quantity) THEN 'RECEIVED'
     ELSE 'PARTIALLY_RECEIVED' END`;
 
+const PR_PO_DONE = `pr.approval_status = 'DONE' AND NOT EXISTS (
+  SELECT 1 FROM purchase_requisition_lines x
+   WHERE x.purchase_requisition_id = pr.id AND x.product_id IS NOT NULL
+     AND x.quantity <> COALESCE((
+       SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
+        WHERE pol.purchase_requisition_line_id = x.id AND po.approval_status = 'APPROVED'
+     ), 0))`;
+
 /**
  * Facade for Inbound (ADR-0003): Inbound calls Procurement, never the reverse. Runs inside the caller's transaction.
  */
 export class ProcurementFacade {
   /**
-   * Adds (approve GR, sign 1) or removes (recall of an APPROVED GR, sign -1) received quantities on PO lines.
-   * Locks the PO lines in id order; the CHECK 0 ≤ received ≤ ordered is the last line of defence.
-   */
-  /**
    * PR lines for a GIR (A/C), locked FOR UPDATE in id order (lock order HĐ lines → PR lines → GIR, CT8).
-   * `poDone`: the whole PR is `PO done` — every line has Σ APPROVED PO quantity = its quantity (03 §3, CT1).
+   * `poDone`: every main PR line is fully covered by approved POs (03 section 3, CT1).
    */
   static async lockLinesForIssue(m: EntityManager, ids: number[]): Promise<Map<number, PrLineForIssue>> {
     const sorted = [...new Set(ids)].sort((a, b) => a - b);
@@ -60,12 +85,8 @@ export class ProcurementFacade {
     const rows: PrLineForIssue[] = await m.query(
       `SELECT l.id, l.purchase_requisition_id AS "purchaseRequisitionId", pr.document_number AS "prNumber", pr.sales_contract_id AS "salesContractId",
               pr.category, l.sales_contract_line_id AS "salesContractLineId", l.product_id AS "productId", l.quantity::float AS quantity,
-              pr.approval_status = 'DONE' AND NOT EXISTS (
-                SELECT 1 FROM purchase_requisition_lines x
-                 WHERE x.purchase_requisition_id = pr.id
-                   AND x.quantity <> COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
-                                                WHERE pol.purchase_requisition_line_id = x.id AND po.approval_status = 'APPROVED'), 0)) AS "poDone"
-         FROM purchase_requisition_lines l JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id WHERE l.id = ANY($1)`,
+              ${PR_PO_DONE} AS "poDone"
+         FROM purchase_requisition_lines l JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id WHERE l.id = ANY($1) AND l.product_id IS NOT NULL`,
       [sorted],
     );
     return new Map(rows.map((r) => [r.id, r]));
@@ -99,7 +120,7 @@ export class ProcurementFacade {
   static peekLines(m: EntityManager, prLineIds: number[]): Promise<{ id: number; salesContractId: number; salesContractLineId: number | null }[]> {
     return m.query(
       `SELECT l.id, pr.sales_contract_id AS "salesContractId", l.sales_contract_line_id AS "salesContractLineId"
-         FROM purchase_requisition_lines l JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id WHERE l.id = ANY($1)`,
+         FROM purchase_requisition_lines l JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id WHERE l.id = ANY($1) AND l.product_id IS NOT NULL`,
       [prLineIds],
     );
   }
@@ -114,10 +135,7 @@ export class ProcurementFacade {
          JOIN purchase_requisition_lines l ON l.purchase_requisition_id = pr.id
          JOIN products p ON p.id = l.product_id
          JOIN units_of_measure u ON u.id = l.unit_of_measure_id
-        WHERE pr.sales_contract_id = $1 AND pr.approval_status = 'DONE'
-          AND NOT EXISTS (SELECT 1 FROM purchase_requisition_lines x WHERE x.purchase_requisition_id = pr.id
-                            AND x.quantity <> COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
-                                                         WHERE pol.purchase_requisition_line_id = x.id AND po.approval_status = 'APPROVED'), 0))
+        WHERE pr.sales_contract_id = $1 AND ${PR_PO_DONE}
         ORDER BY pr.id, l.id`,
       [salesContractId],
     ) as Promise<{ id: number; purchaseRequisitionId: number; prNumber: string; category: LineCategory; salesContractLineId: number | null;
@@ -135,6 +153,7 @@ export class ProcurementFacade {
     return new Map(rows.map((r) => [r.id, r.sales_contract_id]));
   }
 
+  /** Applies GR approval or recall to received quantities, locking the PO lines in ID order. */
   static async applyReceipt(m: EntityManager, lines: { purchaseOrderLineId: number; quantity: string }[], sign: 1 | -1) {
     const ids = [...new Set(lines.map((l) => l.purchaseOrderLineId))].sort((a, b) => a - b);
     await m.query(`SELECT id FROM purchase_order_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE`, [ids]);
@@ -146,22 +165,22 @@ export class ProcurementFacade {
   }
 }
 
-/**
- * Upstream of GR (PR → PO). Minimal by design for the GR slice: main products only (no temporary
- * products/mapping yet), quantity limits re-checked at submit and approve.
- */
+/** Owns PR snapshots and validates PO source lines and quantity limits. */
 @Injectable()
 export class ProcurementService {
   constructor(private readonly ds: DataSource) {}
 
   /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
-  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute, selection: prWorkflow.PrSelection = {}) {
+  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute, selection: prWorkflow.PrSelection & PrCommercialHeader = {}) {
     return this.ds.transaction(m => this.createPr(m, user, salesContractId, lines, category, purpose, route, selection));
   }
 
-  private async createPr(m: EntityManager, user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory, purpose: string | undefined, route: prWorkflow.PrRoute | undefined, selection: prWorkflow.PrSelection) {
+  private async createPr(m: EntityManager, user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory, purpose: string | undefined, route: prWorkflow.PrRoute | undefined, selection: prWorkflow.PrSelection & PrCommercialHeader) {
+    if (!Number.isInteger(salesContractId) || salesContractId <= 0) {
+      throw new BusinessError('PR_SALES_CONTRACT_REQUIRED', 'Select a sales contract before saving a purchase requisition');
+    }
     const creatorRoute = await prWorkflow.creatorRoute(m, user, salesContractId, route);
-    assertPrLines(category, lines);
+    assertPrLines(lines);
     await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
     await prWorkflow.validateSelection(m, creatorRoute, user.id, selection);
     const number = await wf.nextDocumentNumber(m, 'PR');
@@ -170,6 +189,7 @@ export class ProcurementService {
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
       [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute, selection.approverId ?? null, selection.receiverId ?? null],
     );
+    await savePrCommercialHeader(m, pr.id, selection);
     for (const l of lines) await this.writePrLine(m, pr.id, l);
     return { id: pr.id as number, documentNumber: number };
   }
@@ -180,45 +200,87 @@ export class ProcurementService {
    */
   private async writePrLine(m: EntityManager, prId: number, l: PrLineInput) {
     const [existing] = l.id ? await m.query(
-      `SELECT product_id, snapshot_code AS part_number, snapshot_name AS name, snapshot_description AS description, unit_of_measure_id
-       FROM purchase_requisition_lines WHERE id = $1 AND purchase_requisition_id = $2`, [l.id, prId],
+      'SELECT * FROM purchase_requisition_lines WHERE id = $1 AND purchase_requisition_id = $2', [l.id, prId],
     ) : [];
-    const keepProduct = existing?.product_id === l.productId;
-    await ProductUsage.markUsed(m, l.productId, { stock: false, existingReference: keepProduct });
-    const [p] = keepProduct ? [existing] : await m.query(
-      'SELECT part_number, name, description, unit_of_measure_id FROM products WHERE id = $1', [l.productId],
-    );
-    const values = [prId, l.salesContractLineId ?? null, l.productId, p.part_number, p.name, p.description, p.unit_of_measure_id, l.quantity];
+    if (l.id && !existing) throw new BusinessError('PR_LINE_NOT_FOUND', 'The line does not belong to this PR');
+    const productId = l.productId ?? null;
+    const temporaryProductId = l.temporaryProductId ?? null;
+    const sameSource = existing && existing.product_id === productId && existing.temporary_product_id === temporaryProductId;
+    let item: { code: string; name: string; description: string | null; brand_id: number | null; unit_of_measure_id: number | null } | undefined = sameSource ? {
+      code: existing.snapshot_code, name: existing.snapshot_name, description: existing.snapshot_description,
+      brand_id: existing.brand_id, unit_of_measure_id: existing.unit_of_measure_id,
+    } : undefined;
+    if (productId !== null) {
+      await ProductUsage.markUsed(m, productId, { stock: false, existingReference: !!sameSource });
+      const [product]: NonNullable<typeof item>[] = await m.query(`SELECT part_number AS code, name, description, brand_id, unit_of_measure_id
+        FROM products WHERE id = $1`, [productId]);
+      item ??= product;
+      item.brand_id ??= product.brand_id;
+      if ((l.brandId != null && l.brandId !== item.brand_id)
+        || (l.unitOfMeasureId != null && l.unitOfMeasureId !== item.unit_of_measure_id)) {
+        throw new BusinessError('PR_PRODUCT_DETAILS_MISMATCH', 'Brand and unit must match the main product');
+      }
+    } else if (!sameSource) {
+      const temporary = await CatalogFacade.contractItem(m, null, temporaryProductId);
+      if (!temporary) throw new BusinessError('PR_TEMPORARY_PRODUCT_NOT_FOUND', 'Temporary product not found or inactive');
+      item = { ...temporary, brand_id: null, unit_of_measure_id: null };
+    }
+    if (!item) throw new BusinessError('PR_INVALID_LINE', 'Catalog item not found');
+
+    const brandId = productId !== null ? item.brand_id : l.brandId === undefined ? item.brand_id ?? null : l.brandId;
+    const uomId = productId !== null ? item.unit_of_measure_id : l.unitOfMeasureId === undefined ? item.unit_of_measure_id ?? null : l.unitOfMeasureId;
+    const supplierId = l.supplierId === undefined ? (sameSource && brandId === existing.brand_id ? existing.supplier_id : null) : l.supplierId;
+    const taxId = l.taxRateId === undefined ? existing?.tax_rate_id ?? null : l.taxRateId;
+    const sameBrand = sameSource && brandId === existing.brand_id;
+    const sameSupplier = sameBrand && supplierId === existing.supplier_id;
+
+    if (productId === null && brandId !== null && !sameBrand) await CatalogFacade.assertActive(m, 'brand', brandId);
+    if (supplierId !== null && !sameSupplier) await CatalogFacade.assertBrandSupplier(m, brandId, supplierId);
+    if (productId === null && uomId !== null && !(sameSource && uomId === existing.unit_of_measure_id)) {
+      await CatalogFacade.assertActive(m, 'uom', uomId);
+    }
+    if (taxId !== null && taxId !== existing?.tax_rate_id) await CatalogFacade.assertDocumentTaxRate(m, taxId);
+
+    const values = [prId, l.salesContractLineId ?? null, productId, temporaryProductId, item.code, item.name, item.description,
+      l.requirementDescription === undefined ? (existing ? existing.requirement_description : item.description) : l.requirementDescription,
+      brandId, supplierId, uomId, l.quantity, l.unitPrice ?? existing?.unit_price ?? '0', taxId,
+      sameBrand ? existing.brand_name : null, sameSupplier ? existing.supplier_name : null,
+      sameSource && uomId === existing.unit_of_measure_id ? existing.uom_code : null,
+      taxId !== null && taxId === existing?.tax_rate_id ? existing.tax_rate : null];
+    const snapshots = `COALESCE($15, (SELECT name FROM brands WHERE id = $9)),
+      COALESCE($16, (SELECT name FROM suppliers WHERE id = $10)), COALESCE($17, (SELECT code FROM units_of_measure WHERE id = $11)),
+      COALESCE($18, (SELECT rate FROM tax_rates WHERE id = $14))`;
     if (!l.id) {
-      await m.query(
-        `INSERT INTO purchase_requisition_lines (purchase_requisition_id, sales_contract_line_id, product_id, snapshot_code, snapshot_name,
-           snapshot_description, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        values,
-      );
+      await m.query(`INSERT INTO purchase_requisition_lines (purchase_requisition_id, sales_contract_line_id, product_id,
+        temporary_product_id, snapshot_code, snapshot_name, snapshot_description, requirement_description, brand_id,
+        supplier_id, unit_of_measure_id, quantity, unit_price, tax_rate_id, brand_name, supplier_name, uom_code, tax_rate)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, ${snapshots})`, values);
       return;
     }
-    wf.assertLineUpdated(await m.query(
-      `UPDATE purchase_requisition_lines l SET sales_contract_line_id = $2, product_id = $3, snapshot_code = $4, snapshot_name = $5,
-         snapshot_description = $6, unit_of_measure_id = $7, quantity = $8
-        WHERE l.id = $9 AND l.purchase_requisition_id = $1
-          AND ((l.product_id = $3 AND l.sales_contract_line_id IS NOT DISTINCT FROM $2)
-               OR NOT EXISTS (SELECT 1 FROM purchase_order_lines pol WHERE pol.purchase_requisition_line_id = l.id))`,
-      [...values, l.id],
-    ), l.id);
+    wf.assertLineUpdated(await m.query(`
+      UPDATE purchase_requisition_lines l SET (sales_contract_line_id, product_id, temporary_product_id, snapshot_code,
+        snapshot_name, snapshot_description, requirement_description, brand_id, supplier_id, unit_of_measure_id, quantity,
+        unit_price, tax_rate_id, brand_name, supplier_name, uom_code, tax_rate) =
+        ($2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, ${snapshots})
+      WHERE l.id = $19 AND l.purchase_requisition_id = $1 AND
+        ((l.product_id IS NOT DISTINCT FROM $3 AND l.temporary_product_id IS NOT DISTINCT FROM $4
+          AND l.sales_contract_line_id IS NOT DISTINCT FROM $2)
+          OR NOT EXISTS (SELECT 1 FROM purchase_order_lines pol WHERE pol.purchase_requisition_line_id = l.id))`,
+      [...values, l.id]), l.id);
   }
 
   /** Edit a DRAFT/REJECTED PR by its creator: lines (HĐ line, product → UoM, quantity); the HĐ stays the same. */
-  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & { purpose?: string } = {}) {
+  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & PrCommercialHeader & { purpose?: string } = {}) {
     return this.ds.transaction(m => this.updatePr(m, user, id, version, lines, selection));
   }
 
-  private async updatePr(m: EntityManager, user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & { purpose?: string }, context?: ActionContext) {
-    const [head] = await m.query(`SELECT created_by, sales_contract_id, category, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
+  private async updatePr(m: EntityManager, user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & PrCommercialHeader & { purpose?: string }, context?: ActionContext) {
+    const [head] = await m.query(`SELECT created_by, sales_contract_id, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
     if (!head) throw new NotFoundException();
     wf.assertCreator(head, user);
     await prWorkflow.creatorRoute(m, user, head.sales_contract_id, head.creator_route);
     // The request is the full line set (omitted lines are deleted), so checking it covers the saved result. Category is fixed.
-    assertPrLines(head.category, lines);
+    assertPrLines(lines);
     // Lock order: HĐ lines → document (ARCHITECTURE §2.1a); the HĐ must still be ACTIVE.
     await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, scLineIds(lines));
     const doc = await prWorkflow.lock(m, id);
@@ -226,23 +288,29 @@ export class ProcurementService {
     wf.assertEditable(doc, user, version);
     await prWorkflow.validateSelection(m, doc.creator_route, user.id, selection);
     await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
+    await savePrCommercialHeader(m, id, selection);
     for (const l of lines) await this.writePrLine(m, id, l);
     await wf.setStatus(m, 'PR', doc, doc.approval_status,
       ', draft_approver_id = CASE WHEN $3 THEN $4 ELSE draft_approver_id END, draft_receiver_id = CASE WHEN $5 THEN $6 ELSE draft_receiver_id END, purpose = CASE WHEN $7 THEN $8 ELSE purpose END',
       [selection.approverId !== undefined, selection.approverId ?? null, selection.receiverId !== undefined, selection.receiverId ?? null,
-        selection.purpose !== undefined && head.category === 'MATERIAL', selection.purpose?.trim() || null]);
+        selection.purpose !== undefined, selection.purpose?.trim() || null]);
     await wf.record(m, 'PR', id, 'EDIT', user.id, undefined, {
       previousStatus: doc.approval_status, nextStatus: doc.approval_status, round: doc.approval_round,
     });
   }
 
-  saveNewPr(user: CurrentUser, dto: prWorkflow.PrSelection & { salesContractId: number; lines: PrLineInput[];
+  saveNewPr(user: CurrentUser, dto: prWorkflow.PrSelection & PrCommercialHeader & { salesContractId: number; lines: PrLineInput[];
     category?: LineCategory; purpose?: string; route?: prWorkflow.PrRoute; requestKey: string; submit: boolean }) {
     // PostgreSQL UUID equality ignores case. Use the same representation for the advisory lock and the row.
     const requestKey = dto.requestKey.toLowerCase();
+    const commercialHeader = [dto.name, dto.description, dto.requisitionDate, dto.requiredDate, dto.currencyId, dto.exchangeRateSource, dto.exchangeRate];
+    const commercialLines = dto.lines.map(line => [line.temporaryProductId, line.brandId, line.supplierId, line.unitOfMeasureId,
+      line.requirementDescription, line.unitPrice, line.taxRateId]);
+    const hasCommercialFields = [...commercialHeader, ...commercialLines.flat()].some(value => value !== undefined);
     const fingerprint = createHash('sha256').update(JSON.stringify([
       dto.salesContractId, dto.category, dto.purpose, dto.route, dto.approverId, dto.receiverId, dto.submit,
       dto.lines.map(line => [line.id, line.productId, line.salesContractLineId, line.quantity]),
+      ...(hasCommercialFields ? [[commercialHeader, commercialLines]] : []),
     ])).digest('hex');
     return this.ds.transaction(async m => {
       await m.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [user.id, 'PR:create:' + requestKey]);
@@ -260,7 +328,7 @@ export class ProcurementService {
     });
   }
 
-  submitEditedPr(user: CurrentUser, id: number, dto: ActionContext & prWorkflow.PrSelection & { lines: PrLineInput[]; purpose?: string }) {
+  submitEditedPr(user: CurrentUser, id: number, dto: ActionContext & prWorkflow.PrSelection & PrCommercialHeader & { lines: PrLineInput[]; purpose?: string }) {
     return this.ds.transaction(async m => {
       await this.updatePr(m, user, id, dto.version, dto.lines, dto, dto);
       await this.submitSavedPr(m, user, id, dto);
@@ -299,12 +367,13 @@ export class ProcurementService {
       return;
     }
     const [prl] = await m.query(
-      `SELECT prl.unit_of_measure_id FROM purchase_requisition_lines prl
+      `SELECT prl.unit_of_measure_id, prl.product_id FROM purchase_requisition_lines prl
          JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id
         WHERE prl.id = $1 AND pr.approval_status = 'DONE' FOR SHARE OF pr`,
       [l.sourceLineId],
     );
     if (!prl) throw new BusinessError('PR_SOURCE_NOT_DONE', `PR line ${l.sourceLineId} is not on a DONE PR`);
+    if (prl.product_id === null) throw new BusinessError('PR_TEMPORARY_PRODUCT_PO_UNSUPPORTED', 'Temporary PR items cannot source a purchase order');
     await m.query(`INSERT INTO purchase_order_lines (purchase_order_id, purchase_requisition_line_id, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4)`, [
       poId, l.sourceLineId, prl.unit_of_measure_id, l.quantity,
     ]);
@@ -451,8 +520,10 @@ export class ProcurementService {
       if (!canCreate || contract?.responsiblePmUserId !== user.id) await this.assertPrReadScope(user, salesContractId);
     }
     return this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.category, s.document_number AS "salesContractNumber", c.name AS "customerName"
+      `SELECT ${wf.DOC_COLUMNS}, d.category, d.sales_contract_id AS "salesContractId", ${PR_DETAILS}, s.document_number AS "salesContractNumber", c.name AS "customerName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
+         JOIN users requester ON requester.id = d.created_by
+         ${PR_TOTALS}
         WHERE (NOT $2 OR (d.approval_status IN ('WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT') AND d.assigned_approver_id = $1))
           AND ($3::int IS NULL OR d.sales_contract_id = $3)
           AND ($4 OR ($5 AND s.responsible_sales_user_id = $1) OR ($6 AND s.responsible_pm_user_id = $1) OR d.created_by = $1
@@ -466,10 +537,12 @@ export class ProcurementService {
     const [pr] = await m.query(
       `SELECT ${wf.DOC_COLUMNS}, d.approval_round AS "approvalRound", d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
         d.creator_route AS "creatorRoute", d.draft_approver_id AS "draftApproverId", d.draft_receiver_id AS "draftReceiverId",
-        s.responsible_sales_user_id AS "responsibleSalesUserId", s.status AS "contractStatus", d.category, d.purpose,
+        s.responsible_sales_user_id AS "responsibleSalesUserId", s.status AS "contractStatus", d.category, ${PR_DETAILS},
         s.document_number AS "salesContractNumber", c.name AS "customerName",
         EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $2) AS "wasAssigned"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
+         JOIN users requester ON requester.id = d.created_by
+         ${PR_TOTALS}
         WHERE d.id = $1 ${lock ? 'FOR SHARE OF d, s' : ''}`,
       [id, user.id],
     );
@@ -489,12 +562,21 @@ export class ProcurementService {
   async getPr(user: CurrentUser, id: number) {
     const { header, fullView, canEdit } = await this.readablePr(this.ds.manager, user, id);
     const lines = await this.ds.query(
-      `SELECT l.id, l.sales_contract_line_id AS "sourceLineId", l.product_id AS "productId", sl.item_name AS "ref", l.snapshot_code AS "partNumber", l.snapshot_name AS "productName", u.code AS uom, l.quantity,
+      `SELECT l.id, l.sales_contract_line_id AS "sourceLineId", l.product_id AS "productId", sl.item_name AS "ref", l.snapshot_code AS "partNumber", l.snapshot_name AS "productName",
+              COALESCE(l.uom_code, u.code) AS uom, l.quantity,
+              CASE WHEN l.product_id IS NULL THEN 'TEMPORARY' ELSE 'MAIN' END AS "sourceType",
+              l.temporary_product_id AS "temporaryProductId", l.sales_contract_line_id AS "salesContractLineId",
+              l.snapshot_description AS "itemDescription", l.requirement_description AS "requirementDescription",
+              l.brand_id AS "brandId", l.brand_name AS "brandName", l.supplier_id AS "supplierId", l.supplier_name AS "supplierName",
+              l.unit_of_measure_id AS "unitOfMeasureId", trim_scale(l.unit_price) AS "unitPrice", l.tax_rate_id AS "taxRateId", l.tax_rate AS "taxRate",
+              money.net AS "subtotal", money.tax AS "taxAmount", money.net + money.tax AS "total",
               COALESCE((SELECT SUM(pol.quantity) FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
                          WHERE pol.purchase_requisition_line_id = l.id AND po.approval_status IN ('WAITING_FOR_APPROVE', 'APPROVED')), 0) AS "usedQuantity"
          FROM purchase_requisition_lines l
          LEFT JOIN sales_contract_lines sl ON sl.id = l.sales_contract_line_id
-         JOIN units_of_measure u ON u.id = l.unit_of_measure_id
+         LEFT JOIN units_of_measure u ON u.id = l.unit_of_measure_id
+         JOIN purchase_requisitions d ON d.id = l.purchase_requisition_id
+         ${PR_AMOUNTS}
         WHERE l.purchase_requisition_id = $1 ORDER BY l.id`,
       [id],
     );
@@ -548,6 +630,13 @@ export class ProcurementService {
     return this.listCreatorCandidates(user, doc.sales_contract_id, doc.creator_route);
   }
 
+  async listPrSuppliers(user: CurrentUser, contractId: number, brandId: number, requestedRoute?: prWorkflow.PrRoute) {
+    return this.ds.transaction(async m => {
+      await prWorkflow.creatorRoute(m, user, contractId, requestedRoute);
+      return CatalogFacade.activeBrandSuppliers(m, brandId);
+    });
+  }
+
   async listCreatorCandidates(user: CurrentUser, contractId: number, requestedRoute?: prWorkflow.PrRoute) {
     const route = await prWorkflow.creatorRoute(this.ds.manager, user, contractId, requestedRoute);
     const [approvers, receivers] = await Promise.all([
@@ -598,7 +687,7 @@ export class ProcurementService {
            JOIN purchase_requisitions pr ON pr.id = l.purchase_requisition_id
            JOIN sales_contracts s ON s.id = pr.sales_contract_id
            JOIN units_of_measure u ON u.id = l.unit_of_measure_id
-          WHERE pr.approval_status = 'DONE') x
+          WHERE pr.approval_status = 'DONE' AND l.product_id IS NOT NULL) x
         WHERE remaining > 0 ORDER BY id`,
     );
   }

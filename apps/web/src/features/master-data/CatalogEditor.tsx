@@ -9,6 +9,7 @@ import { DetailPageLayout, ErrorAlert, FormDialog, GridText, PageBreadcrumbs, Sc
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { DocumentFormCell, DocumentFormGrid } from '../../shared/components/DocumentFormGrid';
 import { DiscardDialog, RouteDiscardGuard } from '../../shared/components/FormDialog';
+import { trimDecimal } from '../../shared/utils/format';
 import { Catalog, displayDecimal, Entry, entryCode, FieldKey, label, statusLabel } from './catalogs';
 
 type Options = { data?: Entry[]; error: Error | null };
@@ -42,7 +43,7 @@ export function CatalogEditor({ catalog, entry, close, report, showingResult, pe
   });
   const initial = (field: FieldKey) => {
     const value = entry?.[field];
-    if (typeof value === 'string' && (field === 'exchangeRate' || field === 'rate')) return value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
+    if (typeof value === 'string' && (field === 'exchangeRate' || field === 'rate')) return trimDecimal(value);
     return value === undefined || value === null ? defaults[field] ?? '' : String(value);
   };
   const value = (field: FieldKey) => fields[field] ?? initial(field);
@@ -116,7 +117,7 @@ export function CatalogEditor({ catalog, entry, close, report, showingResult, pe
     if (raw && field === 'code' && catalog.key === 'currencies' && !/^[A-Z]{3}$/.test(raw)) fieldErrors[field] = t('master.currencyCode');
     if (field === 'exchangeRate' && !vnd && raw && (!/^\d{1,12}(\.\d{1,8})?$/.test(raw) || Number(raw) === 0)) fieldErrors[field] = t('master.invalidRate');
     if (field === 'decimalPlaces' && raw && !/^[0-8]$/.test(raw)) fieldErrors[field] = t('master.invalidPlaces');
-    if (field === 'rate' && raw && (!/^\d{1,3}(\.\d{1,4})?$/.test(raw) || Number(raw) > 100)) fieldErrors[field] = t('master.invalidTax');
+    if (field === 'rate' && raw && (!/^\d{1,3}(\.\d{1,2})?$/.test(raw) || Number(raw) > 100)) fieldErrors[field] = t('master.invalidTax');
     const maxLength = field === 'partNumber' ? 100 : field === 'code' ? catalog.key === 'unitsOfMeasure' ? 20 : catalog.key === 'temporaryProducts' ? 100 : 50
       : field === 'name' ? catalog.key === 'unitsOfMeasure' ? 100 : catalog.key === 'warehouses' ? 200 : 300 : undefined;
     if (maxLength && raw.length > maxLength) fieldErrors[field] = t('master.tooLong', { count: maxLength });

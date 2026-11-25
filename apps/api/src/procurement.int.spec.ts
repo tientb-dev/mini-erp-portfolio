@@ -1,8 +1,10 @@
+import { pricedPr } from './test-utils';
 import { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { CommonDocumentRecords1732492800000 } from './database/migrations/1732492800000-CommonDocumentRecords';
+import { PurchaseRequisitionDetails1733097600000 } from './database/migrations/1733097600000-PurchaseRequisitionDetails';
 import { appendActivity } from './modules/document-records/document-records';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
 import { prContext, prSubmission } from './test-utils';
@@ -21,7 +23,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
 
   const http = () => request(app.getHttpServer());
   const as = (t: string) => ({ Authorization: `Bearer ${t}` });
-  const post = (t: string, url: string, body: object = {}) => http().post(url).set(as(t)).send(body);
+  const post = (t: string, url: string, body: object = {}) => http().post(url).set(as(t)).send((/^\/purchase-requisitions(?:\/save-new)?$/.test(url) && 'lines' in body && Array.isArray(body.lines)) ? pricedPr({ ...body, lines: body.lines }) : body);
   const get = (t: string, url: string) => http().get(url).set(as(t));
 
   beforeAll(async () => {
@@ -61,6 +63,114 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(approver, `/${path}/${id}/approve`).expect(204);
   }
 
+  it('upgrades a legacy PR without inventing financial data or replacing source IDs', async () => {
+    const { sc, lineId } = await activeContract();
+    const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc,
+      lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body;
+    const runner = ds.createQueryRunner();
+    const migration = new PurchaseRequisitionDetails1733097600000();
+    await runner.startTransaction();
+    try {
+      await migration.down(runner);
+      const [legacy] = await runner.query('SELECT id, product_id, sales_contract_line_id, snapshot_code FROM purchase_requisition_lines WHERE purchase_requisition_id = $1', [id]);
+      await migration.up(runner);
+      const [upgraded] = await runner.query('SELECT * FROM purchase_requisition_lines WHERE purchase_requisition_id = $1', [id]);
+      expect(upgraded).toMatchObject({ ...legacy, temporary_product_id: null, supplier_id: null, brand_id: null, unit_price: null, tax_rate_id: null });
+      const [header] = await runner.query('SELECT currency_id, exchange_rate FROM purchase_requisitions WHERE id = $1', [id]);
+      expect(header).toEqual({ currency_id: null, exchange_rate: null });
+    } finally {
+      await runner.rollbackTransaction();
+      await runner.release();
+    }
+  });
+
+  it('keeps independent mixed lines and snapshots and exposes only main PO sources', async () => {
+    const { sc, lineId } = await activeContract();
+    const [{ id: temporaryProductId }] = await ds.query(
+      "INSERT INTO temporary_products (code, name) VALUES ('PR19-TEMP', 'Temporary fixture') RETURNING id");
+    const [{ id: currencyId }] = await ds.query(
+      "INSERT INTO currencies (code, name, exchange_rate, decimal_places) VALUES ('USD', 'US Dollar', 25000, 2) RETURNING id");
+    const [{ id: taxRateId }] = await ds.query(
+      "INSERT INTO tax_rates (code, name, rate) VALUES ('PR19-TEN', 'Ten percent fixture', 10) RETURNING id");
+    const main = { salesContractLineId: lineId, productId, quantity: 2, unitPrice: '10.01' };
+    const temporary = { salesContractLineId: lineId, temporaryProductId, brandId: 1, unitOfMeasureId: pcs, quantity: 1, unitPrice: '3.50', taxRateId };
+    const response = await post(admin, '/purchase-requisitions', {
+      salesContractId: sc, requisitionDate: '2026-11-20', currencyId, exchangeRateSource: 'MANUAL', exchangeRate: '25001.12345678',
+      lines: [main, main, temporary],
+    }).expect(201);
+    const path = `/purchase-requisitions/${response.body.id}`;
+    await ds.query('UPDATE currencies SET exchange_rate = 26000, decimal_places = 3 WHERE id = $1', [currencyId]);
+    await ds.query('UPDATE temporary_products SET name = $2, is_active = false WHERE id = $1', [temporaryProductId, 'Renamed fixture']);
+    await ds.query('UPDATE tax_rates SET rate = 8, is_active = false WHERE id = $1', [taxRateId]);
+    const { version, lines } = (await get(admin, path).expect(200)).body;
+    await http().patch(path).set(as(admin)).send({ version, lines: [
+      { ...main, id: lines[0].id }, { ...main, id: lines[1].id }, { ...temporary, id: lines[2].id },
+    ] }).expect(204);
+    await approved('purchase-requisitions', response.body.id);
+    const detail = (await get(admin, path).expect(200)).body;
+    expect(detail).toMatchObject({ approvalStatus: 'DONE', currencyCode: 'USD', currencyDecimalPlaces: 2,
+      exchangeRate: '25001.12345678', requisitionDate: '2026-11-20', subtotal: '43.54', taxTotal: '0.35', total: '43.89' });
+    expect(detail.lines.map((line: { id: number; sourceType: string }) => [line.id, line.sourceType]))
+      .toEqual([[lines[0].id, 'MAIN'], [lines[1].id, 'MAIN'], [lines[2].id, 'TEMPORARY']]);
+    expect(detail.lines[2]).toMatchObject({ productName: 'Temporary fixture', temporaryProductId, taxRate: '10.0000', taxAmount: '0.35' });
+    const available = (await get(admin, '/purchase-requisition-lines/available-for-po').expect(200)).body.map((line: { id: number }) => line.id);
+    expect(available).toContain(lines[0].id);
+    expect(available).not.toContain(lines[2].id);
+    const po = (await post(admin, '/purchase-orders', { supplierId, lines: lines.slice(0, 2).map((line: { id: number }) => ({
+      sourceLineId: line.id, quantity: 2,
+    })) }).expect(201)).body.id;
+    await approved('purchase-orders', po);
+    const girSources = (await get(admin, `/sales-contracts/${sc}/gir-pr-lines`).expect(200)).body;
+    expect(girSources.map((line: { id: number }) => line.id)).toEqual([lines[0].id, lines[1].id]);
+    expect((await post(admin, '/purchase-orders', { supplierId, lines: [{ sourceLineId: lines[2].id, quantity: 1 }] })
+      .expect(422)).body.code).toBe('PR_TEMPORARY_PRODUCT_PO_UNSUPPORTED');
+    await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [temporary] }).expect(422);
+  });
+
+  it('validates draft and submit at their respective boundaries', async () => {
+    const { sc, lineId } = await activeContract();
+    const other = await activeContract();
+    const path = '/purchase-requisitions';
+    const supplierPicker = `${path}/catalog/suppliers?brandId=1&salesContractId=`;
+    expect((await get(admin, supplierPicker + sc).expect(200)).body).toEqual([
+      { id: 900001, code: 'PR-TEST', name: 'PR fixture supplier' },
+    ]);
+    await get(admin, supplierPicker + 999999).expect(403);
+    const main = { salesContractLineId: lineId, productId, quantity: 1 };
+    const create = (overrides: object = {}) => post(admin, path, { salesContractId: sc, lines: [main], ...overrides });
+    for (const category of ['SALES_GOODS', 'MATERIAL']) {
+      await create({ salesContractId: undefined, category }).expect(400);
+      await post(admin, `${path}/save-new`, { category, requestKey: randomUUID(), submit: true, lines: [main] }).expect(400);
+    }
+    expect((await create({ lines: [{ ...main, salesContractLineId: other.lineId }] }).expect(422)).body.code).toBe('SALES_CONTRACT_LINE_MISMATCH');
+    expect((await create({ lines: [{ ...main, supplierId }] }).expect(422)).body.code).toBe('PR_SUPPLIER_NOT_LINKED');
+    expect((await create({ exchangeRateSource: 'MANUAL', exchangeRate: '2' }).expect(422)).body.code).toBe('PR_INVALID_EXCHANGE_RATE');
+    expect((await create({ exchangeRateSource: 'MANUAL', exchangeRate: '1.000000001' }).expect(422)).body.code).toBe('PR_INVALID_EXCHANGE_RATE');
+    expect((await create({ lines: [{ ...main, unitPrice: '-1' }] }).expect(422)).body.code).toBe('PR_INVALID_UNIT_PRICE');
+    expect((await create({ lines: [{ ...main, unitPrice: '1.12345' }] }).expect(422)).body.code).toBe('PR_INVALID_UNIT_PRICE');
+    expect((await create({ lines: [{ ...main, quantity: 1.2345 }] }).expect(422)).body.code).toBe('PR_INVALID_LINE');
+    const draft = (await create({ name: null, lines: [{ ...main, unitPrice: '0' }] }).expect(201)).body.id;
+    expect((await get(admin, `${path}/${draft}`).expect(200)).body).toMatchObject({ name: null, currencyCode: 'VND', exchangeRate: '1' });
+    const submit = async (id: number) => post(admin, `${path}/${id}/submit`, await prSubmission(ds, id));
+    expect((await submit(draft)).body.code).toBe('PR_HEADER_INCOMPLETE');
+    const { id: zeroPrice } = (await create({ lines: [{ ...main, unitPrice: '0' }] }).expect(201)).body;
+    expect((await submit(zeroPrice)).body.code).toBe('PR_LINE_INCOMPLETE');
+    const { id: taxRateId } = (await post(admin, '/tax-rates', { code: 'PR19-HALF', name: 'Half tax fixture', rate: '50.00' }).expect(201)).body;
+    const halfUp = { ...main, quantity: 1.250, unitPrice: '0.4000', taxRateId };
+    const { id: rounded } = (await create({ lines: [halfUp, halfUp] }).expect(201)).body;
+    expect((await submit(rounded)).status).toBe(204);
+    const detail = (await get(admin, `${path}/${rounded}`).expect(200)).body;
+    expect(detail).toMatchObject({ subtotal: '2', taxTotal: '2', total: '4' });
+    expect(detail.lines[0]).toMatchObject({ unitPrice: '0.4', subtotal: '1', taxAmount: '1', total: '2' });
+    await post(admin, '/tax-rates', { code: 'PR19-EXCESS', name: 'Excess precision', rate: '5.125' }).expect(422);
+    const [{ id: temporaryProductId }] = await ds.query(
+      "INSERT INTO temporary_products (code, name) VALUES ('PR19-MAT', 'Material fixture') RETURNING id");
+    const { id } = (await create({ category: 'MATERIAL', lines: [{ temporaryProductId, brandId: 1, unitOfMeasureId: pcs, quantity: 1 }] }).expect(201)).body;
+    await approved('purchase-requisitions', id);
+    expect((await get(admin, `${path}/${id}`).expect(200)).body.approvalStatus).toBe('DONE');
+  });
+
+
   it('atomically submits a new or edited PR and deduplicates concurrent creation', async () => {
     const { sc, lineId } = await activeContract();
     const [{ approverId, receiverId }] = await ds.query(`SELECT
@@ -80,7 +190,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
       const prior = (await get(admin, `${path}/${draft.id}`).expect(200)).body;
       const update = { version: prior.version, round: 0, step: 'CREATE', approverId, receiverId,
         lines: [{ ...payload.lines[0], id: prior.lines[0].id, quantity: 3 }] };
-      const save = () => http().patch(`${path}/${draft.id}/submit-edited`).set(as(admin)).send(update);
+      const save = () => http().patch(`${path}/${draft.id}/submit-edited`).set(as(admin)).send(pricedPr(update));
       await save().expect(500);
       const unchanged = (await get(admin, `${path}/${draft.id}`).expect(200)).body;
       expect(unchanged).toMatchObject({ approvalStatus: 'DRAFT', version: prior.version, lines: prior.lines, history: prior.history });

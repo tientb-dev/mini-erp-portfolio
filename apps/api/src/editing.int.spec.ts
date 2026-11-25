@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, login, PCS_UOM_ID as pcs } from './test-utils';
-import { prContext, prSubmission } from './test-utils';
+import { prFixturePrice, pricedPr, prContext, prSubmission } from './test-utils';
 
 /** Editing HĐ (DRAFT) and PR/PO/GRR (DRAFT/REJECTED): limits, versions, RBAC, warehouse scope, history (IM18). */
 describe('Document editing (integration)', () => {
@@ -22,7 +22,7 @@ describe('Document editing (integration)', () => {
 
   const http = () => request(app.getHttpServer());
   const as = (t: string) => ({ Authorization: `Bearer ${t}` });
-  const post = (t: string, url: string, body: object = {}) => http().post(url).set(as(t)).send(body);
+  const post = (t: string, url: string, body: object = {}) => http().post(url).set(as(t)).send((url === '/purchase-requisitions' && 'lines' in body && Array.isArray(body.lines) ? pricedPr({ ...body, lines: body.lines }) : body));
   const patch = (t: string, url: string, body: object) => http().patch(url).set(as(t)).send(body);
   const get = (t: string, url: string) => http().get(url).set(as(t));
 
@@ -177,7 +177,7 @@ describe('Document editing (integration)', () => {
     const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 3 }] }).expect(201)).body.id;
     let d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     await patch(admin, `/purchase-requisitions/${pr}`, {
-      version: d.version, lines: [{ id: d.lines[0].id, salesContractLineId: lineId, productId: p2, quantity: 4 }, { salesContractLineId: lineB, productId: p1, quantity: 1 }],
+      version: d.version, lines: [{ ...prFixturePrice, id: d.lines[0].id, salesContractLineId: lineId, productId: p2, quantity: 4 }, { ...prFixturePrice, salesContractLineId: lineB, productId: p1, quantity: 1 }],
     }).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     expect(d.lines.map((l: { partNumber: string; uom: string; quantity: string }) => [l.partNumber, l.uom, Number(l.quantity)])).toEqual([['PN-E2', 'BOX', 4], ['PN-E1', 'PCS', 1]]);
@@ -192,7 +192,7 @@ describe('Document editing (integration)', () => {
       .toBe('INVALID_STATUS'); // C18 equivalent: recall first
     await post(await login(app, 'sales-head', 'role-users-test'), `/purchase-requisitions/${pr}/reject`, { ...await prContext(ds, pr), reason: 'Sai mã' }).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
-    await patch(admin, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ id: d.lines[0].id, salesContractLineId: lineId, productId: p1, quantity: 4 }] }).expect(204);
+    await patch(admin, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ ...prFixturePrice, id: d.lines[0].id, salesContractLineId: lineId, productId: p1, quantity: 4 }] }).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     expect(d.approvalStatus).toBe('REJECTED');
     expect(d.lines).toHaveLength(1);
@@ -212,12 +212,12 @@ describe('Document editing (integration)', () => {
     expect((await post(admin, `/purchase-requisitions/${pr}/recall`, { ...await prContext(ds, pr), reason: 'Sửa' }).expect(409)).body.code).toBe('INVALID_STATUS');
     expect((await patch(admin, `/purchase-requisitions/${pr}`, { version, lines: [{ id: lines[0].id, salesContractLineId: lineId, productId: p2, quantity: 5 }] }).expect(409)).body.code).toBe('INVALID_STATUS');
   });
-  it('PR: an HĐ line at most once per PR (CM6); other PRs and other HĐ lines with the same product stay separate', async () => {
+  it('PR: duplicate product and contract mappings stay separate', async () => {
     const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(5, 'A'), scLine(5, 'B')] }).expect(201)).body.id;
     await post(admin, `/sales-contracts/${sc}/activate`).expect(204);
     const [a, b] = (await get(admin, `/sales-contracts/${sc}`)).body.lines.map((l: { id: number }) => l.id);
     const dup = [{ salesContractLineId: a, productId: p1, quantity: 1 }, { salesContractLineId: a, productId: p2, quantity: 2 }];
-    expect((await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: dup }).expect(422)).body.code).toBe('DUPLICATE_SOURCE_LINE');
+    await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: dup }).expect(201);
 
     // Two HĐ lines with the same product → two PR lines; a second PR may reference the same HĐ line.
     const pr = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [
@@ -226,12 +226,11 @@ describe('Document editing (integration)', () => {
     const before = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     expect(before.lines.map((l: { sourceLineId: number }) => l.sourceLineId).sort()).toEqual([a, b].sort());
 
-    // Edit that would point both lines at HĐ line a → rejected, nothing saved.
     const [l1, l2] = before.lines;
-    expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: before.version, lines: [
-      { id: l1.id, salesContractLineId: a, productId: p1, quantity: 1 }, { id: l2.id, salesContractLineId: a, productId: p1, quantity: 2 }] }).expect(422)).body.code)
-      .toBe('DUPLICATE_SOURCE_LINE');
-    expect((await get(admin, `/purchase-requisitions/${pr}`)).body).toEqual(before);
+    await patch(admin, `/purchase-requisitions/${pr}`, { version: before.version, lines: [
+      { id: l1.id, salesContractLineId: a, productId: p1, quantity: 1 }, { id: l2.id, salesContractLineId: a, productId: p1, quantity: 2 }] }).expect(204);
+    const after = (await get(admin, `/purchase-requisitions/${pr}`)).body;
+    expect(after.lines.map((line: { id: number; sourceLineId: number }) => [line.id, line.sourceLineId])).toEqual([[l1.id, a], [l2.id, a]]);
   });
 
   it('PO: a PR line at most once per PO; several POs may share it within the PR quantity', async () => {

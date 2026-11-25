@@ -1,3 +1,4 @@
+import { pricedPr } from './test-utils';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
@@ -20,7 +21,7 @@ describe('Inbound chain and GR (integration)', () => {
 
   const http = () => request(app.getHttpServer());
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
-  const post = (token: string, url: string, body: object = {}) => http().post(url).set(as(token)).send(body);
+  const post = (token: string, url: string, body: object = {}) => http().post(url).set(as(token)).send((/^\/purchase-requisitions(?:\/save-new)?$/.test(url) && 'lines' in body && Array.isArray(body.lines)) ? pricedPr({ ...body, lines: body.lines }) : body);
 
   beforeAll(async () => {
     ({ app, ds } = await bootTestApp());

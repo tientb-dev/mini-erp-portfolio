@@ -10,6 +10,7 @@ import { FormDialog } from '../../shared/components';
 import { DiscardDialog, RouteDiscardGuard } from '../../shared/components/FormDialog';
 import { ErrorAlert } from '../../shared/components/ErrorAlert';
 import { DocumentFormCell, DocumentFormGrid } from '../../shared/components/DocumentFormGrid';
+import { trimDecimal } from '../../shared/utils/format';
 import { PrLineTable } from './PrLineTable';
 import type { PrDisplayLine } from './PrLineTable';
 import type { DocDetail } from './types';
@@ -216,7 +217,7 @@ function PrLineItemDialog({ line, material, contract, occupied, saveLine, onClos
   const { t } = useTranslation();
   const [productId, setProductId] = useState(line?.productId ?? 0);
   const [sourceId, setSourceId] = useState(line?.salesContractLineId ?? 0);
-  const [quantity, setQuantity] = useState(line?.quantity ?? '');
+  const [quantity, setQuantity] = useState(trimDecimal(line?.quantity ?? ''));
   const products = useQuery({ queryKey: ['products', 'selection', line?.productId], queryFn: () => api<Product[]>(catalogSelectionPath('/products', line?.productId)) });
   const contractLines = useQuery({ queryKey: ['sc-lines', contract], queryFn: () => api<ContractLine[]>(`/sales-contracts/${contract}/lines`) });
   const product = products.data?.find(item => item.id === productId && (item.isActive || item.id === line?.productId));

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundEx
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { ArrayUnique, IsArray, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { DataSource, EntityManager } from 'typeorm';
+import { DOCUMENT_MONEY_PRECISION, nonNegativeDecimal } from '../../common/document-money';
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { CatalogFacade } from './catalog.facade';
 import { CatalogSelectionDto, selectionFilter, selectionParams, StatusDto, updateCatalogStatus } from './catalog-status';
@@ -28,7 +29,7 @@ class CurrencyDto extends CatalogEntryDto {
   @ApiProperty() @IsInt() @Min(0) @Max(8) decimalPlaces!: number;
 }
 class TaxRateDto extends BrandDto {
-  @ApiProperty() @IsString() @Matches(/^\d{1,3}(\.\d{1,4})?$/) rate!: string;
+  @ApiProperty() @IsString() rate!: string;
 }
 class BrandSuppliersDto {
   @ApiProperty() @IsArray() @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) supplierIds!: number[];
@@ -187,7 +188,9 @@ export class PrCatalogController {
   }
 
   private async saveTaxRate(dto: TaxRateDto, id?: number) {
-    if (Number(dto.rate) > 100) throw new BusinessError('INVALID_TAX_RATE', 'Tax rate must be between 0 and 100');
+    if (!nonNegativeDecimal(dto.rate, DOCUMENT_MONEY_PRECISION.taxRate) || Number(dto.rate) > 100) {
+      throw new BusinessError('INVALID_TAX_RATE', 'Tax rate must be between 0 and 100 with up to two decimal places');
+    }
     const values = [dto.code.trim(), dto.name.trim(), dto.rate];
     if (id === undefined) {
       const [row] = await this.ds.query(`INSERT INTO tax_rates (code, name, rate)

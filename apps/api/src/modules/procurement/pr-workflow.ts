@@ -4,6 +4,7 @@ import type { CurrentUser } from '../identity/auth';
 import { SalesContractFacade } from '../sales-contracts/sales-contracts.service';
 import { ActionContext, assertActionContext, WorkflowStep } from '../workflow/action-context';
 import * as wf from '../workflow/workflow';
+import { assertPrReady } from './pr-commercial';
 import { currentGrant, eligible, listCandidates, PrRoute } from './pr-eligibility';
 import { assignPrTask, notifyPr, PrPendingStep, resolvePrTasks } from './pr-notifications';
 
@@ -62,10 +63,7 @@ export async function submit(m: EntityManager, id: number, user: CurrentUser, dt
   assertActionContext(doc, doc.approval_round, currentStep(doc.approval_status), dto);
   wf.assertStatus(doc, ['DRAFT', 'REJECTED']);
   await creatorRoute(m, user, doc.sales_contract_id, doc.creator_route);
-  const [line] = await m.query(
-    'SELECT 1 FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 LIMIT 1', [id],
-  );
-  if (!line) throw new wf.BusinessError('PR_LINES_REQUIRED', 'Add at least one valid line before submitting');
+  await assertPrReady(m, id);
   const { approver, receiver } = await validateSelection(m, doc.creator_route, user.id, dto);
   if (!approver || !receiver) throw new wf.BusinessError('PR_CANDIDATE_NOT_ELIGIBLE', 'Choose eligible candidates or contact Admin');
   const round = doc.approval_round + 1;

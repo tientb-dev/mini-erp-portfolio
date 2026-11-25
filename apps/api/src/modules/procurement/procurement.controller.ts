@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, P
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsDateString, Matches, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
@@ -43,17 +43,31 @@ class PrPoolParams {
 
 class PrLineDto {
   @ApiPropertyOptional({ description: "Existing line id when editing; omit for a new line" }) @IsOptional() @IsInt() id?: number;
-  @ApiPropertyOptional({ nullable: true, description: 'Required for sales-goods PRs; optional for material PRs' }) @IsOptional() @IsInt() salesContractLineId?: number | null;
-  @ApiProperty() @IsInt() productId!: number;
+  @ApiPropertyOptional({ nullable: true, description: 'Required when submitting sales-goods PRs; optional for material PRs' }) @IsOptional() @IsInt() salesContractLineId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() productId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() temporaryProductId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() brandId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() supplierId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() unitOfMeasureId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() taxRateId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() requirementDescription?: string | null;
+  @ApiPropertyOptional({ type: String }) @IsOptional() @IsString() unitPrice?: string;
   @ApiProperty() @IsPositive() quantity!: number;
 }
 class PrDraftSelection {
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() name?: string | null;
+  @ApiPropertyOptional({ nullable: true, format: 'date' }) @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) requisitionDate?: string | null;
+  @ApiPropertyOptional({ nullable: true, format: 'date' }) @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) requiredDate?: string | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() description?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() currencyId?: number;
+  @ApiPropertyOptional({ enum: ['CATALOG', 'MANUAL'] }) @IsOptional() @IsIn(['CATALOG', 'MANUAL']) exchangeRateSource?: 'CATALOG' | 'MANUAL';
+  @ApiPropertyOptional({ type: String }) @IsOptional() @IsString() exchangeRate?: string;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() approverId?: number | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @IsPositive() receiverId?: number | null;
 }
 class CreatePrDto extends PrDraftSelection {
   @ApiPropertyOptional({ enum: ['SALES', 'PM'] }) @IsOptional() @IsIn(['SALES', 'PM']) route?: 'SALES' | 'PM';
-  @ApiProperty() @IsInt() salesContractId!: number;
+  @ApiProperty() @IsInt() @IsPositive() salesContractId!: number;
   @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], default: 'SALES_GOODS' }) @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
   @ApiPropertyOptional({ description: 'Purpose of use (materials; reference)' }) @IsOptional() @IsString() purpose?: string;
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
@@ -109,6 +123,14 @@ export class ProcurementController {
     return this.svc.prLinesAvailableForPo();
   }
 
+  @Get('purchase-requisitions/catalog/suppliers')
+  @RequirePermissions('PR.CREATE')
+  prSuppliers(@Req() req: AuthedRequest, @Query('salesContractId', ParseIntPipe) contractId: number,
+    @Query('brandId', ParseIntPipe) brandId: number,
+    @Query('route', new ParseEnumPipe({ SALES: 'SALES', PM: 'PM' }, { optional: true })) route?: PrRoute) {
+    return this.svc.listPrSuppliers(req.user, contractId, brandId, route);
+  }
+
   @Get('purchase-orders')
   @RequirePermissions('PO.VIEW')
   listPos(@Req() req: AuthedRequest, @Query('assignedToMe', new ParseBoolPipe({ optional: true })) mine?: boolean) {
@@ -150,7 +172,7 @@ export class ProcurementController {
   @Get('purchase-requisitions/:id/lines')
   @RequirePermissions('PR.VIEW')
   prLines(@Param('id', ParseIntPipe) id: number) {
-    return this.ds.query(`SELECT id, product_id AS "productId", quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [id]);
+    return this.ds.query(`SELECT id, product_id AS "productId", temporary_product_id AS "temporaryProductId", quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [id]);
   }
 
   @Post('purchase-orders')

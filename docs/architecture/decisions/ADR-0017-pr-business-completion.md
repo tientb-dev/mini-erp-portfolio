@@ -1,6 +1,6 @@
 # ADR-0017 — Hoàn thiện nghiệp vụ PR
 
-**Trạng thái** · Đã duyệt nghiệp vụ. Phase 1 triển khai danh mục và dòng HĐ.
+**Trạng thái** · Phase 1 triển khai danh mục và dòng HĐ. Phase 2 triển khai backend PR theo DEC-19-01 đến DEC-19-05, DEC-19-07 và DEC-19-08.
 
 ## DEC-19-01 · Trùng mã
 
@@ -28,6 +28,16 @@ Tiền tệ và thuế thuộc Master Data. PR có một tiền tệ (mặc đ�
 
 Đơn giá PR là hạn mức mua trước thuế theo dòng, mặc định 0, nháp chấp nhận 0 và Gửi duyệt yêu cầu lớn hơn 0. Không có đơn giá âm. Giá bán HĐ không cung cấp đơn giá PR. PO về sau kiểm tra hạn mức theo ID dòng với cùng ĐVT, tiền tệ và cơ sở trước thuế. Tăng hạn mức cần điều chỉnh PR và phê duyệt lại; xử lý trong giai đoạn PO.
 
+PO hiện có số lượng, NCC và ĐVT. Để khóa hạn mức cần bổ sung đơn giá mua trước thuế, tiền tệ, cơ sở so sánh và kiểm tra ở backend trên từng dòng nguồn khi lập, sửa, gửi và duyệt PO. Phase 2 cung cấp hạn mức và căn cứ của PR cho phần nghiệp vụ PO.
+
 ## DEC-19-06 · Common Dossier
 
 Phase 4 triển khai DOSSIER-001 đến DOSSIER-008 theo roadmap. Hồ sơ giấy độc lập file, hồ sơ không bắt buộc khi gửi duyệt, snapshot tại lần lưu đầu, file server local và metadata DB. File hỗ trợ PDF, Word, Excel, JPG, PNG và giới hạn mặc định 20 MB cấu hình được. Quyền xem chứng từ cho phép xem/tải, quyền quản lý riêng cho phép sửa sau Hoàn tất. Mỗi loại có tối đa một file hiện hành, giữ file cũ khi xóa hoặc thay, ghi Common Activity History. PO kế thừa và quản lý độc lập.
+
+## DEC-19-07 · Tính tiền chứng từ ERP
+
+Giới hạn phân số và thứ tự làm tròn theo [Business Rules §1d](../../03-BUSINESS-RULES.md#1d-tính-tiền-chứng-từ-erp). Backend dùng Decimal chính xác với `ROUND_HALF_UP` và snapshot cấu hình tiền tệ. Phase 2 dùng cách tính chung cho PR.
+
+## DEC-19-08 · HĐ bán bắt buộc khi lưu Nháp PR
+
+Hàng bán và Vật tư đều cần HĐ bán ACTIVE hợp lệ và tối thiểu một dòng hợp lệ ngay khi lưu Nháp. Backend kiểm tra phạm vi và quyền tạo theo PR #18. Khi Gửi duyệt áp dụng thêm các điều kiện của Header, dòng và workflow. Cơ chế phân quyền theo HĐ giữ nguyên.

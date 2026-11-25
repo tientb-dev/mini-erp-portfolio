@@ -44,6 +44,10 @@ async function main() {
     const supplier = (await one(`SELECT id FROM suppliers WHERE code = 'NCC-DEMO'`, [])).id;
     await ds.query(`INSERT INTO brand_suppliers (brand_id, supplier_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [brand, supplier]);
 
+    await ds.query(`INSERT INTO tax_rates (code, name, rate) VALUES ('DEMO-ZERO', 'Demo zero tax', 0) ON CONFLICT (code) DO NOTHING`);
+    const taxRateId = (await one("SELECT id FROM tax_rates WHERE code = 'DEMO-ZERO'", [])).id;
+    const prPricing = { supplierId: supplier, taxRateId, unitPrice: '100000' };
+
     const salesUser = await identity.loadCurrentUser(await userId('sales'));
     if (!salesUser) throw new Error('Seed the active demo Sales user first');
     async function processPr(id: number) {
@@ -66,9 +70,9 @@ async function main() {
     await sales.activate(sc.id);
     const scLines = await ds.query(`SELECT id FROM sales_contract_lines WHERE sales_contract_id = $1 ORDER BY id`, [sc.id]);
     const pr = await proc.createPurchaseRequisition(salesUser, sc.id, [
-      { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
-      { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
-    ]);
+      { ...prPricing, salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
+      { ...prPricing, salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
+    ], undefined, undefined, undefined, { name: 'Demo purchase requisition' });
     await processPr(pr.id);
     const prLines = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [pr.id]);
     const po = await proc.createPurchaseOrder(creator, supplier, prLines.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));
@@ -86,9 +90,9 @@ async function main() {
 
     // A second chain (PR → PO → GRR → GR APPROVED) puts stock + SNs in HCM for GIR → GI; the first GRR stays open for the GR UI.
     const stockPr = await proc.createPurchaseRequisition(salesUser, sc.id, [
-      { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
-      { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
-    ]);
+      { ...prPricing, salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
+      { ...prPricing, salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
+    ], undefined, undefined, undefined, { name: 'Demo purchase requisition' });
     await processPr(stockPr.id);
     const spl = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [stockPr.id]);
     const stockPo = await proc.createPurchaseOrder(creator, supplier, spl.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));

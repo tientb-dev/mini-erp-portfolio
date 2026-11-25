@@ -20,7 +20,8 @@
 
 ## 1a. Danh mục hàng hóa, mã tạm và mapping — đã chốt (2026-11-13)
 - Danh mục hàng hóa gồm `temporary_products` (mã tạm: mã, tên, mô tả; không UoM) và `products` (mã chính: UoM, `is_serial_tracked`, thông tin kế toán dự trù).
-- Dòng PR giữ snapshot mã, tên, mô tả và ĐVT. Mã tạm chọn ĐVT, mã chính lấy ĐVT từ `products`. Một PR có thể chứa cả hai loại mã và hoàn tất theo workflow thông thường.
+- Dòng PR giữ snapshot mã, tên, mô tả, Hãng, NCC, ĐVT và thuế suất. Mô tả yêu cầu được lưu riêng. Mã tạm chọn Hãng và ĐVT, mã chính lấy Hãng và ĐVT từ `products`. NCC mới phải liên kết với Hãng tại thời điểm chọn. Tham chiếu hợp lệ đã lưu được giữ khi danh mục ngừng sử dụng theo COMMON-MASTER-DATA-STATUS-001.
+- PR có thể chứa cả hai loại mã và hoàn tất theo workflow thông thường. Nháp Hàng bán và Vật tư đều cần HĐ bán ACTIVE trong phạm vi của người tạo, ít nhất một dòng hợp lệ và cho phép đơn giá 0. Gửi duyệt yêu cầu thêm tên PR, tiền tệ và tỷ giá, Hãng, NCC, ĐVT, thuế suất và đơn giá dương trên mỗi dòng. Mapping dòng HĐ của Hàng bán bắt buộc khi Gửi duyệt. Vật tư có thể bỏ mapping. Xem DEC-19-08 trong [ADR-0017](architecture/decisions/ADR-0017-pr-business-completion.md).
 - Mô hình mục tiêu cho phép PO giữ mã tạm. Trong PR #19, chặn tạo PO từ dòng PR mã tạm và nêu lý do; dòng mã chính cùng PR vẫn có thể lập PO. GRR phải xác định mã chính trước Gửi duyệt và không ghi đè mã hàng trên chứng từ nguồn (ADR-0008).
 - **Không hỗ trợ quy đổi UoM trong MVP.** Xác định mã thực nhận giữ nguyên UoM và số lượng nguồn.
 - **Kế thừa UoM:** dòng PO kế thừa UoM snapshot của dòng PR khi tạo và lưu UoM riêng; dòng GRR kế thừa UoM của dòng PO.
@@ -51,6 +52,13 @@
 - Xác định mã chính thực tế ở GRR tính là sử dụng Product tại GRR; danh mục mã tạm và chứng từ nguồn giữ nguyên.
 - Backend bắt buộc kiểm tra; vi phạm trả `PRODUCT_UOM_LOCKED`.
 - Sửa UoM và mapping/thêm mã chính vào chứng từ không được chạy chen nhau làm mất hiệu lực kiểm tra (cơ chế: ADR-0008).
+
+## 1d. Tính tiền chứng từ ERP
+
+- DEC-19-07 quy định số lượng tối đa 3 chữ số thập phân, đơn giá tối đa 4, tỷ giá tối đa 8 và thuế suất phần trăm tối đa 2.
+- Làm tròn `ROUND_HALF_UP` theo số chữ số thập phân trong snapshot tiền tệ. Thành tiền = ROUND(số lượng × đơn giá). Tiền thuế = ROUND(thành tiền đã làm tròn × thuế suất / 100). Tổng dòng = thành tiền + tiền thuế.
+- Tổng thành tiền, tổng thuế và tổng thanh toán của chứng từ lần lượt bằng tổng các giá trị tương ứng của từng dòng đã làm tròn. Backend tính chính thức bằng Decimal chính xác. Thay đổi danh mục tiền tệ hoặc thuế suất giữ nguyên snapshot của chứng từ đã lưu.
+- Khi hiển thị, bỏ chữ số 0 thập phân dư của số lượng, đơn giá và tỷ giá. Thành tiền, tiền thuế và tổng thanh toán theo precision của tiền tệ.
 
 ## 1d. Active/Inactive của Master Data
 
@@ -108,7 +116,7 @@
   - **D. Vật tư trực tiếp** (`AVAILABLE_STOCK`): không cần PR/dòng HĐ; vẫn gắn HĐ; **bắt buộc ghi mục đích sử dụng**; không áp hạn mức PR/HĐ.
 - **Hàng bán (A, B) dùng chung hạn mức giao của dòng HĐ** (§10.1), kể cả khi nhiều PR tham chiếu cùng dòng HĐ.
 - **Hạn mức dòng PR (A, C):** Σ số lượng dòng GIR tham chiếu một dòng PR không vượt số lượng dòng PR Hoàn tất. Trạng thái chiếm hạn mức, thời điểm kiểm tra và đồng thời theo §10.1 (CT2).
-- **`PO done`** (đã chốt 2026-11-13, CT1): một PR đạt `PO done` khi **mọi dòng PR** có tổng số lượng trên các dòng PO `APPROVED` (còn hiệu lực theo workflow) **bằng đúng** số lượng yêu cầu của dòng đó. Một dòng PR có thể mua qua nhiều PO; cộng dồn theo tham chiếu dòng PR, không theo Product; tổng đặt mua không vượt số lượng dòng PR (§1). Thiếu bất kỳ dòng nào → chưa `PO done`. `PO done` quyết định PR có hiển thị khi lập GIR theo PR và là điều kiện Gửi duyệt GIR A/C (xem quy tắc mất `PO done`); không có nghĩa là đã nhập kho; GIR A/C có thể lập và duyệt khi hàng chưa về.
+- **`PO done`** (CT1 và giới hạn PR #19): GIR A/C chỉ lấy dòng mã chính của PR Done. Tất cả dòng mã chính của PR phải có tổng lượng PO `APPROVED` bằng đúng lượng yêu cầu trên từng dòng. Một dòng PR có thể mua qua nhiều PO, cộng dồn theo ID dòng và giới hạn theo §1. Backend áp dụng điều kiện này cho picker và mỗi lần Gửi duyệt GIR A/C. GIR A/C có thể lập và duyệt trước khi nhận hàng.
 - **Mất `PO done`** (đã chốt 2026-11-13): `PO done` là **điều kiện để Gửi duyệt** GIR A/C, kiểm tra tại backend ở mỗi lần Gửi duyệt (GIR `DRAFT`, và GIR `REJECTED` sửa rồi Gửi duyệt lại), không chỉ khi hiển thị danh sách PR. PR không còn `PO done` → chặn Gửi duyệt. GIR **đã Gửi duyệt hợp lệ** không bị tự động Hủy, Thu hồi hay đổi trạng thái khi PR mất `PO done` sau đó; tiếp tục theo workflow và hạn mức hiện hữu (không hồi tố). PR đạt lại `PO done` → được Gửi duyệt.
 - **Lượng đã nhập tham khảo (A, C):** cộng số lượng GR `APPROVED` theo chuỗi dòng PR → dòng PO → dòng GRR → dòng GR; chưa nhập hiển thị 0. Không ghép theo Product; **không dùng làm hạn mức GIR**.
 - Dòng hàng bán tham chiếu `sales_contract_line_id` và một Product. **Chặn Gửi duyệt** nếu Product chưa được Sales xác nhận cho dòng HĐ đó (§9.2); GIR `DRAFT` được lưu với Product chưa xác nhận. Sau khi Sales xác nhận, PM chủ động Gửi duyệt. Dòng vật tư không áp dụng điều kiện này và không chiếm hạn mức dòng HĐ.

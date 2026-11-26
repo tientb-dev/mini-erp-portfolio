@@ -12,7 +12,7 @@
 - SN thuộc Inventory, không thuộc `products`.
 - Không xóa cứng mã đã phát sinh chứng từ.
 - `is_serial_tracked` mặc định `true`; khóa thay đổi nếu PN từng xuất hiện trên GRR, GR, GIR hoặc GI, bất kể trạng thái (M1, T5).
-- HĐ có ba nguồn nhập hàng hóa theo SC-LINE-INPUT-001. Product được phép giao quản lý riêng theo ADR-0009.
+- HĐ ghi snapshot hàng hóa theo SC-LINE-INPUT-001; danh mục hỗ trợ điền nhanh cho dòng mới. Product được phép giao quản lý riêng theo ADR-0009.
 - Sau khi Product được dùng trên chứng từ: khóa `part_number`, tên và UoM (cùng phạm vi khóa UoM); mô tả và trạng thái hoạt động vẫn sửa được; không xóa Product (M2, 2026-11-13). PO/GRR/GR/GIR/GI không snapshot tên/mô tả.
 - Kho có thuộc tính cho phép xuất hàng có sẵn (`allow_available_stock_issue`, đề xuất) — ADR-0010.
 - `products.unit_of_measure_id` bị khóa khi mã chính đã xuất hiện trên PR, PO, GRR, GR, HĐ, GIR, GI, mọi trạng thái → `PRODUCT_UOM_LOCKED` (T9; concurrency: ADR-0008).

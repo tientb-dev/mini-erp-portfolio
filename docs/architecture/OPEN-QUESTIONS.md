@@ -68,7 +68,7 @@ CM1–CM6 và CT1, CT2, CT9 (ADR-0012) đã chốt nghiệp vụ — xem §4 (k�
 | P3 | RBAC + data-level theo người được giao duyệt; chỉ người được giao thấy/duyệt/nhận thông báo | 04 §3, ADR-0006 |
 | P4 | Mặc định theo role/bước; không duy nhất → dropdown | 04 §3 |
 | H1, H4, H5 | Đề xuất `PENDING`/`APPROVED`/`REJECTED`; không thu hồi xác nhận đang dùng; đề xuất chưa duyệt không tính "đã sử dụng" | 03 §9.2, ADR-0009 |
-| H2 | Không quay lại `DRAFT`; Hủy HĐ khi không còn PR/GIR chưa Hủy | 03 §9.1 |
+| H2 | Không quay lại `DRAFT`; Phase 5.2.3 chỉ cho hủy từ `DRAFT`, có lý do | 03 §9.1 |
 | H3 | Không hạn mức riêng theo Product | 03 §9.2 |
 | G1–G5 | `execution_status`; điều kiện hoàn thành; lý do khi thiếu; từ chối → `REJECTED`; kho bảo hành không hợp lệ | 03 §3, §10.3, ADR-0010 |
 | P2 | Khóa tên dịch | 03 §1c, ADR-0005 |

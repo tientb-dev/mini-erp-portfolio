@@ -183,6 +183,10 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 **COMMON-DOC-NAV-001, DOC-LINE-001, FE-VALIDATION-001.** Giữ tham số danh sách khi đi và quay lại. Cảnh báo khi rời trang có thay đổi. State sống ở editor nên chuyển tab và lỗi API giữ nội dung nhập. Lưu nháp và Gửi duyệt đều cần ít nhất một dòng hợp lệ. Gửi duyệt cần thêm ứng viên hợp lệ. Hiển thị validation cạnh trường và đánh dấu tab lỗi.
 
+**HĐ bán · Phase 5.2.3.** Áp dụng COMMON-DOC-PAGE-001 cho Full Page Create/Edit/View, với ngoại lệ DOC-LINE-001 cho Lưu nháp HĐ trống theo Business Rules §9.1. Common Document Form 12 cột và grid inline dùng state cấp editor. Lỗi ở tab khác thì mở tab và focus trường đầu tiên. Chỉ bypass Dirty Guard sau khi máy chủ xác nhận lưu và form đã được đánh dấu sạch. Dùng Action Result và COMMON-BUTTON-001 cho các thao tác nghiệp vụ.
+
+Common Product Picker dùng chung API server-side cho hai tab mã chính/mã tạm. PR giữ multi-select; HĐ dùng single-select để điền snapshot. Inline grid giữ chỗ adornment cuối ô mã cho kính lúp và cảnh báo trùng, tooltip hỗ trợ bàn phím. Dùng Common Document Form để cân bằng padding multiline và chiều cao mặc định của diễn giải với Common File Attachment Cell. File HĐ là một ô trong Thông tin chung; trạng thái upload tạm và chính thức theo [roadmap File Attachment](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).
+
 **UI-15, UI-EVIDENCE-001.** Popup kết quả dùng chung chiều rộng 460px, chiều cao tối thiểu 260px và icon 64px nền tròn có dấu check hoặc X trắng. Áp dụng cho thao tác nghiệp vụ trên chứng từ và Master Data. Tiêu đề nêu thao tác và kết quả; nội dung nêu chứng từ hoặc danh mục tương ứng. Snackbar dành cho thông báo nhẹ. Thành công nêu trạng thái mới nếu thay đổi và tự đóng sau khoảng 3 giây. Thất bại hiển thị nguyên nhân dạng chữ và nút Đã hiểu. Kiểm tra trực tiếp Before/After trên Chromium với API và PostgreSQL test ở 1920×1080 và 1366×768.
 
 

@@ -18,11 +18,15 @@
 ## 2. Vai trò nghiệp vụ chính
 | Vai trò | Trách nhiệm |
 |---|---|
-| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT` (quyền `SALES_CONTRACT.CREATE`; khóa từ `ACTIVE`, CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`; xem tất cả HĐ (chưa phân quyền xem theo khách hàng); **xem (chỉ xem) PR của HĐ mình là Sales phụ trách** dù không có `PR.VIEW` (ADR-0014); xác nhận/từ chối Product được phép giao cho dòng HĐ |
+| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT` (hiện dùng `SALES_CONTRACT.CREATE`; khóa từ `ACTIVE`, CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`; xem HĐ theo quyền VIEW (hiện chưa lọc theo khách hàng); **xem (chỉ xem) PR của HĐ mình là Sales phụ trách** dù không có `PR.VIEW` (ADR-0014); xác nhận/từ chối Product được phép giao cho dòng HĐ |
 | Người phụ trách nguồn hàng | Sales phụ trách HĐ nguồn, ghi trên lô khi duyệt GR và bất biến (CT15, CT17); MVP không chuyển giao tồn giữa Sales. Bước 1 (đồng ý) của GIR `AVAILABLE_STOCK` lấy hàng thuộc mình; có thể khác Sales của HĐ nhận hàng |
 | PM | Tạo GIR; đề xuất Product thay thế cho dòng HĐ kèm lý do; không tự xác nhận thay Sales |
 | Quản lý kho | Phụ trách GI; duyệt GIR (bước cuối với `AVAILABLE_STOCK`); "Xác nhận hoàn thành xuất" GIR |
 Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư và bốn luồng GIR (ADR-0012) không thêm bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng. Người được giao bước 1 của GIR `AVAILABLE_STOCK` phải là người phụ trách nguồn hàng của GIR đó (kiểm tra ở mức dữ liệu như §3); mã quyền `GIR.SALES_CONFIRM`; hệ thống chỉ cho giao bước 1 cho Sales nguồn ghi trên GIR (CT7, IM30).
+
+### HĐ bán · Phase 5.2.3
+
+Action Permission độc lập với Data Scope. Backend kiểm permission, scope và trạng thái. Cây tổ chức không cấp quyền và implementation không hardcode role/phòng ban. BA chưa chốt việc tách Tạo/Sửa/Chốt/Hủy và phạm vi dữ liệu cụ thể của HĐ. Quyền đề xuất/xác nhận mã giao trong bảng vai trò là hành vi legacy của baseline và nằm trong danh sách loại bỏ khi triển khai HĐ mới. Tạo PR từ HĐ tiếp tục theo quyền, scope PR và HĐ ACTIVE.
 
 ## 3. Người duyệt mặc định
 

@@ -19,9 +19,9 @@
 | A15 | Như A14, người dùng đã sửa số lượng | Vẫn bị chặn — không quy đổi UoM trong MVP |
 | A16 | Đổi `is_serial_tracked` của PN từng có trên GRR/GR/GIR/GI ở bất kỳ trạng thái nào (kể cả `DRAFT`, `CANCELED`) | Chặn |
 | A17 | Tạo mã chính mới không chỉ định cờ SN | `is_serial_tracked = true` |
-| A22 | HĐ chứa đồng thời mã chính, mã tạm và hàng nhập tự do | Lưu snapshot, tối đa một FK danh mục mỗi dòng, không sinh Master Data từ hàng nhập tự do. Có thể lặp mã, cảnh báo mềm |
+| A22 | HĐ có dòng nhập tay và dòng điền nhanh bằng mã chính/mã tạm | Dòng mới lưu snapshot, dòng HĐ không lưu FK catalog, Master Data giữ nguyên. Có thể lặp mã, cảnh báo mềm |
 | A28a | Dòng PR hàng bán tham chiếu `sales_contract_line_id` của HĐ `ACTIVE` | Bắt buộc với dòng hàng bán; snapshot yêu cầu ban đầu được lưu |
-| A32 | PR chọn hàng mã chính hoặc mã tạm từ danh mục | Không giới hạn theo HĐ; chỉ gợi ý liên kết nếu đúng một dòng HĐ cùng định danh và loại danh mục |
+| A32 | PR chọn hàng mã chính hoặc mã tạm từ danh mục | Không giới hạn theo HĐ; mapping tay theo ID dòng trong thiết kế mới. Gợi ý theo FK chỉ thuộc baseline legacy |
 | A33 | Hai dòng PR hàng bán tham chiếu cùng dòng HĐ | Cho phép; hai dòng PR có ID độc lập |
 | A33a | HĐ có nhiều dòng cùng định danh danh mục hoặc dòng nhập tự do | Người tạo PR chọn dòng HĐ thủ công |
 | A33b | PR-1 và PR-2 cùng tham chiếu một dòng HĐ | Cho phép |
@@ -233,13 +233,13 @@
 | G03 | Tạo PR tham chiếu HĐ `DRAFT` | Không cho phép |
 | G04 | Sửa khách hàng/PN/UoM/số lượng của HĐ đã được PR/GIR tham chiếu | Chặn |
 | G05 | Dòng HĐ chưa có Product chính thức | Cho phép |
-| G06 | PM đề xuất Product thay thế cho dòng HĐ, có lý do; Sales xác nhận | Lưu người xác nhận, thời điểm, ghi chú/số phụ lục; dòng HĐ có thêm Product được phép giao |
-| G07 | Sales từ chối đề xuất | Product không được phép giao cho dòng HĐ |
-| G08 | Hủy HĐ còn PR hoặc GIR chưa `CANCELED` tham chiếu | Chặn |
-| G09 | Hủy HĐ khi mọi PR/GIR tham chiếu đã `CANCELED` | Cho phép |
+| G06 (legacy) | PM đề xuất Product thay thế cho dòng HĐ, có lý do; Sales xác nhận | Lưu người xác nhận, thời điểm, ghi chú/số phụ lục; dòng HĐ có thêm Product được phép giao |
+| G07 (legacy) | Sales từ chối đề xuất | Product không được phép giao cho dòng HĐ |
+| G08 | Hủy HĐ `ACTIVE`, kể cả khi mọi PR/GIR tham chiếu đã `CANCELED` | Chặn |
+| G09 | Hủy HĐ `DRAFT` với quyền hợp lệ và có lý do | Chuyển `CANCELED` và ghi lý do vào lịch sử |
 | G10 | Chuyển HĐ `ACTIVE` về `DRAFT` | Không cho phép |
-| G11 | Đề xuất Product: PM tạo → `PENDING`; Sales duyệt → `APPROVED` hoặc từ chối → `REJECTED` | Chỉ Product `APPROVED` cho phép Gửi duyệt GIR |
-| G12 | Sales thu hồi xác nhận Product đang được dòng GIR hàng bán chưa `CANCELED` dùng | Chặn |
+| G11 (legacy) | Đề xuất Product: PM tạo → `PENDING`; Sales duyệt → `APPROVED` hoặc từ chối → `REJECTED` | Chỉ Product `APPROVED` cho phép Gửi duyệt GIR |
+| G12 (legacy) | Sales thu hồi xác nhận Product đang được dòng GIR hàng bán chưa `CANCELED` dùng | Chặn |
 | G13 | Product chỉ có đề xuất `PENDING`/`REJECTED` cho dòng HĐ, chưa có chứng từ khác | Chưa tính là "đã sử dụng" — mã/tên/UoM vẫn sửa được |
 
 ## H. Đánh số, hủy, Product

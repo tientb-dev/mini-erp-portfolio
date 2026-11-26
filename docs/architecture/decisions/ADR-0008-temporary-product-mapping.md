@@ -3,7 +3,7 @@
 **Trạng thái** · Cập nhật theo DEC-19-03. Phase 1 chỉ triển khai Master Data và dòng HĐ.
 
 - `temporary_products` thuộc Master Data. Mã tạm có mã, tên và mô tả, không có hãng hoặc ĐVT.
-- HĐ và PR dùng mã tạm hoặc mã chính. HĐ còn hỗ trợ nhập tự do theo SC-LINE-INPUT-001. PR có thể trộn hai loại mã và hoàn tất theo workflow hiện hành khi Phase 2 được triển khai.
+- HĐ dùng mã tạm hoặc mã chính để điền nhanh snapshot theo SC-LINE-INPUT-001. PR chọn danh mục, có thể trộn hai loại mã và hoàn tất theo workflow hiện hành.
 - PO theo mô hình mục tiêu có thể giữ mã tạm. Trong PR #19, chỉ dòng PR mã chính được lập PO. Nêu lý do khi chưa hỗ trợ tạo PO từ dòng mã tạm.
 - GRR phải có mã chính trước Gửi duyệt. Xác định mã chính trên GRR, giữ nguyên danh mục mã tạm và nội dung chứng từ nguồn. Một dòng PO xuất hiện tối đa một lần trong mỗi GRR, được nhập qua nhiều GRR trong hạn mức.
 - ĐVT kế thừa PR → PO → GRR, số lượng được kiểm tra theo ID dòng nguồn. Mã chính thực nhận phải cùng ĐVT với dòng GRR; không tự quy đổi.

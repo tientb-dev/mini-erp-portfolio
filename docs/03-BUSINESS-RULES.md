@@ -23,7 +23,7 @@ Hãng có thể chưa liên kết NCC. Lưu Create/Edit Hãng ghi thông tin và
 - Mỗi PR thuộc một HĐ `ACTIVE` (cấp chứng từ); mỗi dòng PR giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
 - **Phân loại dòng** (đã chốt 2026-11-13, ADR-0012): mỗi dòng PR có phân loại tường minh hàng bán/vật tư; MVP không trộn hai loại trong một PR.
 - **Product không mang phân loại cố định** (đã chốt 2026-11-14, sau UAT Round 1): hàng bán / vật tư là mục đích nghiệp vụ của **chứng từ** (YCMH, ĐNXK), không phải thuộc tính của Product. Cùng một Product có thể dùng trong A/B hoặc C/D; luồng D được dùng Product từng được mua dưới dạng hàng bán nếu nguồn hợp lệ (HĐ nguồn + Sales nguồn) và có mục đích sử dụng. Vẫn không trộn hàng bán và vật tư trong một chứng từ. Không thêm phân loại vào danh mục Product.
-- **Liên kết dòng HĐ (DEC-19-02):** PR hàng bán và vật tư chọn hàng từ toàn bộ danh mục. Hàng bán bắt buộc liên kết một dòng HĐ đúng hợp đồng trước Gửi duyệt; Vật tư có thể để trống. Một dòng HĐ có thể liên kết nhiều dòng PR. Gợi ý chỉ dựa trên định danh danh mục trùng duy nhất; người tạo có thể đổi gợi ý. Không tự mapping theo mã hoặc tên nhập tự do. Không có hạn mức Σ PR ≤ dòng HĐ.
+- **Liên kết dòng HĐ (DEC-19-02):** PR hàng bán và vật tư chọn hàng từ toàn bộ danh mục. Hàng bán bắt buộc liên kết một dòng HĐ đúng hợp đồng trước Gửi duyệt; Vật tư có thể để trống. Một dòng HĐ có thể liên kết nhiều dòng PR. Thiết kế HĐ mới dùng mapping thủ công theo ID dòng. Baseline kỹ thuật còn gợi ý theo FK legacy. Không có hạn mức Σ PR ≤ dòng HĐ.
 - **Trùng mã (DEC-19-01):** cho phép trùng mã chính hoặc mã tạm, kể cả cùng NCC. Grid cảnh báo mềm và tự bỏ cảnh báo khi hết trùng. Không gộp dòng và không đặt khóa duy nhất theo mã hàng hoặc mã hàng + NCC. Liên kết và hạn mức theo ID dòng.
 - PO có một nhà cung cấp; dòng PO tham chiếu một dòng PR; không gộp các dòng PR (kể cả cùng Product). Trong cùng PO mỗi dòng PR được tham chiếu tối đa một lần; một dòng PR được xuất hiện ở nhiều PO khác nhau (đã chốt 2026-11-13).
 - Khi phát triển nghiệp vụ giá PO, backend phải chặn đơn giá mua vượt hạn mức của dòng PR đã duyệt trên cùng cơ sở tiền tệ, ĐVT và giá trước thuế. PO hiện thiếu các trường thương mại để thực thi. Đây là tiêu chí bắt buộc để nghiệm thu nghiệp vụ PO.
@@ -48,7 +48,7 @@ Hãng có thể chưa liên kết NCC. Lưu Create/Edit Hãng ghi thông tin và
 - GRR **không được Gửi duyệt** nếu UoM dòng GRR khác UoM hiện hành của mã chính; không có cơ chế xác nhận để vượt qua. Backend kiểm tra từng dòng GRR.
 - Điều chỉnh PO (đổi UoM/số lượng PO đã duyệt) và quy đổi UoM: **ngoài MVP**.
 - GRR Nháp được giữ mã tạm; **tất cả dòng GRR phải có mã chính trước Gửi duyệt**. GR, GIR, GI và Inventory chỉ dùng mã chính.
-- Dòng HĐ chọn mã chính, mã tạm hoặc nhập tự do. Tối đa một tham chiếu danh mục, có snapshot riêng. Mô tả yêu cầu của dòng có thể khởi tạo từ danh mục và chỉnh sửa riêng trên HĐ nháp cho cả ba loại nguồn. Product được phép giao quản lý riêng (§9.2).
+- Thiết kế HĐ mới lưu yêu cầu hàng hóa theo snapshot. Picker chỉ hỗ trợ điền nhanh và không lưu tham chiếu catalog trên dòng HĐ.
 - Mã tạm không có bản dịch trong MVP.
 - Auto Mapping hàng loạt: ngoài MVP.
 
@@ -65,7 +65,7 @@ Hãng có thể chưa liên kết NCC. Lưu Create/Edit Hãng ghi thông tin và
 - Khóa thay đổi nếu PN từng xuất hiện trên GRR, GR, GIR hoặc GI, **bất kể trạng thái** (kể cả `DRAFT`, `CANCELED`).
 
 ## 1c. UoM của mã chính — đã chốt (2026-11-13)
-- Khóa thay đổi `products.unit_of_measure_id` khi mã chính đã xuất hiện trên PR, PO, GRR, GR, HĐ bán hàng, GIR hoặc GI, **bất kể trạng thái** (kể cả `DRAFT`, `CANCELED`). Với HĐ, Product được tính khi được chọn trực tiếp trên dòng HĐ hoặc được xác nhận cho phép giao (§9.2). Đề xuất chưa `APPROVED` không tính.
+- Khóa thay đổi `products.unit_of_measure_id` khi mã chính đã xuất hiện trên PR, PO, GRR, GR, HĐ bán hàng, GIR hoặc GI, **bất kể trạng thái** (kể cả `DRAFT`, `CANCELED`). Với HĐ, Product được tính khi có tham chiếu catalog legacy hoặc được xác nhận cho phép giao (§9.2). Điền nhanh snapshot và đề xuất chưa `APPROVED` không tính.
 - **Mở rộng (2026-11-13, M2):** sau khi Product đã được sử dụng trong chứng từ, khóa cả **mã hàng** và **tên hàng** (cùng phạm vi trên). Mô tả Product vẫn được sửa; trạng thái hoạt động được đổi; không xóa Product. Tên dịch (`product_translations`) bị khóa cùng tên.
 - HĐ và PR giữ thông tin hàng hóa gốc độc lập với Product. PO/GRR/GR/GIR/GI tham chiếu `product_id`, không snapshot tên/mô tả trong MVP; mô tả hiển thị trên chứng từ cũ có thể là mô tả mới nhất.
 - Xác định mã chính thực tế ở GRR tính là sử dụng Product tại GRR; danh mục mã tạm và chứng từ nguồn giữ nguyên.
@@ -212,25 +212,29 @@ Hãng có thể chưa liên kết NCC. Lưu Create/Edit Hãng ghi thông tin và
 3. ~~Hạn mức giao theo HĐ~~ — đã chốt §10.1 (trừ hạn mức riêng theo từng Product của dòng HĐ — chưa chốt).
 4. ~~Giới hạn số lượng GIR hàng có sẵn~~ — đã chốt §3.
 5. ~~GIR hàng có sẵn có cần khách hàng~~ — đã chốt: bắt buộc HĐ (khách hàng theo HĐ).
-6. ~~Trạng thái đề xuất Product~~ — đã chốt §9.2.
+6. Trạng thái đề xuất Product của baseline legacy được lưu trong ADR-0009.
 7. ~~Trạng thái thực hiện GIR~~ — đã chốt §10.3.
 
-## 9. HĐ bán — đã chốt (2026-11-13)
+## 9. HĐ bán
+
+Thiết kế Phase 5.2.3 đã được BA chốt và áp dụng khi Phase B triển khai. [Assessment Phase A](runbooks/pr19-phase-5.2.3a-sales-contract-assessment.md) ghi nhận các khác biệt với ứng dụng hiện tại.
 ### 9.1 Vòng đời
 - Trạng thái: `DRAFT`, `ACTIVE`, `CANCELED`. Không có workflow phê duyệt HĐ; không dùng `approval_status`.
-- Sales tạo, sửa, chốt (`DRAFT` → `ACTIVE`).
+- Tên HĐ, khách hàng, Sales phụ trách và ngày HĐ bắt buộc khi lưu nháp/chốt. Ngày HĐ mặc định hôm nay khi tạo mới. Số hợp đồng thực tế, ngày giao dự kiến, diễn giải và một file hợp đồng tùy chọn. Hệ thống cấp mã HĐ bất biến khi lưu lần đầu và quản lý audit. HĐ legacy vẫn xem được; nháp legacy phải bổ sung trường bắt buộc khi ghi.
+- Lưu nháp chấp nhận grid trống, mọi dòng đã nhập phải hợp lệ. Chốt (`DRAFT` → `ACTIVE`) cần ít nhất một dòng hợp lệ, có xác nhận và lưu toàn bộ nội dung cùng chuyển trạng thái trong một transaction. Lưu nháp cũng ghi thông tin chung, dòng và liên kết file trong một transaction.
 - **Sales phụ trách HĐ** (đã chốt 2026-11-14, CT5/CT17): bắt buộc chỉ định; chỉnh được khi HĐ `DRAFT` theo phân quyền sửa HĐ; **khóa từ khi `ACTIVE`** (HĐ không có trạng thái `APPROVED` — mốc khóa là chốt HĐ). MVP không chuyển giao tồn giữa Sales.
 - Chỉ HĐ `ACTIVE` được tham chiếu khi tạo PR/GIR.
 - HĐ `ACTIVE` khóa nội dung nghiệp vụ. HĐ đã được PR/GIR tham chiếu khóa khách hàng, PN, UoM, số lượng và điều khoản liên quan, kể cả khi chưa chốt.
 - HĐ không quay lại `DRAFT` sau khi `ACTIVE`.
-- Chỉ Hủy HĐ khi không còn PR/GIR chưa `CANCELED` tham chiếu.
+- Hủy chỉ từ `DRAFT` sang `CANCELED`, bắt buộc lý do và ghi lịch sử. `ACTIVE` và `CANCELED` khóa thông tin chung, hàng hóa và file. File tải theo quyền xem; PR không kế thừa file. Người có quyền xem được thêm ghi chú append-only ở mọi trạng thái.
 - Ngoài MVP: phụ lục, điều chỉnh HĐ đã chốt, versioning.
 
-### 9.2 Dòng HĐ và Product được phép giao
-- Mỗi dòng HĐ có ID riêng, lưu nguyên thông tin hàng hóa khách hàng ký (kể cả mã/tên chưa chuẩn hóa); không bắt buộc Product chính thức.
-- Một dòng HĐ được liên kết **nhiều** Product chính thức, kể cả hàng thay thế.
-- PM đề xuất Product (kèm lý do); Sales xác nhận hoặc từ chối theo từng dòng HĐ. Lưu người xác nhận, thời điểm, ghi chú hoặc số phụ lục; không quản lý quy trình ký phụ lục.
-- Xác định mã chính thực nhận ở GRR (§1a) và xác nhận Product cho dòng HĐ (hàng được phép giao) là hai trách nhiệm riêng.
+### 9.2 Dòng HĐ
+- Mỗi dòng HĐ có ID riêng và lưu nguyên thông tin hàng hóa khách hàng ký. Mã/tên là text bắt buộc, ĐVT chọn từ danh mục, số lượng dương tối đa ba chữ số thập phân; mô tả và ghi chú tùy chọn. Trùng mã chỉ cảnh báo. Xem SC-LINE-INPUT-001 trong [ADR-0017](architecture/decisions/ADR-0017-pr-business-completion.md) về nhập nhanh.
+- PR xác định mã nội bộ và liên kết nhu cầu theo ID dòng HĐ. Chứng từ sau kế thừa liên kết nguồn phù hợp.
+- Luồng đề xuất/xác nhận mã giao còn tồn tại trong baseline kỹ thuật. Thiết kế HĐ mới bỏ luồng này. Xem ADR-0009 về dependency ĐNXK.
+#### Hành vi legacy của baseline
+
 - Đề xuất mapping dòng HĐ ↔ Product có trạng thái `PENDING` → `APPROVED` | `REJECTED` (PM tạo, Sales quyết định). Đây là trạng thái của đề xuất, không phải `approval_status` chứng từ.
 - Không cho thu hồi xác nhận (`APPROVED`) đang được dòng GIR hàng bán chưa `CANCELED` sử dụng. Dòng GIR vật tư cùng Product không tính là sử dụng xác nhận này.
 - Đề xuất `PENDING`/`REJECTED` không làm Product thành "đã sử dụng" (§1c).

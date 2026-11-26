@@ -1,12 +1,12 @@
 # Mini ERP MVP — Luồng nghiệp vụ
 **Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
 
-## 0. HĐ bán và Product được phép giao
-1. Sales tạo HĐ (`DRAFT`), nhập khách hàng và các dòng HĐ từ mã chính, mã tạm hoặc nhập tự do (SC-LINE-INPUT-001). Mỗi dòng HĐ có ID riêng và lưu nguyên thông tin hàng hóa khách hàng ký (mã/tên có thể chưa chuẩn hóa, UoM, số lượng); không bắt buộc có Product chính thức.
+## 0. HĐ bán
+1. Theo thiết kế Phase 5.2.3 đã chốt, Sales nhập thông tin chung và hàng hóa trên trang Tạo HĐ. Lưu nháp cấp mã khi lưu lần đầu và cho phép chưa có dòng. Có thể Chốt HĐ trực tiếp nếu đủ thông tin và có ít nhất một dòng. Mỗi dòng có ID riêng và lưu thông tin hàng hóa khách hàng ký theo SC-LINE-INPUT-001, gồm cả khi dùng danh mục để nhập nhanh. Xem [quy tắc HĐ](03-BUSINESS-RULES.md#9-hđ-bán).
 2. Sales chốt HĐ: `DRAFT` → `ACTIVE`. Không có workflow phê duyệt HĐ. HĐ `ACTIVE` khóa nội dung nghiệp vụ.
 3. Chỉ HĐ `ACTIVE` được tham chiếu khi tạo PR/GIR.
-4. PM đề xuất Product chính thức (kể cả hàng thay thế) cho từng dòng HĐ, kèm lý do. Sales xác nhận hoặc từ chối theo thỏa thuận với khách hàng; hệ thống lưu người xác nhận, thời điểm, ghi chú hoặc số phụ lục. Một dòng HĐ có thể có nhiều Product được xác nhận.
-5. Hủy HĐ (`CANCELED`) phải kiểm tra chứng từ phụ thuộc (03 §9).
+4. HĐ ghi nhận nhu cầu theo hợp đồng thực tế. PR chọn mã nội bộ và liên kết dòng HĐ bằng ID. Chứng từ sau kế thừa liên kết nguồn. Định hướng ĐNXK là PM đối chiếu mã thực tế trong kho với mã theo HĐ, chi tiết thuộc phase downstream.
+5. Hủy HĐ chỉ từ `DRAFT` sang `CANCELED`, có lý do và ghi lịch sử (03 §9).
 
 ## A. HĐ → PR → PO → GRR → GR
 1. HĐ `ACTIVE` là nguồn của PR (xem §0). Sales hoặc PM phụ trách HĐ tạo PR, trưởng bộ phận tương ứng phê duyệt và người tiếp nhận được phân công xác nhận để PR hoàn tất (ADR-0015).
@@ -58,7 +58,9 @@ Chung: PM tạo GIR, chọn HĐ `ACTIVE` và một kho; một GIR chỉ một ph
 5. **Hai bước duyệt tuần tự** (ngoại lệ): người phụ trách nguồn hàng đồng ý → Quản lý kho duyệt. Người phụ trách nguồn hàng có thể khác Sales của HĐ nhận hàng. GIR chỉ `APPROVED` sau bước Quản lý kho; tồn được kiểm tra lại khi duyệt.
 6. GIR đã Gửi duyệt không sửa trực tiếp; muốn sửa (kể cả giảm số lượng) phải Thu hồi về `DRAFT`, sửa, Gửi duyệt lại và duyệt lại từ bước người phụ trách nguồn hàng.
 
-### B.3 Product được Sales xác nhận (hàng bán)
+### B.3 Product được Sales xác nhận (baseline legacy)
+
+Các kiểm tra GIR ở mục B phản ánh implementation hiện tại. Cơ chế thay thế khi bỏ xác nhận mã giao sẽ được chốt ở phase downstream.
 Dòng hàng bán (A, B) tham chiếu `sales_contract_line_id` và một Product. PM có thể lưu `DRAFT` với Product chưa được Sales xác nhận cho dòng HĐ; **Gửi duyệt bị chặn** cho đến khi Sales xác nhận; sau đó PM chủ động Gửi duyệt (không tự động). UI hiển thị số lượng HĐ, đã đề nghị ở GIR khác, còn được đề nghị. Dòng vật tư (C, D) không áp dụng.
 
 ### B.4 GI và hoàn thành xuất (mọi luồng)

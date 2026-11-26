@@ -8,15 +8,15 @@ Cho phép lặp mã chính và mã tạm trên chứng từ, kể cả cùng NCC
 
 ## SC-LINE-INPUT-001 · Dòng HĐ
 
-Dòng HĐ có đúng một cách nhập gồm mã chính, mã tạm hoặc nhập tự do. Hai FK danh mục có thể cùng rỗng và không được cùng có giá trị. Snapshot mã, tên, mô tả, ĐVT và số lượng được giữ trên chứng từ. Nhập tự do không sinh bản ghi danh mục. Dòng HĐ cũ tiếp tục là dòng nhập tự do; trùng chuỗi không phải căn cứ backfill tham chiếu. Chọn mã trên HĐ không tạo đề xuất hoặc phê duyệt Product được phép giao.
+Phase 5.2.3 thay cơ chế ba nguồn của Phase 1 bằng nhập snapshot theo HĐ. Picker mã chính/mã tạm chỉ điền nhanh mã, tên, ĐVT và mô tả có sẵn; xác nhận trước khi ghi đè và giữ số lượng. Mọi trường dòng vẫn sửa được. Dòng mới không ghi FK catalog, không validate mã text theo danh mục, không thay đổi Master Data hay tạo đề xuất Product giao. BA cho phép loại FK catalog và luồng đề xuất/xác nhận mã giao sau khi kiểm kê dependency. Xem ADR-0009 về hiện trạng legacy.
 
 ## DEC-19-02 · Liên kết nhu cầu
 
-Cả hai loại PR thuộc một HĐ bán ACTIVE và chọn từ toàn bộ danh mục. Dòng PR hàng bán cần một dòng HĐ trước Gửi duyệt; Vật tư tùy chọn. Một dòng HĐ có thể liên kết nhiều dòng PR. Gợi ý khi đúng một dòng HĐ cùng định danh và loại danh mục. Dòng nhập tự do, không có ứng viên hoặc nhiều ứng viên phải chọn tay. Người tạo có thể thay đổi; người duyệt và người tiếp nhận kiểm tra. Chứng từ sau kế thừa liên kết theo dòng nguồn. Ủy quyền giao Product vẫn theo ADR-0009.
+Cả hai loại PR thuộc một HĐ bán ACTIVE và chọn từ toàn bộ danh mục. Quy tắc bắt buộc/tùy chọn và nhiều dòng PR cùng tham chiếu một dòng HĐ theo [Business Rules](../../03-BUSINESS-RULES.md). Thiết kế HĐ mới mapping bằng ID dòng do người dùng chọn. Gợi ý theo FK là hành vi baseline legacy. Người tạo có thể thay đổi; người duyệt và người tiếp nhận kiểm tra. Chứng từ sau kế thừa liên kết theo dòng nguồn. ĐNXK sẽ đối chiếu mã kho với nhu cầu HĐ theo thiết kế phase downstream.
 
 ## DEC-19-03 · Mã tạm
 
-HĐ, PR và PO theo mô hình mục tiêu dùng được mã tạm. PR chứa cả hai loại mã và hoàn tất qua workflow hiện có. Trong PR #19, dòng mã tạm chưa lập PO được và cần lý do rõ ràng; dòng mã chính cùng PR vẫn lập được PO. GRR phải xác định mã chính trước Gửi duyệt và giữ mã trên chứng từ nguồn. Tồn kho chỉ có mã chính. Xem ADR-0008.
+HĐ dùng mã tạm để điền nhanh theo SC-LINE-INPUT-001. PR và PO theo mô hình mục tiêu dùng được mã tạm. PR chứa cả hai loại mã và hoàn tất qua workflow hiện có. Trong PR #19, dòng mã tạm chưa lập PO được và cần lý do rõ ràng; dòng mã chính cùng PR vẫn lập được PO. GRR phải xác định mã chính trước Gửi duyệt và giữ mã trên chứng từ nguồn. Tồn kho chỉ có mã chính. Xem ADR-0008.
 
 ## DEC-19-04 · Dữ liệu test
 

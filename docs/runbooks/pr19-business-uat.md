@@ -148,6 +148,23 @@ Sau Phase 5.2.1, DB Dev cổng 5442 có 23 migration. Migration `1733356800000` 
 
 ## Retest Phase 5.2.2 · F11–F14
 
+BA đã retest Master Data thành công theo bàn giao Phase 5.2.3A. F14 vẫn chờ BA retest trên PR. Ghi nhận thêm yêu cầu chuyển cột Ghi chú xuống sau cột File đính kèm trong PR Dossier; xử lý tại checkpoint UI được duyệt.
+
+### HĐ bán · F15–F20
+
+UAT đang dừng tại HĐ. Phase 5.2.3A ghi nhận findings và thiết kế BA đã chốt trong [assessment](pr19-phase-5.2.3a-sales-contract-assessment.md). BA retest sau triển khai Phase B.
+
+| Finding | Kịch bản retest | Kết quả mong đợi |
+| --- | --- | --- |
+| F15 | Tạo HĐ và nhấn lưu liên tiếp, thử retry sau mất phản hồi | Một HĐ, có Action Result, mở chi tiết và Dirty Guard không hỏi lại sau lưu |
+| F16 | Tìm/lọc/sort/chuyển trang cả mã chính và mã tạm với danh mục lớn | Server chỉ trả trang hiện hành; HĐ chọn một, PR vẫn chọn nhiều |
+| F17 | Nhập tay và dùng picker cho dòng HĐ, sau đó tạo PR | HĐ lưu snapshot; PR chọn catalog và map dòng HĐ mới bằng tay |
+| F18 | So sánh mô tả yêu cầu và diễn giải với multiline Master Data | Padding nhất quán, diễn giải và ô file mặc định cùng chiều cao |
+| F19 | Nhập mã trùng rồi đổi hoặc xóa dòng | Icon amber trong input, tooltip chỉ rõ dòng, không dịch layout, lưu được |
+| F20 | Thêm/sửa/xóa nhiều dòng, chuyển tab và lưu/chốt | State giữ qua tab, lưu batch, lỗi mở tab và focus đúng ô |
+
+### Kịch bản retest Phase 5.2.2
+
 BA retest bốn ca dưới đây trước khi tiếp tục luồng HĐ bán → PR. Dùng lại bản ghi và PR UAT19; tạo mã hậu tố -F11 nếu cần thử Create/Copy. Kiểm tra giao diện đại diện ở 1366×768 và 1920×1080.
 
 | Mã | Tài khoản | Dữ liệu và điều kiện | Thao tác UI | Kỳ vọng | Thực tế | Trạng thái |

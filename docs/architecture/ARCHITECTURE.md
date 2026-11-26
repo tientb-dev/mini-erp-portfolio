@@ -43,9 +43,9 @@ Các đề xuất bổ trợ chưa bị thay đổi và vẫn áp dụng: class-
 | # | Module | Trách nhiệm |
 |---|---|---|
 | 1 | **Identity & Access** | User, đăng nhập, role, permission, phạm vi kho; hàm kiểm tra quyền |
-| 2 | **Master Data** | Danh mục hàng hóa: mã tạm (`temporary_products`), mã chính (`products`), nhóm hàng, đơn vị tính, khách hàng, nhà cung cấp, kho; bản dịch danh mục |
+| 2 | **Master Data** | Danh mục hàng hóa: mã tạm (`temporary_products`), mã chính (`products`), hãng, tiền tệ, thuế suất, đơn vị tính, khách hàng, nhà cung cấp, kho; bản dịch danh mục |
 | 3 | **Sales Contracts** | HĐ (`DRAFT`/`ACTIVE`/`CANCELED`, không duyệt), dòng HĐ, Product được phép giao theo dòng HĐ (đề xuất PM, xác nhận Sales), hạn mức GIR hàng bán theo dòng HĐ; dòng vật tư chỉ gắn HĐ (ADR-0009, ADR-0010, ADR-0012) |
-| 4 | **Procurement** | PR, PO; mapping mã tạm → mã chính trên dòng PR (ADR-0008); hạn mức dòng PR → dòng PO; hạn mức và tiến độ nhập trên dòng PO |
+| 4 | **Procurement** | PR, PO; hạn mức dòng PR → dòng PO; hạn mức và tiến độ nhập trên dòng PO |
 | 5 | **Inbound** | GRR, GR, chi tiết GR; một GR chưa Hủy cho mỗi GRR |
 | 6 | **Outbound** | GIR (`PURCHASE_REQUISITION` / `AVAILABLE_STOCK`, phân loại hàng bán/vật tư; bốn luồng hàng bán/vật tư theo PR/trực tiếp, ADR-0012), GI; hạn mức dòng GIR → dòng GI; hoàn thành xuất (`COMPLETED`) (ADR-0010) |
 | 7 | **Inventory** | Số dư Kho + PN, giữ chỗ, SN, lịch sử biến động, lịch sử SN |
@@ -142,15 +142,12 @@ Tồn theo HĐ nguồn/Sales phụ trách/GR: ADR-0013 (thiết kế lô chờ r
 - Mã tạm không có bản dịch. Dòng HĐ lưu thông tin gốc, không bắt buộc mã chính (ADR-0009 thay thế T3).
 - Sau khi Product được dùng: khóa `part_number`, tên, UoM; mô tả và trạng thái hoạt động sửa được; không xóa. Chứng từ sau PR tham chiếu `product_id`, không snapshot tên/mô tả.
 - Kho có thuộc tính `allow_available_stock_issue` (đề xuất) cho GIR `AVAILABLE_STOCK`.
-- `products.unit_of_measure_id` bị khóa khi mã chính đã xuất hiện trên PR (kể cả qua mapping), PO, GRR, GR, HĐ, GIR, GI, mọi trạng thái (`PRODUCT_UOM_LOCKED`). Sửa UoM khóa `products` `FOR UPDATE`; mapping/thêm dòng chứng từ khóa `products` `FOR SHARE` → tuần tự (ADR-0008).
+- `products.unit_of_measure_id` bị khóa khi mã chính đã xuất hiện trên PR, PO, GRR, GR, HĐ, GIR, GI, mọi trạng thái (`PRODUCT_UOM_LOCKED`). Sửa UoM khóa `products` `FOR UPDATE`; xác định mã thực nhận và thêm dòng chứng từ khóa `products` trong transaction → tuần tự (ADR-0008).
 
-### 4.1 Mã tạm và mapping — [ADR-0008](decisions/ADR-0008-temporary-product-mapping.md)
-- `purchase_requisition_lines` lưu snapshot mã/tên/mô tả/UoM ban đầu; `product_id` nullable là kết quả chuẩn hóa dùng chung cho mọi PO/GRR tham chiếu dòng PR.
-- Mapping theo từng dòng PR, một lần, trên PO/GRR `DRAFT`, bằng quyền sửa chứng từ đó; `UPDATE … WHERE product_id IS NULL` chống mapping đồng thời.
-- UoM kế thừa PR → PO → GRR và lưu riêng trên từng dòng; không quy đổi; mapping không đổi UoM/số lượng.
-- Mapping: khóa dòng PR (`FOR UPDATE`) → kiểm tra chứng từ `DRAFT`, `product_id IS NULL`, UoM mã chính = UoM dòng PR = UoM mọi dòng PO liên quan → cập nhật. Tạo dòng PO từ dòng PR cũng khóa dòng PR (hạn mức Σ PO ≤ PR) nên hai thao tác tuần tự.
-- Gửi duyệt GRR: mọi dòng có mã chính và UoM dòng GRR = UoM mã chính (trong transaction đã khóa dòng PO).
-- Mã lỗi: `DOCUMENT_NOT_DRAFT`, `PRODUCT_ALREADY_MAPPED`, `MAPPING_UOM_MISMATCH`, `GRR_LINE_NOT_MAPPED`, `GRR_LINE_UOM_MISMATCH`, `SERIAL_TRACKING_LOCKED`, `PRODUCT_UOM_LOCKED` (03 §1a).
+### 4.1 Mã tạm và mã chính thực nhận — [ADR-0008](decisions/ADR-0008-temporary-product-mapping.md)
+- HĐ lưu snapshot và tối đa một tham chiếu danh mục. PR lưu snapshot và chọn mã tạm hoặc mã chính.
+- PO chưa nhận dòng PR mã tạm trong PR #19. Khi mở luồng mã tạm ở kho, GRR phải xác định mã chính trước Gửi duyệt và giữ nguyên chứng từ nguồn.
+- ĐVT và hạn mức tiếp tục theo dòng nguồn. Không quy đổi ĐVT hoặc số lượng. Một dòng PO được dùng tối đa một lần trong cùng GRR.
 
 ---
 
@@ -185,7 +182,35 @@ Ngoại lệ đã có giữ nguyên: `GR.DECLARE_DETAILS` cho phép sửa chi ti
 
 Module document records cung cấp Notes và Activity History dùng chung. Module sở hữu chứng từ kiểm tra đích và quyền. Activity append-only kể cả khi workflow có state, assignment và snapshot riêng. Xem [ADR-0016](decisions/ADR-0016-common-document-records.md) và [roadmap Dossier/Organization](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).
 
+Module `document-dossier` dùng registry Common Document Records. API `/dossier-types` quản trị danh mục. `/dossier-configurations` trả các loại chứng từ có sẵn, `/dossier-configurations/catalog` phục vụ picker, và `PUT /dossier-configurations/:type` nhận `{ version, dossierTypeIds }` theo thứ tự. Update khóa dòng cấu hình và kiểm tra version, sau đó thay mappings trong cùng transaction. Mã loại có thể sửa trong Master Data. Dấu thời điểm dùng lần đầu bảo vệ loại từng được áp dụng khi mappings đã gỡ.
+
+Migration `1733184000000` thêm các bảng `document_dossier_*` và `document_dossiers`. `snapshotDocumentDossier` nhận transaction của module sở hữu sau khi tạo chứng từ. Dấu mốc theo loại và ID chứng từ phân biệt PR cũ với snapshot rỗng. Dòng hồ sơ giữ mã, tên, thứ tự, trạng thái hồ sơ giấy, dữ liệu phát hành, audit và version. Migration `1733270400000` thêm ngữ cảnh staging và index hạn dọn tệp.
+
+Procurement cung cấp `GET /purchase-requisitions/catalog/dossier` để lấy cấu hình PR Active kèm revision. `GET/PUT /purchase-requisitions/:id/dossier` đọc hoặc lưu tập trung trong View. Create/Edit gửi payload hồ sơ trong API lưu PR hiện hành. Upload/tải tạm khi Create đi qua `/purchase-requisitions/dossier-staging/:key/…`; View/Edit dùng `/purchase-requisitions/:id/dossier/files/…`. File tải qua endpoint xác thực. Version dòng hồ sơ và khóa PR bảo vệ cập nhật song song. Lưu View ghi lịch sử append-only, giữ nguyên version, trạng thái và phân công của workflow. Xem [lưu trữ và cleanup](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42).
+
+API hồ sơ PR trả HTTP 400 cho ID ngoài miền số nguyên dương 32 bit trước khi truy vấn PostgreSQL. Common Dossier quản lý snapshot, file bất biến, liên kết và lịch sử theo định danh loại chứng từ. Module sở hữu chứng từ kiểm tra quyền, trạng thái, phạm vi và giữ khóa chứng từ trong transaction trước khi lưu. Nhiều liên kết có thể tham chiếu cùng một file, mỗi dòng hồ sơ giữ phiên bản và lịch sử riêng. Việc kế thừa từ PR sang PO cần bổ sung luồng cấp quyền và liên kết tại module sở hữu PO.
+
 PR phối hợp thao tác lưu chứng từ và Gửi duyệt trong cùng transaction ở module Procurement. Workflow nhận cùng EntityManager với thao tác ghi header, dòng hàng và phân công. Các API kết hợp vẫn kiểm tra ngữ cảnh workflow và ghi Activity History cùng Notification trong transaction đó. Xem [ADR-0015](decisions/ADR-0015-purchase-requisition-workflow.md) và [chuẩn Common Document Page](FRONTEND.md).
+
+#### API và lưu trữ PR Phase 2
+
+- `POST /purchase-requisitions`, `POST /purchase-requisitions/save-new`, `PATCH /purchase-requisitions/:id` và `PATCH /purchase-requisitions/:id/submit-edited` nhận các trường `name`, `requisitionDate`, `requiredDate`, `description`, `currencyId`, `exchangeRateSource` và `exchangeRate` bên cạnh hợp đồng API hiện có. Ngày dùng `YYYY-MM-DD`. Chỉ gửi `exchangeRate` khi nhập thủ công. Backend lấy người đề nghị từ phiên đăng nhập. HĐ ACTIVE bắt buộc ngay từ Nháp cho cả hai phân loại theo DEC-19-08. Backend dùng phạm vi theo HĐ và quyền của PR #18. HĐ và phân loại đã lưu giữ nguyên khi sửa.
+- Dòng nhận đúng một trong `productId` và `temporaryProductId`, cùng số lượng và các trường `salesContractLineId`, `requirementDescription`, `brandId`, `supplierId`, `unitOfMeasureId`, `unitPrice`, `taxRateId`. Gửi `unitPrice` dưới dạng chuỗi thập phân. PATCH gửi toàn bộ danh sách dòng và ID của dòng giữ lại. Danh sách PR và chi tiết trả snapshot tiền tệ, tỷ giá và tổng tiền. Chi tiết trả nguồn từng dòng, snapshot danh mục và tiền từng dòng. Giá trị tiền trong JSON là chuỗi thập phân hoặc `null`.
+- Picker dùng API Products, Temporary Products, Brands, Units of Measure, Currencies và Tax Rates. `GET /purchase-requisitions/catalog/suppliers?salesContractId=…&brandId=…` trả NCC Active liên kết với Hãng sau khi kiểm tra `PR.CREATE` và phạm vi HĐ như khi tạo PR. Có thể thêm `route=SALES` hoặc `route=PM` khi người dùng có cả hai vai trò trên HĐ. Baseline còn trả hai FK catalog để gợi ý legacy. Thiết kế HĐ mới bỏ FK này và PR liên kết bằng ID dòng theo DEC-19-02.
+
+**HĐ bán · Phase 5.2.3.** Sales Contracts sở hữu kiểm tra quyền/phạm vi, trạng thái, ghi đầu/dòng, liên kết file, audit và lịch sử trong một transaction nghiệp vụ. Áp dụng hủy chỉ từ DRAFT theo 03 §9.1. Procurement và Outbound tiếp tục dùng facade để kiểm trạng thái nguồn, ID dòng. Kiểm kê dependency kiểm tra mã giao của Outbound trước khi loại API/schema legacy. Phương án khóa/version, replay request và staged upload được đề xuất trong [assessment Phase A](../runbooks/pr19-phase-5.2.3a-sales-contract-assessment.md#f-migration-atomic-save-và-file--đề-xuất-kỹ-thuật).
+- Migration `1733097600000` bổ sung snapshot vào `purchase_requisitions` và `purchase_requisition_lines`. CHECK và FK bảo đảm đúng một nguồn. Các cột mới cho phép đọc chứng từ cũ khi dữ liệu lịch sử thiếu căn cứ. Gửi duyệt kiểm tra các trường còn thiếu. Số tiền được tính từ snapshot bằng PostgreSQL `numeric`; xem [ADR-0017](decisions/ADR-0017-pr-business-completion.md).
+
+#### Tính tiền dùng chung cho chứng từ ERP
+
+DEC-19-07 đặt giới hạn precision chung trong `common/document-money.ts`. Chứng từ lưu nguồn và cấu hình tiền tệ tại thời điểm chọn, gồm số chữ số thập phân và tỷ giá. Helper dùng PostgreSQL `round(numeric, scale)` theo `ROUND_HALF_UP` để tính thành tiền trước, sau đó tính thuế trên thành tiền đã làm tròn. Backend cộng các dòng đã làm tròn để trả tổng chứng từ. PR dùng quy tắc này trong Phase 2. Số lượng lưu `numeric(18,3)`. Cột thuế suất danh mục hiện hữu giữ kiểu lưu trữ để bảo toàn dữ liệu. API giới hạn giá trị mới và snapshot dùng cho chứng từ theo DEC-19-07.
+
+#### API danh sách và picker của Phase 3
+
+- `GET /purchase-requisitions?page=1&size=25` trả `{ items, total }`. Hỗ trợ `q`, `category`, `status`, `from`, `to`, `assignedToMe`, `sort`, `direction` và `salesContractId`. `from/to` lọc ngày đề nghị với hai biên bao gồm. Request không gửi `page` tiếp tục nhận mảng cho tab PR trong HĐ. HĐ hiện có mã chứng từ và khách hàng. Tìm kiếm dùng hai trường đó kết hợp mã và tên PR.
+- `GET /purchase-requisitions/catalog/contracts?q=…` trả tối đa 25 HĐ ACTIVE theo phạm vi người tạo. `GET /product-picker/main` và `/product-picker/temporary` trả danh mục Active theo trang, tìm mã/tên, sort và lọc Hãng với mã chính.
+- Editor gửi số lượng dưới dạng chuỗi thập phân để giữ đủ precision đến PostgreSQL. API tiếp tục chấp nhận số JSON của các client cũ.
+- Editor gửi `refreshCatalogExchangeRate: true` khi người dùng bỏ chọn nhập tỷ giá thủ công. Backend đọc tỷ giá danh mục ở thao tác rõ ràng này, giữ precision của snapshot tiền tệ hiện hữu. Lưu lại hoặc gửi duyệt thông thường tiếp tục dùng snapshot.
 
 - Một cấp phê duyệt cho PR, PO, GRR, GR, GIR `SALES_CONTRACT`, GI. **Ngoại lệ:** GIR `AVAILABLE_STOCK` hai bước người phụ trách nguồn hàng → Quản lý kho. HĐ không phê duyệt (`DRAFT`/`ACTIVE`/`CANCELED`).
 - `approval_status`: `DRAFT`, `WAITING_FOR_APPROVE`, `APPROVED`, `REJECTED`, `CANCELED`. Thu hồi luôn về `DRAFT`. PR dùng `WAITING_FOR_RECEIPT` và `DONE` cho bước tiếp nhận và hoàn tất, thay `APPROVED` ở cấp chứng từ (ADR-0015).

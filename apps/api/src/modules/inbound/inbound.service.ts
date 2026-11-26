@@ -4,6 +4,7 @@ import type { CurrentUser } from '../identity/auth';
 import { InventoryFacade, normalizeSerial } from '../inventory/inventory.service';
 import { ProcurementFacade } from '../procurement/procurement.service';
 import { SalesContractFacade } from '../sales-contracts/sales-contracts.service';
+import { CatalogFacade } from '../master-data/catalog.facade';
 import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
@@ -49,7 +50,9 @@ export class InboundService {
   /** GRR from one APPROVED PO and one warehouse; lines inherit PO line UoM (T7). */
   createGrr(user: CurrentUser, purchaseOrderId: number, warehouseId: number, lines: { sourceLineId: number; quantity: number }[]) {
     wf.assertWarehouse(user, warehouseId);
+    wf.assertUniqueSourceLines(lines.map(line => line.sourceLineId));
     return this.ds.transaction(async (m) => {
+      await CatalogFacade.assertActiveWarehouse(m, warehouseId);
       const [po] = await m.query(`SELECT approval_status FROM purchase_orders WHERE id = $1 FOR SHARE`, [purchaseOrderId]);
       if (!po) throw new NotFoundException('PO not found');
       if (po.approval_status !== 'APPROVED') throw new BusinessError('SOURCE_NOT_APPROVED', 'GRR requires an APPROVED PO');
@@ -80,7 +83,7 @@ export class InboundService {
       [l.sourceLineId, purchaseOrderId],
     );
     if (!pol) throw new BusinessError("SOURCE_LINE_MISMATCH", `PO line ${l.sourceLineId} does not belong to the PO`);
-    await ProductUsage.markUsed(m, pol.product_id, { stock: true }); // product now appears on a GRR (03 §1b)
+    await ProductUsage.markUsed(m, pol.product_id, { stock: true, existingReference: true }); // product now appears on a GRR (03 §1b)
     await m.query(
       `INSERT INTO goods_receipt_request_lines (goods_receipt_request_id, purchase_order_line_id, unit_of_measure_id, quantity) VALUES ($1, $2, $3, $4)`,
       [grrId, l.sourceLineId, pol.unit_of_measure_id, l.quantity],
@@ -96,6 +99,7 @@ export class InboundService {
       const doc = await wf.lockDocument(m, "GRR", id);
       wf.assertWarehouse(user, doc.warehouse_id!);
       wf.assertEditable(doc, user, version);
+      wf.assertUniqueSourceLines(lines.map(line => line.sourceLineId));
       const [{ purchase_order_id: poId }] = await m.query(`SELECT purchase_order_id FROM goods_receipt_requests WHERE id = $1`, [id]);
       await this.checkGrrSource(m, id);
       await wf.deleteOmittedLines(m, "goods_receipt_request_lines", "goods_receipt_request_id", id, lines.flatMap((l) => (l.id ? [l.id] : [])));
@@ -200,7 +204,7 @@ export class InboundService {
         [grrId],
       );
       for (const l of lines) {
-        await ProductUsage.markUsed(m, l.product_id, { stock: true });
+        await ProductUsage.markUsed(m, l.product_id, { stock: true, existingReference: true });
         const [grl] = await m.query(
           `INSERT INTO goods_receipt_lines (goods_receipt_id, goods_receipt_request_line_id, product_id, unit_of_measure_id, quantity)
            VALUES ($1, $2, $3, $4, $5) RETURNING id`,

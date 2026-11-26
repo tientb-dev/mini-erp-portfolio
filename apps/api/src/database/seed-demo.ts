@@ -31,15 +31,22 @@ async function main() {
 
     const [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
     const [{ id: hcm }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
-    await ds.query(`INSERT INTO products (part_number, name, unit_of_measure_id, is_serial_tracked) VALUES
-      ('RT-AX3000', 'Router Wi-Fi AX3000', $1, true), ('CB-CAT6-305', 'Cáp mạng Cat6 (thùng 305m)', $1, false)
-      ON CONFLICT (part_number) DO NOTHING`, [pcs]);
+    await ds.query(`INSERT INTO brands (code, name) VALUES ('DEMO', 'Demo brand') ON CONFLICT (code) DO NOTHING`);
+    const brand = (await one(`SELECT id FROM brands WHERE code = 'DEMO'`, [])).id;
+    await ds.query(`INSERT INTO products (part_number, name, unit_of_measure_id, is_serial_tracked, brand_id) VALUES
+      ('RT-AX3000', 'Router Wi-Fi AX3000', $1, true, $2), ('CB-CAT6-305', 'Cáp mạng Cat6 (thùng 305m)', $1, false, $2)
+      ON CONFLICT (part_number) DO NOTHING`, [pcs, brand]);
     const router = (await one(`SELECT id FROM products WHERE part_number = 'RT-AX3000'`, [])).id;
     const cable = (await one(`SELECT id FROM products WHERE part_number = 'CB-CAT6-305'`, [])).id;
     await ds.query(`INSERT INTO customers (code, name) VALUES ('KH-DEMO', 'Công ty Demo') ON CONFLICT (code) DO NOTHING`);
     await ds.query(`INSERT INTO suppliers (code, name) VALUES ('NCC-DEMO', 'Nhà cung cấp Demo') ON CONFLICT (code) DO NOTHING`);
     const customer = (await one(`SELECT id FROM customers WHERE code = 'KH-DEMO'`, [])).id;
     const supplier = (await one(`SELECT id FROM suppliers WHERE code = 'NCC-DEMO'`, [])).id;
+    await ds.query(`INSERT INTO brand_suppliers (brand_id, supplier_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [brand, supplier]);
+
+    await ds.query(`INSERT INTO tax_rates (code, name, rate) VALUES ('DEMO-ZERO', 'Demo zero tax', 0) ON CONFLICT (code) DO NOTHING`);
+    const taxRateId = (await one("SELECT id FROM tax_rates WHERE code = 'DEMO-ZERO'", [])).id;
+    const prPricing = { supplierId: supplier, taxRateId, unitPrice: '100000' };
 
     const salesUser = await identity.loadCurrentUser(await userId('sales'));
     if (!salesUser) throw new Error('Seed the active demo Sales user first');
@@ -63,9 +70,9 @@ async function main() {
     await sales.activate(sc.id);
     const scLines = await ds.query(`SELECT id FROM sales_contract_lines WHERE sales_contract_id = $1 ORDER BY id`, [sc.id]);
     const pr = await proc.createPurchaseRequisition(salesUser, sc.id, [
-      { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
-      { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
-    ]);
+      { ...prPricing, salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
+      { ...prPricing, salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
+    ], undefined, undefined, undefined, { name: 'Demo purchase requisition' });
     await processPr(pr.id);
     const prLines = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [pr.id]);
     const po = await proc.createPurchaseOrder(creator, supplier, prLines.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));
@@ -83,9 +90,9 @@ async function main() {
 
     // A second chain (PR → PO → GRR → GR APPROVED) puts stock + SNs in HCM for GIR → GI; the first GRR stays open for the GR UI.
     const stockPr = await proc.createPurchaseRequisition(salesUser, sc.id, [
-      { salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
-      { salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
-    ]);
+      { ...prPricing, salesContractLineId: scLines[0].id, productId: router, quantity: 3 },
+      { ...prPricing, salesContractLineId: scLines[1].id, productId: cable, quantity: 2 },
+    ], undefined, undefined, undefined, { name: 'Demo purchase requisition' });
     await processPr(stockPr.id);
     const spl = await ds.query(`SELECT id, quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [stockPr.id]);
     const stockPo = await proc.createPurchaseOrder(creator, supplier, spl.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })));

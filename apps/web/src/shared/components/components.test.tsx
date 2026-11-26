@@ -6,6 +6,19 @@ import { TableBody, TableCell, TableHead, TableRow } from '@mui/material';
 import { DataTable, DetailPageLayout, DetailTabs, FilterToolbar, FormDialog, ListPageLayout, PageBreadcrumbs, ScrollTable } from '.';
 import { ActionResultDialog } from './ActionResultDialog';
 import { DocumentWorkflowStepper } from './DocumentWorkflow';
+import { ActionButton } from './ActionButton';
+
+it('maps common dialog buttons to semantic icons including disabled actions', () => {
+  render(<FormDialog title="Fixture" submitLabel="Fixture save" submitAction="save" error={null} pending={false}
+    canSubmit={false} onClose={() => undefined} onSubmit={() => undefined}><ActionButton action="delete">Remove file</ActionButton></FormDialog>);
+  const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Fixture save' });
+  expect(save.disabled).toBe(true);
+  expect(save.querySelector('[data-testid=SaveOutlinedIcon]')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Hủy bỏ' }).querySelector('[data-testid=CloseIcon]')).toBeTruthy();
+  const remove = screen.getByRole('button', { name: 'Remove file' });
+  expect(remove.className).toContain('MuiButton-outlined');
+  expect(remove.querySelector('[data-testid=DeleteOutlinedIcon]')).toBeTruthy();
+});
 
 it('shows the rejection at its own step and preserves the completed steps in a workflow round', () => {
   render(<DocumentWorkflowStepper caption="Vòng 2" steps={[

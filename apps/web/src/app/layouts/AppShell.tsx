@@ -4,10 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { AppBar, Box, Button, Drawer, IconButton, Toolbar, Typography, useMediaQuery } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { fillMedia, tokens } from '../../config/theme';
+import { DossierConfigurationRoute } from '../../features/document-dossier';
 import { PrNotifications } from '../../features/procurement';
 import { useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';
-import { DETAIL_ALSO, NAV, PageKey, PAGES } from '../routes';
+import { DETAIL_ALSO, NAV, PAGE_CREATE, PageKey, PAGES } from '../routes';
 import { SideNav } from './SideNav';
 
 const pageOf = (path?: string) => (Object.keys(PAGES) as PageKey[]).find((k) => pagePath(k) === `/${path}`) ?? null;
@@ -19,7 +20,7 @@ function PageRoute({ allowed, has }: { allowed: (k: PageKey) => boolean; has: (p
   const page = pageOf(path);
   const viaDetail = Boolean(page && id && DETAIL_ALSO[page] && has(DETAIL_ALSO[page]!));
   if (!page || !(allowed(page) || viaDetail)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
-  const creating = id === 'new' && page === 'purchaseRequisitions' && has('PR.CREATE');
+  const creating = id === 'new' && PAGE_CREATE[page] && has(PAGE_CREATE[page]);
   if (id && !creating && !/^[1-9]\d*$/.test(id)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
   const Page = PAGES[page][0];
   return <Page key={`${page}-${id ?? ''}`} initialId={creating ? 0 : id ? Number(id) : undefined} />;
@@ -70,6 +71,8 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
               {me.data && (
                 <Routes>
                   <Route path="/" element={first ? <Navigate to={pagePath(first)} replace /> : null} />
+                  <Route path="/dossier-configurations/:documentType" element={allowed('dossierConfigurations')
+                    ? <DossierConfigurationRoute /> : <Typography color="text.secondary">{t('common.notFound')}</Typography>} />
                   <Route path="/:page/:id?" element={<PageRoute allowed={allowed} has={(p) => Boolean(me.data?.permissions.includes(p))} />} />
                   <Route path="*" element={<Typography color="text.secondary">{t('common.notFound')}</Typography>} />
                 </Routes>

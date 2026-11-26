@@ -19,9 +19,10 @@ import WarehouseOutlined from '@mui/icons-material/WarehouseOutlined';
 import WorkOutline from '@mui/icons-material/WorkOutlined';
 import { GoodsReceiptsPage } from '../features/inbound';
 import { InventoryLotsPage, InventoryPage } from '../features/inventory';
-import { CustomersPage, ProductsPage, SuppliersPage, WarehousesPage } from '../features/master-data';
+import { BrandsPage, CurrenciesPage, CustomersPage, DossierTypesPage, ProductsPage, SuppliersPage, TaxRatesPage, TemporaryProductsPage, UnitsOfMeasurePage, WarehousesPage } from '../features/master-data';
 import { GoodsIssueRequestsPage, GoodsIssuesPage } from '../features/outbound';
 import { GoodsReceiptRequestsPage, PurchaseOrdersPage, PurchaseRequisitionsPage } from '../features/procurement';
+import { DossierConfigurationsPage } from '../features/document-dossier';
 import { SalesContractsPage } from '../features/sales-contracts';
 
 /**
@@ -39,12 +40,26 @@ export const PAGES = {
   inventory: [InventoryPage, 'INVENTORY.VIEW', Inventory2Outlined],
   inventoryLots: [InventoryLotsPage, 'INVENTORY.VIEW', TimelineOutlined],
   products: [ProductsPage, 'PRODUCT.VIEW', CategoryOutlined],
+  temporaryProducts: [TemporaryProductsPage, 'PRODUCT.VIEW', CategoryOutlined],
+  brands: [BrandsPage, 'PRODUCT.VIEW', StorefrontOutlined],
+  unitsOfMeasure: [UnitsOfMeasurePage, 'PRODUCT.VIEW', CategoryOutlined],
+  currencies: [CurrenciesPage, 'PRODUCT.VIEW', ReceiptLongOutlined],
+  dossierTypes: [DossierTypesPage, 'DOSSIER_TYPE.VIEW', FolderOutlined],
+  dossierConfigurations: [DossierConfigurationsPage, 'DOSSIER_CONFIG.MANAGE', FolderOutlined],
+  taxRates: [TaxRatesPage, 'PRODUCT.VIEW', ReceiptLongOutlined],
   warehouses: [WarehousesPage, 'WAREHOUSE.VIEW', WarehouseOutlined],
   customers: [CustomersPage, 'CUSTOMER.VIEW', GroupsOutlined],
   suppliers: [SuppliersPage, 'SUPPLIER.VIEW', LocalShippingOutlined],
 } as const satisfies Record<string, readonly [ComponentType<{ initialId?: number }>, string, SvgIconComponent]>;
 
 export type PageKey = keyof typeof PAGES;
+
+export const PAGE_CREATE: Partial<Record<PageKey, string>> = {
+  purchaseRequisitions: 'PR.CREATE', products: 'PRODUCT.CREATE', temporaryProducts: 'PROCUREMENT_CATALOG.MANAGE',
+  brands: 'PROCUREMENT_CATALOG.MANAGE', unitsOfMeasure: 'UOM.MANAGE', warehouses: 'WAREHOUSE.CREATE',
+  customers: 'CUSTOMER.CREATE', suppliers: 'SUPPLIER.CREATE', currencies: 'PROCUREMENT_CATALOG.MANAGE',
+  taxRates: 'PROCUREMENT_CATALOG.MANAGE', dossierTypes: 'DOSSIER_TYPE.MANAGE',
+};
 
 /**
  * A document URL (`/<page>/<id>`) a user without the page's VIEW may still open; the API applies the narrower scope
@@ -57,5 +72,6 @@ export const NAV: { group: string; icon: SvgIconComponent; items: PageKey[] }[] 
   { group: 'nav.sales', icon: WorkOutline, items: ['salesContracts'] },
   { group: 'nav.purchasing', icon: ShoppingCartOutlined, items: ['purchaseRequisitions', 'purchaseOrders'] },
   { group: 'nav.warehouseOps', icon: StorefrontOutlined, items: ['goodsReceiptRequests', 'goodsReceipts', 'goodsIssueRequests', 'goodsIssues', 'inventory', 'inventoryLots'] },
-  { group: 'nav.masterData', icon: FolderOutlined, items: ['products', 'warehouses', 'customers', 'suppliers'] },
+  { group: 'nav.masterData', icon: FolderOutlined, items: ['products', 'temporaryProducts', 'brands', 'unitsOfMeasure', 'warehouses', 'customers', 'suppliers', 'currencies', 'taxRates', 'dossierTypes'] },
+  { group: 'nav.system', icon: FolderOutlined, items: ['dossierConfigurations'] },
 ];

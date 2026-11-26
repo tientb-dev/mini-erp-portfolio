@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MenuItem, TextField, Typography } from '@mui/material';
-import { api } from '../../services/api-client';
+import { api, catalogSelectionPath } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 import { CreateProps } from './types';
 import { saveDoc } from './api';
@@ -13,7 +13,7 @@ export function CreatePoDialog({ onClose, onCreated, edit }: CreateProps) {
   const qc = useQueryClient();
   const [supplierId, setSupplierId] = useState(edit ? String(edit.supplierId) : '');
   const [qty, setQty] = useState<Record<number, string>>(() => editQty(edit));
-  const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: () => api<{ id: number; code: string; name: string }[]>('/suppliers') });
+  const suppliers = useQuery({ queryKey: ['suppliers', 'selection', edit?.supplierId], queryFn: () => api<{ id: number; code: string; name: string }[]>(catalogSelectionPath('/suppliers', edit?.supplierId)) });
   const lines = useQuery({ queryKey: ['pr-lines-for-po'], queryFn: () => api<SourceLine[]>('/purchase-requisition-lines/available-for-po') });
   const picked = withEditLines(pickedLines(lines.data, qty), edit, lines.data);
   const create = useMutation({
@@ -21,7 +21,7 @@ export function CreatePoDialog({ onClose, onCreated, edit }: CreateProps) {
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['po'] }); void qc.invalidateQueries({ queryKey: ['pr-lines-for-po'] }); onCreated(r.id); },
   });
   return (
-    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('po.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'po.create')} error={create.error ?? lines.error} pending={create.isPending}
+    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('po.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'po.create')} submitAction={edit ? 'save' : 'add'} error={create.error ?? lines.error} pending={create.isPending}
       canSubmit={Boolean(supplierId && picked.length && withinRemaining(lines.data, qty))} onSubmit={() => create.mutate()} onClose={onClose}>
       <EditHint edit={edit} hint={t('po.createHint')} />
       <TextField select label={t('po.supplier')} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required

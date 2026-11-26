@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Box, Button, Paper, Stack, Typography } from '@mui/material';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import { api } from '../../services/api-client';
-import { DetailPageLayout, DetailTabs, PageBreadcrumbs } from '../../shared/components';
+import { ActionResultDialog, DetailPageLayout, DetailTabs, PageBreadcrumbs } from '../../shared/components';
 import { fmtDate } from '../../shared/utils/format';
+import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { useMe } from '../identity';
 import { DecideDialog, DeleteLineDialog, ProposeDialog, ScStatusDialog } from './ScDialogs';
 import { ScHeaderDialog } from './ScHeaderDialog';
@@ -37,11 +38,14 @@ export function ScDetailView({ id }: { id: number }) {
   const qc = useQueryClient();
   const me = useMe();
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [result, setResult] = useState<ActionResult>();
+  const closeResult = useCallback(() => setResult(undefined), []);
   const sc = useQuery({ queryKey: ['sc', id], queryFn: () => api<ScDetail>(`/sales-contracts/${id}`) });
   const d = sc.data;
   const can = (p: string) => Boolean(me.data?.permissions.includes(p));
   const close = () => setDialog(null);
   const done = () => { close(); void qc.invalidateQueries({ queryKey: ['sc', id] }); void qc.invalidateQueries({ queryKey: ['scs'] }); };
+  const lineSaved = (outcome: ActionResult) => { done(); setResult(outcome); };
   const breadcrumbs = (
     <PageBreadcrumbs items={[{ label: t('common.home'), to: '/' }, { label: t('nav.sales') }, { label: t('nav.salesContracts'), to: listUrl() }, { label: d?.documentNumber ?? '…' }]} />
   );
@@ -86,10 +90,11 @@ export function ScDetailView({ id }: { id: number }) {
             { key: 'lines', label: `${t('sc.tabLines')} (${d.lines.length})`, content: <ScLinesTab d={d} can={can} onAction={setDialog} /> },
             { key: 'prs', label: t('sc.tabPrs'), hidden: !seesPrs, content: <ScPrsTab contractId={d.id} /> },
           ]} />
+          {result && <ActionResultDialog result={result} onClose={closeResult} />}
           {(dialog?.kind === 'activate' || dialog?.kind === 'cancel') && <ScStatusDialog id={id} kind={dialog.kind} onClose={close} onDone={done} />}
           {dialog?.kind === 'header' && <ScHeaderDialog edit={d} onClose={close} onSaved={done} />}
-          {dialog?.kind === 'add' && <ScLineDialog contractId={id} version={d.version} onClose={close} onSaved={done} />}
-          {dialog?.kind === 'edit' && <ScLineDialog contractId={id} version={d.version} line={dialog.line} onClose={close} onSaved={done} />}
+          {dialog?.kind === 'add' && <ScLineDialog lines={d.lines} contractId={id} version={d.version} onClose={close} onSaved={lineSaved} />}
+          {dialog?.kind === 'edit' && <ScLineDialog lines={d.lines} contractId={id} version={d.version} line={dialog.line} onClose={close} onSaved={lineSaved} />}
           {dialog?.kind === 'delete' && <DeleteLineDialog line={dialog.line} version={d.version} onClose={close} onDone={done} />}
           {dialog?.kind === 'propose' && <ProposeDialog line={dialog.line} onClose={close} onDone={done} />}
           {(dialog?.kind === 'approve' || dialog?.kind === 'reject') && (

@@ -119,7 +119,7 @@ function SubmitTwoStepDialog({ girId, onClose, onDone }: { girId: number; onClos
   });
   const options = (list?: Person[]) => (list ?? []).map((u) => <MenuItem key={u.id} value={u.id}>{u.fullName} ({u.username})</MenuItem>);
   return (
-    <FormDialog title={t('doc.confirm.submit')} submitLabel={t('doc.submit')} error={run.error ?? people.error} pending={run.isPending}
+    <FormDialog title={t('doc.confirm.submit')} submitLabel={t('doc.submit')} submitAction="submit" error={run.error ?? people.error} pending={run.isPending}
       canSubmit={Boolean(s && m)} onSubmit={() => run.mutate()} onClose={onClose}>
       <Typography variant="body2" color="text.secondary">{t('gir.twoStepHint')}</Typography>
       <TextField select label={t('gir.salesApprover')} value={s} onChange={(e) => setSales(e.target.value)} required>{options(people.data?.approvers)}</TextField>

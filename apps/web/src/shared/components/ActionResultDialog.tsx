@@ -5,7 +5,7 @@ import Check from '@mui/icons-material/Check';
 import Close from '@mui/icons-material/Close';
 import Schedule from '@mui/icons-material/Schedule';
 
-export type ActionResult = ({ success: true } | { success: false; error: unknown }) & { message?: string; status?: string };
+export type ActionResult = ({ success: true } | { success: false; error: unknown }) & { title?: string; message?: string; status?: string; hint?: string };
 
 export function ActionResultDialog({ result, onClose }: { result: ActionResult; onClose: () => void }) {
   const { t } = useTranslation();
@@ -26,11 +26,12 @@ export function ActionResultDialog({ result, onClose }: { result: ActionResult; 
             {result.success ? <Check /> : <Close />}
           </Box>
           <Typography id="action-result-title" variant="h2" sx={{ fontSize: '1.25rem' }}>
-            {t(result.success ? 'common.actionSucceeded' : 'common.actionFailed')}
+            {result.title ?? t(result.success ? 'common.actionSucceeded' : 'common.actionFailed')}
           </Typography>
           {result.message && <Typography>{result.message}</Typography>}
           {result.status && <Typography color="text.secondary">{result.status}</Typography>}
           {detail && <Typography role="alert" color="text.secondary">{detail}</Typography>}
+          {result.hint && <Typography color="text.secondary">{result.hint}</Typography>}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ minHeight: 52, justifyContent: result.success ? 'center' : 'flex-end' }}>

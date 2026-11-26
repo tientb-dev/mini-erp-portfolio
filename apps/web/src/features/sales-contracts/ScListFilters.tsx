@@ -1,8 +1,8 @@
 import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { InputAdornment, MenuItem, TextField } from '@mui/material';
+import { MenuItem, TextField } from '@mui/material';
 import { FilterToolbar } from '../../shared/components';
-import SearchIcon from '@mui/icons-material/Search';
+import { SearchInput } from '../../shared/components/SearchInput';
 
 type Option = { value: string; label: string };
 
@@ -43,11 +43,8 @@ export function ScListFilters({ text, onText, params, update, salesOptions, cust
   }
   return (
     <FilterToolbar active={active} onClear={() => { onText(''); update({ q: null, status: null, responsibleSalesUserId: null, customerId: null }); }}>
-      <TextField value={text} onChange={(e) => onText(e.target.value)} placeholder={t('sc.search')} sx={{ flex: { xs: '1 1 100%', sm: '1 1 260px' }, maxWidth: { sm: 360 } }}
-        slotProps={{
-          htmlInput: { 'aria-label': t('common.search') },
-          input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> },
-        }} />
+      <SearchInput label={t('common.search')} value={text} onChange={onText} placeholder={t('searchFields.contract')}
+        sx={{ flex: { xs: '1 1 100%', sm: '1 1 260px' }, maxWidth: { sm: 360 } }} />
       {filters}
     </FilterToolbar>
   );

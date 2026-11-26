@@ -39,7 +39,7 @@ Quy trình duyệt HĐ; phụ lục/điều chỉnh/versioning HĐ; điều ch�
 - Một PO có nhiều GRR; một GRR có tối đa một GR chưa Hủy.
 - Một GIR có nhiều GI.
 - Một dòng HĐ có nhiều dòng PR hàng bán (ở các PR khác nhau; tối đa một dòng trong mỗi PR), nhiều dòng GIR hàng bán (luồng A và B dùng chung hạn mức giao của dòng HĐ) và nhiều Product được Sales xác nhận cho phép giao.
-- Dòng vật tư trên PR/GIR chỉ gắn HĐ qua chứng từ, không gắn dòng HĐ. Trùng Product không đồng nghĩa trùng dòng HĐ; không tự suy ra dòng HĐ từ Product (ADR-0012).
+- Dòng vật tư PR có thể gắn dòng HĐ; dòng vật tư GIR không bắt buộc dòng HĐ. Liên kết nhu cầu PR theo DEC-19-02, hạn mức GIR theo ADR-0012.
 - Cả hai loại GIR đều thuộc một HĐ `ACTIVE` (cấp chứng từ).
 - Tồn kho truy vết theo Kho, Product, Sales phụ trách, HĐ nguồn, GR (ADR-0013). GIR theo PR (A/C) chỉ xuất tồn của chính HĐ; hàng mua cho HĐ/khách hàng khác chỉ dùng được qua GIR `AVAILABLE_STOCK`, tồn được chọn theo Kho → Người phụ trách nguồn hàng → Product và cần người phụ trách đồng ý.
 
@@ -62,7 +62,7 @@ Danh mục: `sales_contracts`, `sales_contract_lines`, `products` (PN: `part_num
 **Danh mục hàng hóa** (tên trên giao diện) gồm hai bảng tách biệt (đã chốt 2026-11-13):
 - `temporary_products` — **mã tạm**: mã, tên, mô tả; không có đơn vị tính (UoM).
 - `products` — **mã chính (PN)**: mã chính, UoM, cờ SN `is_serial_tracked`, thông tin kế toán dự trù (chỉ lưu, không có nghiệp vụ kế toán trong MVP).
-Dòng PR (`purchase_requisition_lines`) lưu snapshot mã, tên, mô tả, UoM ban đầu và `product_id` nullable là kết quả chuẩn hóa dùng chung (xem 03 §1a).
+Dòng PR lưu snapshot mã, tên, mô tả và ĐVT ban đầu. Theo DEC-19-03, PR chọn mã chính hoặc mã tạm; mã chính thực nhận được xác định tại GRR và giữ nguyên chứng từ nguồn (03 §1a).
 
 Quy ước: bảng/cột tiếng Anh `snake_case`, bảng số nhiều; khóa chính `id`, khóa ngoại `<entity>_id`; mã chứng từ hiển thị `document_number` tách khỏi khóa chính; trạng thái duyệt `approval_status`; số lượng `quantity` (nguyên khi đơn vị hàng được quản lý theo số nguyên). Hai loại GIR dùng chung bảng `goods_issue_requests` với `issue_type` là `SALES_CONTRACT` hoặc `AVAILABLE_STOCK`.
 

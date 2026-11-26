@@ -25,7 +25,8 @@ export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: nu
   const navigate = useNavigate();
   const { search } = useLocation();
   const Create = cfg.Create;
-  const [openId, setOpenId] = useState<number | null>(initialId ?? null);
+  const [inListId, setOpenId] = useState<number | null>(null);
+  const openId = initialId ?? inListId;
   const [creating, setCreating] = useState(false);
   const [mine, setMine] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -39,7 +40,7 @@ export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: nu
   const listAllowed = Boolean(me.data?.permissions.includes(`${cfg.perm}.VIEW`)
     || (cfg.key === 'pr' && me.data?.permissions.some(permission => ['PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE'].includes(permission))));
   const list = useQuery({ queryKey: [cfg.key, 'list', assigned], queryFn: () => api<DocRow[]>(`/${cfg.path}?assignedToMe=${assigned}`), enabled: listAllowed && openId === null });
-  if (openId !== null) return <DocDetailView cfg={cfg} id={openId} onBack={() => {
+  if (openId !== null) return <DocDetailView key={openId} cfg={cfg} id={openId} onBack={() => {
     if (!listAllowed) navigate(-1);
     else if (isPr && initialId !== undefined) navigate(`/${cfg.path}${search}`);
     else setOpenId(null);

@@ -221,7 +221,7 @@ export class GiService {
         [l.goodsIssueRequestLineId, girId],
       );
       if (!gl) throw new BusinessError('SOURCE_LINE_MISMATCH', `GIR line ${l.goodsIssueRequestLineId} does not belong to the request`);
-      await ProductUsage.markUsed(m, gl.product_id, { stock: true });
+      await ProductUsage.markUsed(m, gl.product_id, { stock: true, existingReference: true });
       const [line] = await m.query(
         `INSERT INTO goods_issue_lines (goods_issue_id, goods_issue_request_line_id, product_id, quantity) VALUES ($1, $2, $3, $4) RETURNING id`,
         [giId, l.goodsIssueRequestLineId, gl.product_id, l.quantity],

@@ -1,3 +1,4 @@
+import { pricedPr } from './test-utils';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
@@ -20,7 +21,7 @@ describe('Inbound chain and GR (integration)', () => {
 
   const http = () => request(app.getHttpServer());
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
-  const post = (token: string, url: string, body: object = {}) => http().post(url).set(as(token)).send(body);
+  const post = (token: string, url: string, body: object = {}) => http().post(url).set(as(token)).send((/^\/purchase-requisitions(?:\/save-new)?$/.test(url) && 'lines' in body && Array.isArray(body.lines)) ? pricedPr({ ...body, lines: body.lines }) : body);
 
   beforeAll(async () => {
     ({ app, ds } = await bootTestApp());
@@ -32,8 +33,8 @@ describe('Inbound chain and GR (integration)', () => {
     salesUserId = (await http().get('/auth/me').set(as(creator))).body.id;
     [{ id: hcmId }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
     const [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
-    snProductId = (await post(creator, '/products', { partNumber: 'PN-SN', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
-    bulkProductId = (await post(creator, '/products', { partNumber: 'PN-BULK', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    snProductId = (await post(creator, '/products', { brandId: 1, partNumber: 'PN-SN', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
+    bulkProductId = (await post(creator, '/products', { brandId: 1, partNumber: 'PN-BULK', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
   });
 
   afterAll(async () => {
@@ -52,7 +53,7 @@ describe('Inbound chain and GR (integration)', () => {
   }
 
   /** Builds an APPROVED GRR for `qtySn` serial units + `qtyBulk` bulk units; returns its id. */
-  async function approvedGrr(qtySn: number, qtyBulk: number): Promise<number> {
+  async function approvedGrr(qtySn: number, qtyBulk: number, afterPo?: (supplierId: number) => Promise<void>): Promise<number> {
     const tag = Math.random().toString(36).slice(2, 8);
     const cust = (await post(creator, '/customers', { code: `C-${tag}`, name: 'Customer' }).expect(201)).body.id;
     const sup = (await post(creator, '/suppliers', { code: `S-${tag}`, name: 'Supplier' }).expect(201)).body.id;
@@ -76,6 +77,7 @@ describe('Inbound chain and GR (integration)', () => {
       lines: prLines.map((l: { id: number; quantity: string }) => ({ sourceLineId: l.id, quantity: Number(l.quantity) })),
     }).expect(201)).body.id;
     await approveDoc('purchase-orders', po);
+    await afterPo?.(sup);
     const poLines = (await http().get(`/purchase-orders/${po}/lines`).set(as(creator))).body;
     const grr = (await post(creator, '/goods-receipt-requests', {
       purchaseOrderId: po,
@@ -116,6 +118,13 @@ describe('Inbound chain and GR (integration)', () => {
     const grr = await approvedGrr(1, 1);
     const [row] = await ds.query(`SELECT document_number FROM goods_receipt_requests WHERE id = $1`, [grr]);
     expect(row.document_number).toMatch(new RegExp(`^GRR-${new Date().getFullYear()}-\\d{6}$`));
+  });
+
+  it('protects a warehouse with unfinished GRRs even before stock arrives', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    await approvedGrr(1, 1);
+    const result = await http().patch(`/warehouses/${hcmId}/status`).set(as(admin)).send({ isActive: false }).expect(422);
+    expect(result.body.code).toBe('WAREHOUSE_HAS_UNFINISHED_DOCUMENTS');
   });
 
   it('GR Draft splits details: N rows for SN goods, one row for bulk (B04, B05)', async () => {
@@ -409,11 +418,39 @@ describe('Inbound chain and GR (integration)', () => {
     )).rejects.toThrow(/duplicate key/);
   });
 
-  it('GRR over the PO quantity is blocked (B02)', async () => {
+  it('GRR rejects duplicate PO sources and quantities over the PO limit (DEC-19-01, B02)', async () => {
     const grr = await approvedGrr(1, 1);
     const [{ purchase_order_id: po }] = await ds.query(`SELECT purchase_order_id FROM goods_receipt_requests WHERE id = $1`, [grr]);
     const poLines = (await http().get(`/purchase-orders/${po}/lines`).set(as(creator))).body;
-    const res = await post(creator, '/goods-receipt-requests', { purchaseOrderId: po, warehouseId: hcmId, lines: [{ sourceLineId: poLines[0].id, quantity: 1 }] });
+    const source = { sourceLineId: poLines[0].id, quantity: 1 };
+    const duplicate = await post(creator, '/goods-receipt-requests', { purchaseOrderId: po, warehouseId: hcmId, lines: [source, source] }).expect(422);
+    expect(duplicate.body.code).toBe('DUPLICATE_SOURCE_LINE');
+    const res = await post(creator, '/goods-receipt-requests', { purchaseOrderId: po, warehouseId: hcmId, lines: [source] });
     expect(res.body.code).toBe('QUANTITY_LIMIT_EXCEEDED');
   });
+  it('continues receiving from an approved PO after its supplier and product become inactive', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const patch = (path: string, isActive: boolean) => http().patch(path).set(as(admin)).send({ isActive });
+    let supplierId: number | undefined;
+    try {
+      const grr = await approvedGrr(1, 1, async id => {
+        supplierId = id;
+        await patch(`/suppliers/${id}/status`, false).expect(204);
+        await patch(`/products/${bulkProductId}/status`, false).expect(200);
+      });
+      const [source] = await ds.query(`SELECT l.purchase_requisition_line_id AS id FROM goods_receipt_requests r
+        JOIN purchase_order_lines l ON l.purchase_order_id = r.purchase_order_id WHERE r.id = $1 LIMIT 1`, [grr]);
+      const rejected = await post(creator, '/purchase-orders', { supplierId, lines: [{ sourceLineId: source.id, quantity: 1 }] }).expect(422);
+      expect(rejected.body.code).toBe('SUPPLIER_NOT_FOUND');
+      const gr = (await post(creator, '/goods-receipts', { goodsReceiptRequestId: grr }).expect(201)).body.id;
+      const detail = (await http().get(`/goods-receipts/${gr}`).set(as(creator)).expect(200)).body;
+      expect(detail.lines).toHaveLength(2);
+      const result = await patch(`/warehouses/${hcmId}/status`, false).expect(422);
+      expect(result.body.code).toBe('WAREHOUSE_HAS_STOCK');
+    } finally {
+      if (supplierId !== undefined) await patch(`/suppliers/${supplierId}/status`, true).expect(204);
+      await patch(`/products/${bulkProductId}/status`, true).expect(200);
+    }
+  });
+
 });

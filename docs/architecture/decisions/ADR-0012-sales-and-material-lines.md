@@ -14,17 +14,12 @@ Tài liệu này tách ba loại nội dung: **nghiệp vụ đã chốt**, **hi
 - PR và GIR gắn **một HĐ `ACTIVE` ở cấp chứng từ**.
 - Mỗi dòng PR/GIR có **phân loại tường minh**: **hàng bán** hoặc **vật tư** (vật tư/phụ kiện triển khai, dự phòng) (CM4).
 - MVP **không trộn** hàng bán và vật tư trong cùng một PR hoặc cùng một GIR (CM3).
-- Dòng hàng bán bắt buộc `sales_contract_line_id`; dòng vật tư không bắt buộc.
-- Trùng Product không đồng nghĩa trùng dòng HĐ. Hệ thống không tự suy ra, tự gán hoặc tự gộp dòng HĐ theo Product; không tự đổi phân loại dòng.
+- Dòng PR hàng bán bắt buộc `sales_contract_line_id` trước Gửi duyệt; dòng PR vật tư có thể để trống. Hạn mức và liên kết GIR theo §1.4.
+- Trùng Product không đồng nghĩa trùng dòng HĐ. GIR giữ liên kết nguồn theo ID dòng.
 
-### 1.2 PR hàng bán (tạo từ HĐ)
-- Từ màn hình HĐ, hệ thống copy toàn bộ dòng hàng và thông tin liên quan sang form PR; người dùng chỉnh sửa trước khi lưu.
-- Mỗi dòng PR giữ đúng `sales_contract_line_id` của dòng HĐ gốc; không gộp các dòng HĐ cùng Product.
-- Trong **cùng một PR**: không chia và không tạo trùng một dòng HĐ (tối đa một dòng PR cho mỗi dòng HĐ). **Nhiều PR khác nhau** được tham chiếu cùng dòng HĐ (CM6).
-
-### 1.3 PR vật tư (tạo tại màn hình PR)
-- Chọn HĐ, rồi tự chọn vật tư. Dòng vật tư không bắt buộc `sales_contract_line_id`.
-- Được dùng mã tạm (`temporary_products`); tuân thủ quy tắc mapping/chuẩn hóa trước khi nhập kho (03 §1a: GRR không Gửi duyệt khi còn mã tạm) (CM5).
+### 1.2 Chọn hàng và liên kết dòng HĐ trên PR
+- Cả hai loại PR chọn mã chính hoặc mã tạm từ toàn bộ danh mục, theo DEC-19-02 và DEC-19-03.
+- Mỗi dòng PR liên kết tối đa một dòng HĐ, một dòng HĐ có thể phục vụ nhiều dòng PR. Chỉ gợi ý khi trùng đúng một định danh danh mục; người tạo có thể thay đổi. Dòng HĐ nhập tự do được chọn thủ công.
 
 ### 1.4 Bốn luồng GIR (CM1, CM2)
 | Luồng | Phân loại | Nguồn | Quy tắc chính |
@@ -35,7 +30,7 @@ Tài liệu này tách ba loại nội dung: **nghiệp vụ đã chốt**, **hi
 | D. Vật tư trực tiếp | Vật tư | `AVAILABLE_STOCK` | Không cần PR hay dòng HĐ; vẫn gắn HĐ; **bắt buộc ghi mục đích sử dụng**; không áp hạn mức PR/HĐ |
 
 - Hàng bán (A và B) **dùng chung hạn mức giao của dòng HĐ**, kể cả khi nhiều PR tham chiếu cùng dòng HĐ.
-- **`PO done`** (đã chốt 2026-11-13, CT1): một PR đạt `PO done` khi **mọi dòng PR** có tổng số lượng trên các dòng PO `APPROVED` (còn hiệu lực theo workflow) **bằng đúng** số lượng yêu cầu của dòng đó. Một dòng PR có thể mua qua nhiều PO; cộng dồn theo tham chiếu dòng PR, không theo Product; tổng đặt mua không vượt số lượng dòng PR (§1). Thiếu bất kỳ dòng nào → chưa `PO done`. `PO done` quyết định PR có hiển thị khi lập GIR theo PR và là điều kiện Gửi duyệt GIR A/C (xem quy tắc mất `PO done`); không có nghĩa là đã nhập kho (CT1).
+- **`PO done`** (CT1 và giới hạn PR #19): GIR A/C chỉ dùng dòng mã chính của PR Done. Tất cả dòng mã chính phải có tổng số lượng PO `APPROVED` bằng đúng lượng của từng dòng PR. Một dòng PR có thể mua qua nhiều PO, cộng dồn theo ID dòng. Điều kiện áp dụng khi chọn nguồn và Gửi duyệt GIR A/C. Chi tiết tại [Business Rules §3](../../03-BUSINESS-RULES.md).
 - **Mất `PO done`** (đã chốt 2026-11-13): `PO done` là **điều kiện để Gửi duyệt** GIR A/C, kiểm tra tại backend ở mỗi lần Gửi duyệt (GIR `DRAFT`, và GIR `REJECTED` sửa rồi Gửi duyệt lại), không chỉ khi hiển thị danh sách PR. PR không còn `PO done` → chặn Gửi duyệt. GIR **đã Gửi duyệt hợp lệ** không bị tự động Hủy, Thu hồi hay đổi trạng thái khi PR mất `PO done` sau đó; tiếp tục theo workflow và hạn mức hiện hữu (không hồi tố). PR đạt lại `PO done` → được Gửi duyệt.
 - **Hạn mức GIR** (CT2, áp dụng cho dòng HĐ và dòng PR): `WAITING_FOR_APPROVE`, `REJECTED`, `APPROVED` chiếm; `DRAFT`, `CANCELED` không. Kiểm tra khi Gửi duyệt (kể cả `DRAFT` tạo trước) và Duyệt; sửa số lượng GIR `REJECTED` kiểm tra lại, không tính trùng chính nó; có kiểm soát đồng thời. GIR `COMPLETED` chỉ chiếm lượng thực xuất (ADR-0010); không cộng trùng GIR và GI. Thay thế quy tắc cũ "`DRAFT` chiếm hạn mức".
 - **Luồng C** (CT9): mục đích sử dụng chỉ tham khảo, có thể kế thừa từ PR, không bắt buộc nhập lại, không là điều kiện hạn mức/duyệt. Luồng D vẫn bắt buộc ghi mục đích sử dụng.

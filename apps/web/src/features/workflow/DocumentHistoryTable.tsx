@@ -1,13 +1,21 @@
 import { useState } from 'react';
-import { Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { InfoOutlined } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { Field } from '../../shared/components';
 import { ReadOnlyDocumentDialog } from '../../shared/components/ReadOnlyDocumentDialog';
 import { fmtDate } from '../../shared/utils/format';
+import { formatDocumentDate } from '../../shared/utils/document-date';
+import { ActionButton } from '../../shared/components/ActionButton';
 import type { HistoryEntry } from './types';
 
 export function DocumentActivityDialog({ entry, onClose, title }: { entry: HistoryEntry; onClose: () => void; title?: string }) {
   const { t } = useTranslation();
+  const activity = entry.action === 'DOSSIER_UPDATE' ? entry.metadata : undefined;
+  function dossierValues(value: NonNullable<NonNullable<HistoryEntry['metadata']>['before']>) {
+    return [t(value.hasPaper ? 'prDossier.yes' : 'prDossier.no'), formatDocumentDate(value.issuedOn ?? '', 'vi'),
+      value.issuer, value.note, value.file?.name];
+  }
   return (
     <ReadOnlyDocumentDialog title={title ?? t('pr.activityDetails')} onClose={onClose}>
       <Field label={t('pr.historyAction')}>{t(`doc.history.${entry.action}`)}</Field>
@@ -16,6 +24,20 @@ export function DocumentActivityDialog({ entry, onClose, title }: { entry: Histo
       {entry.metadata?.step && <Field label={t('pr.historyStep')}>{t(`pr.step.${entry.metadata.step}`)}</Field>}
       {entry.metadata?.from && <Field label={t('pr.currentAssignee')}>{entry.metadata.from.fullName}</Field>}
       {entry.metadata?.to && <Field label={t('pr.replacement')}>{entry.metadata.to.fullName}</Field>}
+      {activity && <>
+        <Field label={t('prDossier.type')}>{activity.name} ({activity.code})</Field>
+        {activity.fileAction && <Field label={t('prDossier.file')}>{t(`prDossier.activity.${activity.fileAction}`)}</Field>}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          {(['before', 'after'] as const).map(key => {
+            const value = activity[key];
+            return value && <Stack key={key} spacing={1} sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+              <Typography sx={{ fontWeight: 700 }}>{t(`prDossier.${key}`)}</Typography>
+              {dossierValues(value).map((text, index) => <Field key={index}
+                label={t(`prDossier.${['hasPaper', 'date', 'issuer', 'note', 'file'][index]}`)}>{text || '—'}</Field>)}
+            </Stack>;
+          })}
+        </Stack>
+      </>}
       {entry.reason && <Field label={t('gr.reason')}><Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{entry.reason}</Typography></Field>}
     </ReadOnlyDocumentDialog>
   );
@@ -40,7 +62,8 @@ export function DocumentHistoryTable({ history }: { history: HistoryEntry[] }) {
             <TableCell>{t(`doc.history.${entry.action}`)}</TableCell>
             <TableCell sx={{ overflowWrap: 'anywhere', maxWidth: 240 }}>{entry.actorName}</TableCell>
             <TableCell>{entry.nextStatus ? t(`status.${entry.nextStatus}`) : '—'}</TableCell>
-            <TableCell><Button size="small" variant="outlined" onClick={() => setSelected(entry)}>{t('pr.viewActivity')}</Button></TableCell>
+            <TableCell><ActionButton action="confirm" startIcon={<InfoOutlined />} size="small" variant="outlined"
+              onClick={() => setSelected(entry)}>{t('pr.viewActivity')}</ActionButton></TableCell>
           </TableRow>)}</TableBody>
         </Table>
       </TableContainer>

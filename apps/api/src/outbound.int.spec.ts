@@ -1,3 +1,4 @@
+import { prFixtureHeader, prFixturePrice } from './test-utils';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
@@ -56,8 +57,8 @@ describe('Outbound: GIR → GI (integration)', () => {
     salesUser = (await identity.loadCurrentUser(await idOf(process.env.SEED_APPROVER_USERNAME!)))!;
     salesId = salesUser.id;
     [{ id: pcs }] = await ds.query(`SELECT id FROM units_of_measure WHERE code = 'PCS'`);
-    router = (await post(pm, '/products', { partNumber: 'RT-1', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
-    cable = (await post(pm, '/products', { partNumber: 'CB-1', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
+    router = (await post(pm, '/products', { brandId: 1, partNumber: 'RT-1', name: 'Router', unitOfMeasureId: pcs }).expect(201)).body.id;
+    cable = (await post(pm, '/products', { brandId: 1, partNumber: 'CB-1', name: 'Cable', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
   });
 
   afterAll(async () => {
@@ -97,7 +98,7 @@ describe('Outbound: GIR → GI (integration)', () => {
       ...(routerSns ? [{ salesContractLineId: sc.routerLine, productId: router, quantity: routerSns }] : []),
       ...(cableQty ? [{ salesContractLineId: sc.cableLine, productId: cable, quantity: cableQty }] : []),
     ];
-    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, lines);
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, lines.map(line => ({ ...line, ...prFixturePrice })), undefined, undefined, undefined, prFixtureHeader);
     await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
@@ -132,9 +133,9 @@ describe('Outbound: GIR → GI (integration)', () => {
     const proc = app.get(ProcurementService);
     const hd = (line: number) => (category === 'SALES_GOODS' ? line : null);
     const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [
-      ...(routerQty ? [{ salesContractLineId: hd(sc.routerLine), productId: router, quantity: routerQty }] : []),
-      ...(cableQty ? [{ salesContractLineId: hd(sc.cableLine), productId: cable, quantity: cableQty }] : []),
-    ], category);
+      ...(routerQty ? [{ ...prFixturePrice, salesContractLineId: hd(sc.routerLine), productId: router, quantity: routerQty }] : []),
+      ...(cableQty ? [{ ...prFixturePrice, salesContractLineId: hd(sc.cableLine), productId: cable, quantity: cableQty }] : []),
+    ], category, undefined, undefined, prFixtureHeader);
     await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
@@ -182,7 +183,7 @@ describe('Outbound: GIR → GI (integration)', () => {
   // ---------- Product lock ----------
 
   it('locks code, name and UoM once used; description stays editable; pending proposals do not lock (03 §1c, H06–H07, G13)', async () => {
-    const fresh = (await post(pm, '/products', { partNumber: 'NEW-1', name: 'New', unitOfMeasureId: pcs })).body.id;
+    const fresh = (await post(pm, '/products', { brandId: 1, partNumber: 'NEW-1', name: 'New', unitOfMeasureId: pcs })).body.id;
     const sc = await contract(5, 5, false);
     await post(pm, `/sales-contract-lines/${sc.routerLine}/product-proposals`, { productId: fresh, reason: 'substitute' }).expect(201);
     await patch(pm, `/products/${fresh}`, { name: 'Renamed while pending' }).expect(200); // G13
@@ -394,7 +395,7 @@ describe('Outbound: GIR → GI (integration)', () => {
   it('C: purpose is optional and inherited from the material PRs when left empty (CT9)', async () => {
     const sc = await contract(5, 5);
     const proc = app.get(ProcurementService);
-    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ productId: cable, quantity: 3 }], 'MATERIAL', 'Dự phòng bảo trì');
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ ...prFixturePrice, productId: cable, quantity: 3 }], 'MATERIAL', 'Dự phòng bảo trì', undefined, prFixtureHeader);
     await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
@@ -731,7 +732,7 @@ describe('Outbound: GIR → GI (integration)', () => {
   it('PO done is required at submit, re-checked on resubmit, not retroactive after submit (C58–C61)', async () => {
     const sc = await contract(10, 10);
     const proc = app.get(ProcurementService);
-    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 5 }]);
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ ...prFixturePrice, salesContractLineId: sc.cableLine, productId: cable, quantity: 5 }], undefined, undefined, undefined, prFixtureHeader);
     await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);
@@ -803,7 +804,8 @@ describe('Outbound: GIR → GI (integration)', () => {
     expect([mixed.status, mixed.body.code]).toEqual([422, 'GIR_CATEGORY_MIXED']);
     // A sales-goods PR needs HĐ lines; a material PR does not.
     const proc = app.get(ProcurementService);
-    await expect(proc.createPurchaseRequisition(pmUser, sc.id, [{ productId: cable, quantity: 1 }])).rejects.toMatchObject({ code: 'SALES_CONTRACT_LINE_REQUIRED' });
+    const draft = await proc.createPurchaseRequisition(pmUser, sc.id, [{ ...prFixturePrice, productId: cable, quantity: 1 }], undefined, undefined, undefined, prFixtureHeader);
+    await expect(proc.submitPr(draft.id, pmUser, await prSubmission(ds, draft.id, 'PM'))).rejects.toMatchObject({ code: 'SALES_CONTRACT_LINE_REQUIRED' });
   });
 
   it('A/C lines: PR line of another HĐ, duplicate PR line, product picked by hand and the retired SALES_CONTRACT type are refused', async () => {
@@ -854,7 +856,7 @@ describe('Outbound: GIR → GI (integration)', () => {
   /** A PR with one cable line of `qty`, ordered on several APPROVED POs (one per entry of `split`). */
   async function prOnPos(sc: Contract, qty: number, split: number[]) {
     const proc = app.get(ProcurementService);
-    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ salesContractLineId: sc.cableLine, productId: cable, quantity: qty }]);
+    const pr = await proc.createPurchaseRequisition(pmUser, sc.id, [{ ...prFixturePrice, salesContractLineId: sc.cableLine, productId: cable, quantity: qty }], undefined, undefined, undefined, prFixtureHeader);
     await proc.submitPr(pr.id, pmUser, await prSubmission(ds, pr.id, 'PM'));
     for (const username of ['pm-head', 'purchaser']) {
       const [{ id }] = await ds.query('SELECT id FROM users WHERE username = $1', [username]);

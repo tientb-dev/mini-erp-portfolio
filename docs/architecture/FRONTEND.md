@@ -80,7 +80,7 @@ Hướng cho phép: `app → features → (features khác qua index) → shared/
 
 | Component | Dùng khi | Ví dụ thật |
 |---|---|---|
-| `ListPageLayout` | Trang danh sách: `title`, `actions` (header), `toolbar` (tìm kiếm/lọc do feature tự làm), `error`, `breadcrumbs`, `children` (bảng) | `procurement/DocListPage.tsx`, `master-data/ProductsPage.tsx` |
+| `ListPageLayout` | Trang danh sách: `title`, `actions` (header), `toolbar` (tìm kiếm/lọc do feature tự làm), `error`, `breadcrumbs`, `children` (bảng) | `procurement/DocListPage.tsx`, `master-data/CatalogPage.tsx` |
 | `DataTable` | Bảng: DataGrid compact, sort/phân trang/empty/loading sẵn; `emptyHint` | mọi trang |
 | `DetailPageLayout` | Chi tiết chứng từ: `title` + `documentNumber`, `status`, `actions`, `notice`, `breadcrumbs`, `backTo` (mũi tên Back về route cố định, không dựa browser history); `loading` → thanh tiến trình, `error` khi tải lỗi | `procurement/DocDetailView.tsx` |
 | `DetailTabs` | Tab do feature cấp `{ key, label, content, hidden? }`; tự quản lý hoặc `value`/`onChange` theo key | `procurement/DocDetailView.tsx` |
@@ -173,7 +173,7 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 **COMMON-DOC-FORM-001.** DocumentFormGrid có 12 cột, khoảng cách ngang 16px và dọc 12px. Trường ngắn dùng 2–3 cột, trung bình 4–6 cột, dài 6–12 cột. Màn hình hẹp xếp một trường mỗi hàng. Label semibold nằm trên input cao khoảng 36–40px. Textarea mặc định hai dòng và tự giãn. Đặt trường bắt buộc lên trước và dùng cùng bố cục cho Tạo, Sửa, Xem.
 
-**COMMON-DOC-TABS-001, COMMON-DOC-GRID-001.** Tạo chỉ hiện ba tab đầu. Hồ sơ dùng DocumentEmptyState với icon và nhãn Chưa có hồ sơ. ScrollTable giữ header khi cuộn dọc, hỗ trợ cuộn ngang, giới hạn chiều cao theo viewport và giữ toolbar cùng tổng số dòng ngoài vùng cuộn. Chế độ Tạo/Sửa luôn hiển thị nút Thêm hàng hóa và nêu lý do khi nút bị khóa. Popup thêm, sửa, xóa cập nhật state cục bộ. Dòng hàng lấy tên và ĐVT từ hàng hóa; PR #18 chưa có đơn giá hoặc tiền tệ để tính tổng.
+**COMMON-DOC-TABS-001.** Tạo chỉ hiện ba tab đầu. Hồ sơ dùng DocumentEmptyState với icon và nhãn Chưa có hồ sơ khi danh sách trống. ScrollTable giữ header khi cuộn dọc, hỗ trợ cuộn ngang, giới hạn chiều cao theo viewport và giữ toolbar cùng tổng số dòng ngoài vùng cuộn. Chế độ Tạo/Sửa luôn hiển thị nút Thêm hàng hóa và nêu lý do khi nút bị khóa. Popup thêm, sửa, xóa cập nhật state cục bộ.
 
 **COMMON-WORKFLOW-CARD-001.** Stepper dùng vòng 38px, đường nối 2px, nhãn 14px. Tạo mới và Nháp đều hiển thị ba chấm trắng trên nền #1F5FC4 ở bước Khởi tạo. Gửi duyệt thành công chuyển bước Khởi tạo sang dấu check trên nền #2E7D32. Bước tương lai có viền xám và bước từ chối dùng dấu X trên nền #D32F2F. Card chia đều chiều rộng, xếp label semibold trên value và đặt dropdown vào đúng card khi có quyền sửa. Vai trò lấy từ ứng viên hoặc snapshot của bước xử lý. Chuỗi dài hiển thị một dòng với tooltip chỉ khi bị cắt. Action footer căn phải, nút 32px và chỉ chiếm chỗ khi hàng card có thao tác.
 
@@ -183,10 +183,80 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 **COMMON-DOC-NAV-001, DOC-LINE-001, FE-VALIDATION-001.** Giữ tham số danh sách khi đi và quay lại. Cảnh báo khi rời trang có thay đổi. State sống ở editor nên chuyển tab và lỗi API giữ nội dung nhập. Lưu nháp và Gửi duyệt đều cần ít nhất một dòng hợp lệ. Gửi duyệt cần thêm ứng viên hợp lệ. Hiển thị validation cạnh trường và đánh dấu tab lỗi.
 
-**UI-15, UI-EVIDENCE-001.** Popup kết quả dùng chung chiều rộng 460px, chiều cao tối thiểu 260px và icon 64px nền tròn có dấu check hoặc X trắng. Nội dung dùng câu theo action và mã chứng từ. Thành công nêu trạng thái mới nếu thay đổi và tự đóng sau khoảng 3 giây. Thất bại hiển thị nguyên nhân dạng chữ và nút Đã hiểu. Kiểm tra trực tiếp Before/After trên Chromium với API và PostgreSQL test ở 1920×1080 và 1366×768.
+**HĐ bán · Phase 5.2.3.** Áp dụng COMMON-DOC-PAGE-001 cho Full Page Create/Edit/View, với ngoại lệ DOC-LINE-001 cho Lưu nháp HĐ trống theo Business Rules §9.1. Common Document Form 12 cột và grid inline dùng state cấp editor. Lỗi ở tab khác thì mở tab và focus trường đầu tiên. Chỉ bypass Dirty Guard sau khi máy chủ xác nhận lưu và form đã được đánh dấu sạch. Dùng Action Result và COMMON-BUTTON-001 cho các thao tác nghiệp vụ.
+
+Common Product Picker dùng chung API server-side cho hai tab mã chính/mã tạm. PR giữ multi-select; HĐ dùng single-select để điền snapshot. Inline grid giữ chỗ adornment cuối ô mã cho kính lúp và cảnh báo trùng, tooltip hỗ trợ bàn phím. Dùng Common Document Form để cân bằng padding multiline và chiều cao mặc định của diễn giải với Common File Attachment Cell. File HĐ là một ô trong Thông tin chung; trạng thái upload tạm và chính thức theo [roadmap File Attachment](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).
+
+**UI-15, UI-EVIDENCE-001.** Popup kết quả dùng chung chiều rộng 460px, chiều cao tối thiểu 260px và icon 64px nền tròn có dấu check hoặc X trắng. Áp dụng cho thao tác nghiệp vụ trên chứng từ và Master Data. Tiêu đề nêu thao tác và kết quả; nội dung nêu chứng từ hoặc danh mục tương ứng. Snackbar dành cho thông báo nhẹ. Thành công nêu trạng thái mới nếu thay đổi và tự đóng sau khoảng 3 giây. Thất bại hiển thị nguyên nhân dạng chữ và nút Đã hiểu. Kiểm tra trực tiếp Before/After trên Chromium với API và PostgreSQL test ở 1920×1080 và 1366×768.
+
+
+## COMMON-DOC-GRID-001 — Bảng chứng từ và danh mục
+
+- DataTable và ScrollTable dùng độ rộng cột theo loại dữ liệu và chiều cao dòng nhất quán. Mã, tên, mô tả và văn bản dài hiển thị một dòng với ellipsis. GridText mở tooltip đầy đủ khi rê chuột hoặc dùng bàn phím nếu nội dung thực sự bị cắt. Giữ nguyên giá trị gốc.
+- Số lượng và giá trị tiền căn phải. Header giữ vị trí khi cuộn dọc. Cột thao tác giữ vị trí bên phải khi cuộn ngang; bảng phải cuộn được tới cột và dòng cuối. Toolbar và tổng số dòng nằm ngoài vùng bảng cuộn.
+- Giữ biểu tượng cảnh báo trùng cạnh mã, kể cả khi phần chữ của mã bị cắt.
+- Grid PR ở Create/Edit dùng cùng checkbox cho Sửa và Xóa nhiều dòng. Nút Xóa (N) luôn có vị trí cố định và dùng kiểu destructive. Confirm Dialog giữ danh sách ID dòng đã chọn. Xác nhận cập nhật form cục bộ, giữ thứ tự các dòng còn lại và xóa selection. Hủy giữ dữ liệu và selection. View chỉ hiển thị grid.
+
+## COMMON-MASTER-DATA-001 — Danh mục
+
+- Mỗi danh mục có mục điều hướng riêng. List dùng ListPageLayout, FilterToolbar, SearchInput và DataTable. Mã mở View; cột Thao tác sticky cuối bảng dùng Pencil mở Edit và Copy mở Create theo quyền. URL giữ từ khóa, bộ lọc, sort, trang và cỡ trang qua các mode. Làm mới luôn khả dụng ngoài lúc đang xử lý, cao 36px, outlined và căn phải. Thao tác này đặt lại toàn bộ trạng thái danh sách về mặc định trước khi tải lại. Picker giữ quy tắc refresh và selection riêng.
+- Dùng cùng form cho Create, View và Edit. Create chưa có ID, View/Edit dùng cùng ID. Mở Edit, Create hoặc Copy từ List thì Hủy bỏ, Đóng, Quay lại hoặc lưu thành công trở về đúng List. Mở Edit từ View thì Hủy bỏ, Đóng, Quay lại hoặc lưu thành công trở về View tại chỗ, với dữ liệu mới sau lưu. Lưu thất bại giữ mode và dữ liệu nhập. Đóng View trở về List. View chỉ đọc, hiện Chỉnh sửa theo quyền. Create/Edit dùng cùng validation, chỉ rõ lỗi tại trường tương ứng và xác nhận bỏ thay đổi chưa lưu.
+- Mã chính và Hãng dùng DetailPageLayout với footer dùng chung. Mã tạm, ĐVT, Kho, Khách hàng, NCC, Tiền tệ, Thuế suất và Loại hồ sơ dùng FormDialog. Mỗi danh mục dùng chung form, lưới 12 cột ưu tiên mã/tên 4:8. Mô tả tùy chọn mặc định 2 dòng, cột đứng sau Tên. View chuyển Edit tại chỗ. Trạng thái dùng StatusChip và chỉnh ở danh sách. Nút chính ở bên phải.
+- Hiển thị tỷ giá, thuế suất theo locale và bỏ số 0 cuối phần thập phân. Kết quả tạo và sửa dùng Action Result Dialog theo UI-15; lỗi trường tiếp tục hiển thị inline. Hãng hiển thị grid NCC trong cả ba mode. Picker giữ lựa chọn qua lọc, phân trang và refresh, chỉ cập nhật form cục bộ khi xác nhận.
+
+## COMMON-MASTER-DATA-STATUS-001 — Trạng thái danh mục
+
+- Mọi Master Data dùng MUI Switch trên List và có bộ lọc mặc định Tất cả, kể cả danh mục bổ sung sau này. Active dùng primary, Inactive dùng màu trung tính; hiển thị nhãn và khóa thao tác nếu thiếu quyền. Create mặc định Active. View đọc trạng thái, Edit tập trung vào thông tin danh mục.
+- Xác nhận trước khi chuyển Inactive, kích hoạt lại trực tiếp. Gửi trạng thái đích tới API, khóa Switch của bản ghi trong khi xử lý, cập nhật khi thành công và giữ giá trị hiện tại nếu lỗi. Dùng Action Result Dialog cho kết quả nghiệp vụ sau khi API phản hồi. Đóng dialog xác nhận trước khi hiển thị kết quả.
+- Dropdown gọi API lựa chọn Active. Khi sửa hiển thị thêm giá trị Inactive đã lưu; danh sách quản trị và dữ liệu lịch sử giữ đủ hai trạng thái. Backend kiểm tra theo quy tắc tại 03 §1d. Trạng thái không cascade.
 
 ## UI-EVIDENCE-001 — Kiểm chứng bằng trình duyệt
 
 - PR thay đổi UI/UX phải kiểm chứng trên trình duyệt thật kết nối với backend và database test đã xác minh. Unit test và build là các bước kiểm chứng bổ sung.
 - Dùng Playwright MCP nếu có hoặc Playwright Test trực tiếp. Chụp trước và sau ở 1920×1080 và 1366×768, kiểm tra luồng E2E, quyền thao tác, console và lỗi API ngoài dự kiến.
 - Mở lại ảnh để kiểm tra căn chỉnh, tràn nội dung, màu và chữ. Sửa lỗi rồi chụp lại màn bị ảnh hưởng. Lưu ảnh, report và trace trong `artifacts/evidence/`. Báo các kịch bản đã kiểm chứng và đánh dấu BLOCKED nếu trình duyệt không chạy được.
+## Danh sách và grid chứng từ PR
+
+**COMMON-LIST-001.** Với danh sách phân trang phía server, gửi tìm kiếm sau khoảng 300 ms, lọc và sắp xếp một cột trên toàn bộ tập dữ liệu. API áp dụng phạm vi dữ liệu trước khi tính tổng và dùng danh sách trường sort cho phép. Danh sách PR lưu truy vấn và trang trên URL, mặc định 25 dòng theo ngày tạo mới nhất với ID giảm dần làm tiêu chí phụ. Cột tiền thanh toán tắt sắp xếp vì danh sách có nhiều tiền tệ. Query key riêng theo tham số và tín hiệu hủy giữ phản hồi cũ khỏi lượt tìm mới.
+
+**COMMON-LIST-002.** Nút Làm mới dùng kiểu secondary, có icon và nhãn. Đặt lại từ khóa, bộ lọc, chế độ chờ xử lý, sort và pagination về mặc định rồi tải lại kể cả khi ở trạng thái mặc định. Với Product Picker, áp dụng đặt lại cho tab hiện hành và giữ các mục đã chọn. Search, dropdown và Làm mới trong FilterToolbar cao 36px, căn đáy và cách nhau 12px. Search của Master Data đơn giản có chiều rộng mục tiêu 420px và co giãn theo viewport. Picker dùng cùng lề ngang ở header, nội dung và footer. Checkbox đầu bảng áp dụng cho trang hiện tại sau lọc/sort, có trạng thái chọn một phần. Duy trì lựa chọn qua tìm kiếm, lọc, sort, phân trang và refresh.
+
+**Common Search Input.** Giữ label phía trên, icon tìm kiếm bên trái và vùng cố định cho nút X có tooltip và tên truy cập. Placeholder mô tả dữ liệu mà truy vấn hiện tại hỗ trợ, bắt đầu bằng “Nhập” trong giao diện tiếng Việt. X chỉ xóa từ khóa, giữ bộ lọc và sort. Màn hình điều khiển debounce, URL và đưa danh sách về trang đầu theo cách xử lý tìm kiếm hiện hữu.
+
+**COMMON-EDITABLE-GRID-001.** Grid nhập liệu dùng một hàng cho mỗi dòng, cột có chiều rộng cố định phù hợp, sticky header, nhóm cột định danh bên trái và thao tác bên phải. Chỉ grid cuộn ngang và dọc. Toolbar, tổng tiền và footer nằm ngoài vùng cuộn. Dùng chung ScrollTable và GridText theo COMMON-DOC-GRID-001. Popup sửa dòng giữ bản sao cục bộ theo ID ổn định, áp dụng vào chứng từ khi Xác nhận.
+
+**COMMON-EDITABLE-GRID-002.** Dành sẵn một hàng thông báo lỗi. Khi xác nhận, đánh dấu các ô lỗi và hiện nguyên nhân qua tooltip khi hover hoặc focus. Cuộn đến và focus ô lỗi đầu tiên theo thứ tự dòng/cột, chừa khoảng cho sticky header và các cột sticky. Sửa giá trị cập nhật số lỗi mà không tự cuộn lại. API có thể trả `fieldIssue` gồm chỉ số dòng và tên trường để mở editor tại ô tương ứng.
+
+Giữa toolbar, vùng validation và grid header dùng khoảng cách 8px. Giữ nguyên chiều cao vùng validation khi nội dung xuất hiện hoặc biến mất.
+
+**COMMON-DOC-TOTAL-001.** Một hàng dưới grid, bên trái là số dòng, bên phải là tổng trước thuế, tổng thuế và tổng thanh toán. Mã tiền tệ theo sau tổng thanh toán. Preview dùng số nguyên theo đơn vị tiền nhỏ nhất, làm tròn mỗi dòng theo DEC-19-07. Chứng từ đã lưu dùng số tiền do backend trả.
+
+**Nhập ngày và số trên chứng từ.** DocumentDatePicker hiển thị ngày và placeholder theo locale, dùng `dd/mm/yyyy` cho tiếng Việt và trao đổi chuỗi `YYYY-MM-DD` với API. Nhập và kiểm tra ngày theo lịch trực tiếp trên chuỗi để giữ nguyên ngày qua các múi giờ. DocumentNumericInput hiển thị phân cách hàng nghìn theo locale, giữ chuỗi thập phân chính xác và để nguyên phần vượt precision cho validation DEC-19-07.
+
+**Validation trên grid.** Dùng token `error.main` cho icon, chữ và đường viền ở input, message và tooltip lỗi. Message và tooltip nền trắng. Slot thông báo giữ chiều cao cố định và tooltip thường giữ style mặc định.
+
+**Căn lề PR.** Form, toolbar, grid và tổng tiền dùng cùng lề ngang của card. Tiêu đề hàng hóa hiển thị cả khi View. Tổng tiền dùng cỡ chữ 16px, tổng thanh toán 18px màu chủ đạo, với divider nhẹ giữa ba nhóm.
+
+## Quản trị Common Dossier
+
+Danh mục Loại hồ sơ dùng Common Master Data với Search Input, filter trạng thái, Làm mới và popup Create/View/Edit. Hệ thống có trang Cấu hình hồ sơ chứng từ lấy loại chứng từ từ API. Mã loại chứng từ mở Detail Page với ScrollTable, các nút di chuyển và xóa, và picker nhiều lựa chọn dùng Search Input, DataTable và FormDialog. Picker giữ lựa chọn qua tìm kiếm và phân trang, hiển thị loại Active chưa áp dụng. Thay đổi chỉ áp dụng khi Lưu cấu hình. Dirty Guard bảo vệ dữ liệu chưa lưu. Action Result Dialog hiển thị kết quả và giữ danh sách đang sửa nếu API thất bại.
+
+## COMMON-BUTTON-001
+
+Nút thao tác nghiệp vụ dùng `ActionButton` và mapping icon theo ngữ nghĩa, bên trái chữ và giữ icon khi disabled. Thêm dùng Add, Lưu dùng Save, Hủy bỏ dùng Close, Chỉnh sửa dùng Edit, Xác nhận dùng Check, Làm mới và Thay thế dùng Refresh, Xóa dùng Delete, Gửi duyệt dùng Send, Tải lên/xuống dùng Upload/Download, Hủy chứng từ dùng Block và Từ chối dùng CancelOutlined. Nút chính nền xanh. Nút phụ nền trắng viền xanh. Nút phá hủy nền trắng viền đỏ. `FormDialog` nhận `submitAction` và dùng mapping chung với footer thao tác và xác nhận workflow. Nút chỉ có icon dùng cho phần tử compact trong grid, file và điều khiển giao diện, kèm tooltip và tên truy cập. Tab, link điều hướng và control giao diện theo quy chuẩn riêng.
+
+### Header grid, trường View và dialog
+
+- DataTable và ScrollTable dùng header #E8EEF5, chữ #334155, weight 600, viền dưới #CBD5E1 và phân cách cột nhẹ #E2E8F0. Dòng lẻ #FFFFFF, dòng chẵn #F5F7FA, hover #EDF2F7 và selected #EFF5FF. Selected ưu tiên hơn hover và nền xen kẽ. Phân cách dòng #E2E8F0. Ô sticky giữ cùng nền với dòng; ô nhập và lỗi validation vẫn dùng style hiện tại. Header và nội dung văn bản dài nằm một dòng.
+- ReadOnlyField dùng nền #F8FAFC, chữ #1E293B, viền #E2E8F0. Dữ liệu chọn và sao chép được; giá trị trống dùng dấu —. View hiển thị nhãn lựa chọn dạng văn bản và bỏ required, dropdown, clear.
+- Header dialog nền trắng cao tối thiểu 56px, padding ngang 24px và flex căn giữa title 18px weight 600 cùng icon Đóng. Content cuộn riêng, padding 24px hoặc 12px ở biến thể compact. Footer có divider, thông tin selection ở trái khi có và nhóm nút ở phải. Dialog bo 12px. ActionResultDialog giữ trình bày riêng.
+
+## COMMON-FILE-CELL-001
+
+`FileAttachmentCell` hiển thị nút Tải lên có icon khi trống và có quyền quản lý. Khi có file, icon file, tên tải xuống, icon thay thế và icon xóa nằm cạnh nhau trong một dòng. `GridText` bổ sung ellipsis và tooltip truy cập bàn phím khi tên bị cắt. Cell chỉ đọc hiện tên tải xuống hoặc dấu —. Xác nhận dùng Common FormDialog. Lỗi dùng Action Result Dialog. Loading giới hạn tại cell đang xử lý.
+
+Tab Hồ sơ PR dùng `ScrollTable` với một tầng header sticky, 7 cột và footer đếm hồ sơ. Có bản giấy mặc định bỏ tích và độc lập với file. Người có quyền quản lý có thể nhập ngày phát hành, người phát hành và ghi chú bất kể Có bản giấy. Bỏ tích giữ cả ba giá trị. Document Grid hàng hóa tiếp tục nằm dưới tab. Create/Edit lưu cùng PR. View có nút Lưu hồ sơ dạng phụ khi có quyền quản lý và có dòng hồ sơ. Dirty Guard giữ dữ liệu qua các lần chuyển tab và bảo vệ khi rời trang. Xem [vòng đời và lưu trữ](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42).
+
+Grid Hồ sơ dành đủ chỗ cho tên loại thông dụng và cho cột Ghi chú, File đính kèm co giãn. Hộp thoại thay thế tách file hiện tại và file thay thế thành hai khối, dùng chung FormDialog. Kết quả lưu dùng Action Result Dialog theo UI-15, nêu mã PR khi thành công và nguyên nhân kèm hướng xử lý khi thất bại.
+
+`DocumentTotals` hiển thị số 0 theo precision tiền tệ. Gắn mã tiền tệ với tổng thanh toán có giá trị, ví dụ **0 VND**. Giá trị thiếu dùng **—**.

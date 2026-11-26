@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { me, mockApi, wrap } from '../../test/helpers/api';
@@ -37,13 +37,14 @@ it('keeps the submit context and selected candidates from the open dialog when d
     id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
     createdBy: 1, createdByName: 'Sales', assignedApproverId: null, salesContractNumber: 'SC-5',
     createdAt: '2026-11-13T00:00:00Z', category: 'MATERIAL', salesContractId: 9, children: [], history: [], notes: [],
-    draftApproverId: 2, draftReceiverId: 2,
-    lines: [{ id: 8, productId: 4, sourceLineId: null, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
+    draftApproverId: 2, draftReceiverId: 2, name: 'PR fixture',
+    lines: [{ id: 8, productId: 4, sourceLineId: null, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2', brandId: 1, supplierId: 2, unitOfMeasureId: 1, taxRateId: 1, unitPrice: '8' }],
   };
   const candidate = { id: 2, username: 'candidate', fullName: 'Candidate', role: 'Configured workflow role' };
   const posts = mockApi({
     '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
     '/purchase-requisitions/5/candidates': { approvers: [candidate], receivers: [candidate] },
+    '/purchase-requisitions/5/dossier': { rows: [], canManage: false },
   });
   function TestPage() {
     const client = useQueryClient();
@@ -55,7 +56,7 @@ it('keeps the submit context and selected candidates from the open dialog when d
   wrap(<TestPage />);
   const refresh = screen.getByRole('button', { name: 'Refresh fixture' });
   fireEvent.click(await screen.findByRole('tab', { name: 'Hồ sơ' }));
-  expect(within(screen.getByRole('tabpanel')).getByText('Chưa có hồ sơ')).toBeTruthy();
+  expect(await within(screen.getByRole('tabpanel')).findByText('Chưa có hồ sơ')).toBeTruthy();
   fireEvent.click(await screen.findByRole('tab', { name: 'Người phê duyệt' }));
   await waitFor(() => expect(screen.getByRole('combobox', { name: 'Người duyệt' }).textContent).toContain('Candidate'));
   expect(screen.getAllByText('Configured workflow role')).toHaveLength(2);
@@ -64,7 +65,8 @@ it('keeps the submit context and selected candidates from the open dialog when d
   fireEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
   await waitFor(() => expect(posts).toEqual([{
     url: '/purchase-requisitions/5/submit-edited',
-    body: { version: 2, round: 0, step: 'CREATE', purpose: '', approverId: 2, receiverId: 2, lines: [{ id: 8, productId: 4, quantity: 2 }] },
+    body: { version: 2, round: 0, step: 'CREATE', name: 'PR fixture', purpose: '', description: '', requisitionDate: null, requiredDate: null,
+      approverId: 2, receiverId: 2, lines: [{ id: 8, productId: 4, salesContractLineId: null, requirementDescription: '', brandId: 1, supplierId: 2, unitOfMeasureId: 1, taxRateId: 1, unitPrice: '8', quantity: '2' }] },
   }]));
 });
 
@@ -79,7 +81,7 @@ it('keeps deletion local, allows cancellation, and blocks save and submit after 
     '/purchase-requisitions/5/candidates': { approvers: [], receivers: [] },
   });
   wrap(<PurchaseRequisitionsPage initialId={5} />);
-  fireEvent.change(await screen.findByRole('textbox', { name: 'Mục đích sử dụng' }), { target: { value: 'Retained purpose' } });
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Mục đích đề nghị' }), { target: { value: 'Retained purpose' } });
   const remove = screen.getByRole('button', { name: 'Xóa dòng 1' });
   fireEvent.click(remove);
   expect(within(screen.getByRole('dialog')).getByText(/1 · PN-5 · Switch/)).toBeTruthy();
@@ -91,8 +93,89 @@ it('keeps deletion local, allows cancellation, and blocks save and submit after 
   fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
   fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
   expect(screen.getByRole('alert').textContent).toMatch(/ít nhất một dòng/);
-  expect((screen.getByRole('textbox', { name: 'Mục đích sử dụng' }) as HTMLTextAreaElement).value).toBe('Retained purpose');
+  expect((screen.getByRole('textbox', { name: 'Mục đích đề nghị' }) as HTMLTextAreaElement).value).toBe('Retained purpose');
   expect(posts).toEqual([]);
+});
+
+it('deletes selected PR line IDs locally, preserves order, and saves only retained rows', async () => {
+  const lines = [
+    { id: 8, partNumber: 'PN-5', productName: 'First duplicate', quantity: '1' },
+    { id: 9, partNumber: 'PN-5', productName: 'Retained duplicate', quantity: '2' },
+    { id: 10, partNumber: 'PN-6', productName: 'Removed item', quantity: '3' },
+    { id: 11, partNumber: 'PN-7', productName: 'Retained item', quantity: '4' },
+  ].map(line => ({ ...line, productId: 4, uom: 'PCS', unitPrice: '100', taxRate: '0' }));
+  const pr = {
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    createdBy: 1, createdByName: 'Sales', salesContractId: 9, salesContractNumber: 'SC-5', category: 'MATERIAL',
+    children: [], history: [], lines,
+  };
+  const posts = mockApi({
+    '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
+    '/purchase-requisitions/5/candidates': { approvers: [], receivers: [] },
+  });
+  wrap(<PurchaseRequisitionsPage initialId={5} />);
+  const row = (name: string) => screen.getByRole('cell', { name }).closest('tr')!;
+  const choose = (name: string) => fireEvent.click(within(row(name)).getByRole('checkbox'));
+  expect((await screen.findByRole<HTMLButtonElement>('button', { name: 'Xóa (0)' })).disabled).toBe(true);
+  choose('First duplicate');
+  choose('Removed item');
+  fireEvent.click(screen.getByRole('button', { name: 'Xóa (2)' }));
+  let dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText('Bạn có chắc chắn muốn xóa 2 dòng hàng hóa đã chọn?')).toBeTruthy();
+  fireEvent.click(dialog.getByRole('button', { name: 'Hủy bỏ' }));
+  expect((within(row('First duplicate')).getByRole<HTMLInputElement>('checkbox')).checked).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Xóa (2)' }));
+  dialog = within(screen.getByRole('dialog'));
+  fireEvent.click(dialog.getByRole('button', { name: 'Xóa hàng hóa' }));
+  expect(screen.queryByText('First duplicate')).toBeNull();
+  expect(screen.queryByText('Removed item')).toBeNull();
+  expect(within(row('Retained duplicate')).getByRole('cell', { name: '1' })).toBeTruthy();
+  expect(within(row('Retained item')).getByRole('cell', { name: '2' })).toBeTruthy();
+  expect(screen.getByText('2 dòng hàng hóa')).toBeTruthy();
+  expect(screen.getByText('600 VND')).toBeTruthy();
+  expect(screen.queryByTestId('WarningAmberRoundedIcon')).toBeNull();
+  expect((screen.getByRole<HTMLButtonElement>('button', { name: 'Xóa (0)' })).disabled).toBe(true);
+  expect(posts).toEqual([]);
+  fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+  await waitFor(() => expect(posts[0]).toMatchObject({
+    url: '/purchase-requisitions/5', body: { lines: [{ id: 9 }, { id: 11 }] },
+  }));
+});
+
+it('blocks save and submit after deleting all selected rows', async () => {
+  const pr = {
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    createdBy: 1, createdByName: 'Sales', salesContractId: 9, salesContractNumber: 'SC-5', category: 'MATERIAL',
+    children: [], history: [], lines: [{ id: 8, productId: 4, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
+  };
+  const posts = mockApi({
+    '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
+    '/purchase-requisitions/5/candidates': { approvers: [], receivers: [] },
+  });
+  wrap(<PurchaseRequisitionsPage initialId={5} />);
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Chọn tất cả dòng đang hiển thị' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Xóa (1)' }));
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Xóa hàng hóa' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Lưu nháp' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+  expect(screen.getByRole('alert').textContent).toMatch(/ít nhất một dòng/);
+  expect(posts).toEqual([]);
+});
+
+it('clears only the PR search keyword and resets the page', async () => {
+  mockApi({ '/auth/me': me(['PR.VIEW']), '/purchase-requisitions': { items: [], total: 100 } });
+  wrap(<PurchaseRequisitionsPage />, '/purchase-requisitions?q=Relay&category=MATERIAL&sort=name&direction=asc&page=2');
+  const search = await screen.findByRole<HTMLInputElement>('textbox', { name: 'Tìm kiếm' });
+  expect(search.placeholder).toBe('Nhập mã PR, tên PR, mã HĐ hoặc tên khách hàng...');
+  expect(search.value).toBe('Relay');
+  fireEvent.click(screen.getByRole('button', { name: 'Xóa từ khóa tìm kiếm' }));
+  expect(search.value).toBe('');
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([request]) => {
+    const url = new URL(String(request));
+    return url.pathname === '/purchase-requisitions' && !url.searchParams.has('q')
+      && url.searchParams.get('category') === 'MATERIAL' && url.searchParams.get('sort') === 'name'
+      && url.searchParams.get('direction') === 'asc' && url.searchParams.get('page') === '1';
+  })).toBe(true));
 });
 
 it('shows Reassign only on the pending card and requires a replacement and a reason', async () => {

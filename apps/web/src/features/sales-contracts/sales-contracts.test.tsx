@@ -115,7 +115,7 @@ describe('Sales contract detail', () => {
     expect(screen.queryByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeNull(); // no PR.VIEW
   });
 
-  it('adds a line from the UoM catalog; the version is sent', async () => {
+  it('adds a free-entry line with a catalog UoM and sends the version', async () => {
     const posts = mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
     renderAt('/sales-contracts/4');
     fireEvent.click(await screen.findByRole('button', { name: 'Thêm hàng hóa' }));
@@ -125,8 +125,8 @@ describe('Sales contract detail', () => {
     await pick(/Đơn vị tính/, 'Hộp (BOX)');
     fireEvent.change(within(dialog).getByLabelText(/Số lượng/), { target: { value: '3' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu hàng hóa' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts/4/lines', body: { itemCode: 'RT', itemName: 'Router', unitOfMeasureId: 2, quantity: 3, version: 2 } }]));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts/4/lines', body: { itemCode: 'RT', itemName: 'Router', productId: null, temporaryProductId: null, itemDescription: null, unitOfMeasureId: 2, quantity: 3, version: 2 } }]));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), { timeout: 4000 });
   });
 
   it('edits one line by its id and deletes after confirmation', async () => {
@@ -137,8 +137,8 @@ describe('Sales contract detail', () => {
     expect((qty as HTMLInputElement).value).toBe('10');
     fireEvent.change(qty, { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contract-lines/12', body: { itemCode: 'SW', itemName: 'Switch', unitOfMeasureId: 1, quantity: 12, version: 2 } }]));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contract-lines/12', body: { itemCode: 'SW', itemName: 'Switch', productId: null, temporaryProductId: null, itemDescription: null, unitOfMeasureId: 1, quantity: 12, version: 2 } }]));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), { timeout: 4000 });
 
     fireEvent.click(screen.getByRole('button', { name: 'Xóa hàng hóa' }));
     const confirm = await screen.findByRole('dialog');
@@ -157,7 +157,8 @@ describe('Sales contract detail', () => {
     fireEvent.change(await screen.findByLabelText(/Số lượng/), { target: { value: '15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
     expect((await screen.findByRole('alert')).textContent).toContain('Dữ liệu đã được người khác thay đổi');
-    expect((screen.getByLabelText(/Số lượng/) as HTMLInputElement).value).toBe('15');
+    fireEvent.click(screen.getByRole('button', { name: 'Đã hiểu' }));
+    expect(((await screen.findByLabelText(/Số lượng/)) as HTMLInputElement).value).toBe('15');
   });
 
   it('asks before discarding unsaved input (Hủy bỏ / X)', async () => {

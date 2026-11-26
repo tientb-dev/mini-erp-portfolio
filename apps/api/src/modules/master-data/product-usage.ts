@@ -8,19 +8,11 @@ import { BusinessError } from '../workflow/workflow';
  * so an edit can never slip between "check unused" and "first document reference".
  */
 export class ProductUsage {
-  static async assertActiveProducts(m: EntityManager, productIds: number[]): Promise<void> {
-    const ids = [...new Set(productIds)];
-    const active: { id: number }[] = await m.query(
-      'SELECT id FROM products WHERE id = ANY($1::int[]) AND is_active ORDER BY id FOR SHARE', [ids],
-    );
-    if (active.length !== ids.length) throw new BusinessError('PRODUCT_NOT_FOUND', 'A PR line refers to an inactive product');
-  }
-
-  /** Locks the product for share (blocks concurrent edits) and sets the usage markers once. */
-  static async markUsed(m: EntityManager, productId: number, opts: { stock: boolean }): Promise<{ unitOfMeasureId: number; isSerialTracked: boolean }> {
+  /** Locks the product for update (blocks concurrent edits) and sets the usage markers once. */
+  static async markUsed(m: EntityManager, productId: number, opts: { stock: boolean; existingReference?: boolean }): Promise<{ unitOfMeasureId: number; isSerialTracked: boolean }> {
     const [p] = await m.query(
-      `SELECT is_used, is_stock_used, unit_of_measure_id, is_serial_tracked FROM products WHERE id = $1 AND is_active FOR SHARE`,
-      [productId],
+      `SELECT is_used, is_stock_used, unit_of_measure_id, is_serial_tracked FROM products WHERE id = $1 AND (is_active OR $2) FOR UPDATE`,
+      [productId, Boolean(opts.existingReference)],
     );
     if (!p) throw new BusinessError('PRODUCT_NOT_FOUND', `Product ${productId} not found or inactive`);
     if (!p.is_used || (opts.stock && !p.is_stock_used)) {

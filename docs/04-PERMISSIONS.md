@@ -18,17 +18,23 @@
 ## 2. Vai trò nghiệp vụ chính
 | Vai trò | Trách nhiệm |
 |---|---|
-| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT` (quyền `SALES_CONTRACT.CREATE`; khóa từ `ACTIVE`, CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`; xem tất cả HĐ (chưa phân quyền xem theo khách hàng); **xem (chỉ xem) PR của HĐ mình là Sales phụ trách** dù không có `PR.VIEW` (ADR-0014); xác nhận/từ chối Product được phép giao cho dòng HĐ |
+| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT` (hiện dùng `SALES_CONTRACT.CREATE`; khóa từ `ACTIVE`, CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`; xem HĐ theo quyền VIEW (hiện chưa lọc theo khách hàng); **xem (chỉ xem) PR của HĐ mình là Sales phụ trách** dù không có `PR.VIEW` (ADR-0014); xác nhận/từ chối Product được phép giao cho dòng HĐ |
 | Người phụ trách nguồn hàng | Sales phụ trách HĐ nguồn, ghi trên lô khi duyệt GR và bất biến (CT15, CT17); MVP không chuyển giao tồn giữa Sales. Bước 1 (đồng ý) của GIR `AVAILABLE_STOCK` lấy hàng thuộc mình; có thể khác Sales của HĐ nhận hàng |
 | PM | Tạo GIR; đề xuất Product thay thế cho dòng HĐ kèm lý do; không tự xác nhận thay Sales |
 | Quản lý kho | Phụ trách GI; duyệt GIR (bước cuối với `AVAILABLE_STOCK`); "Xác nhận hoàn thành xuất" GIR |
 Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư và bốn luồng GIR (ADR-0012) không thêm bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng. Người được giao bước 1 của GIR `AVAILABLE_STOCK` phải là người phụ trách nguồn hàng của GIR đó (kiểm tra ở mức dữ liệu như §3); mã quyền `GIR.SALES_CONFIRM`; hệ thống chỉ cho giao bước 1 cho Sales nguồn ghi trên GIR (CT7, IM30).
+
+### HĐ bán · Phase 5.2.3
+
+Action Permission độc lập với Data Scope. Backend kiểm permission, scope và trạng thái. Cây tổ chức không cấp quyền và implementation không hardcode role/phòng ban. BA chưa chốt việc tách Tạo/Sửa/Chốt/Hủy và phạm vi dữ liệu cụ thể của HĐ. Quyền đề xuất/xác nhận mã giao trong bảng vai trò là hành vi legacy của baseline và nằm trong danh sách loại bỏ khi triển khai HĐ mới. Tạo PR từ HĐ tiếp tục theo quyền, scope PR và HĐ ACTIVE.
 
 ## 3. Người duyệt mặc định
 
 **PR sau UAT (ADR-0015).** Organization độc lập với Authorization. Cây tổ chức không cấp hoặc kế thừa quyền. Quyền nghiệp vụ dựa trên permission và cấu hình eligibility, không hardcode tên Role. `PR.CONFIGURE` quản lý cấu hình. `PR.REASSIGN` cho phép phân công lại PR trong phạm vi đọc được cấp. Creator có `PR.CREATE` được đổi bước hiện tại trên PR của mình. Người tiếp nhận hiện tại còn đủ eligibility được chuyển giao bước tiếp nhận. Vai trò người phê duyệt không tự cấp quyền chuyển giao. Thu hồi eligibility có hiệu lực ngay.
 
 Quyền xem PR cho phép đọc và thêm ghi chú ở mọi trạng thái, kể cả Hoàn tất (ADR-0016).
+
+Danh mục hãng, mã tạm, tiền tệ và thuế dùng `PRODUCT.VIEW` để đọc và `PROCUREMENT_CATALOG.MANAGE` để quản lý. Xem NCC theo hãng cần `SUPPLIER.VIEW`; thay quan hệ hãng–NCC cần cả quyền đọc NCC lẫn quyền quản lý danh mục. Quản lý ĐVT dùng `UOM.MANAGE` và đọc ĐVT giữ `PRODUCT.VIEW`. Sửa khách hàng và NCC lần lượt dùng `CUSTOMER.UPDATE` và `SUPPLIER.UPDATE`. Các endpoint `PATCH /<danh-mục>/:id/status` dùng quyền cập nhật hoặc quản lý tương ứng của từng danh mục, giữ nguyên quyền đọc.
 - Hệ thống tự điền người duyệt theo role/bước duyệt; có dropdown cho chọn người khác đủ điều kiện.
 - Người duyệt mặc định cấu hình theo role hoặc bước duyệt, không dùng một flag chung cho mọi nghiệp vụ.
 - Không có mặc định và có nhiều người hợp lệ → người tạo phải chọn.
@@ -60,3 +66,10 @@ Quyền xem PR cho phép đọc và thêm ghi chú ở mọi trạng thái, kể
 
 ## Quy ước thuật ngữ và tên bảng
 PR = Purchase Requisition (`purchase_requisitions`); PO = Purchase Order (`purchase_orders`); GRR = Goods Receipt Request (`goods_receipt_requests`); GR = Goods Receipt (`goods_receipts`); GIR = Goods Issue Request (`goods_issue_requests`); GI = Goods Issue (`goods_issues`). Các bảng dòng dùng hậu tố `_lines`. Tham chiếu chi tiết xem `01-MVP-SCOPE.md`.
+
+## Quyền Common Dossier
+
+- `DOSSIER_TYPE.VIEW` đọc danh mục loại hồ sơ. `DOSSIER_TYPE.MANAGE` tạo, sửa và đổi trạng thái. Loại hồ sơ áp dụng vòng đời Active/Inactive của Master Data.
+- `DOSSIER_CONFIG.MANAGE` đọc và cập nhật cấu hình, kèm quyền đọc danh sách loại hồ sơ trong picker cấu hình.
+- `PR.DOSSIER_MANAGE` cho phép cập nhật Có bản giấy và metadata chung của hồ sơ, tải tạm, thay thế, gỡ liên kết và lưu hồ sơ trong phạm vi đọc của PR. Procurement kiểm tra lại quyền, phạm vi và trạng thái khác Đã hủy ở lần lưu. Quyền này độc lập với `PR.CREATE`. Tạo PR có upload tạm cần cả hai quyền. Người có quyền đọc PR xem hồ sơ và tải file đã lưu trong cùng phạm vi, kể cả khi PR đã hủy. File tạm chỉ truy cập được từ ngữ cảnh chỉnh sửa của người tải lên.
+- Migration và seed cấp bốn quyền trên cho Admin theo convention của hệ thống.

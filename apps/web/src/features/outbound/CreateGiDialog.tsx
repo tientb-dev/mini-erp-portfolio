@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { SearchAutocompleteInput } from '../../shared/components/SearchInput';
 import { Autocomplete, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
@@ -25,7 +26,7 @@ export function CreateGiDialog({ gir, onClose, onCreated }: { gir: GirDetail; on
     onSuccess: (r) => onCreated(r.id),
   });
   return (
-    <FormDialog title={t('gi.create')} submitLabel={t('gi.create')} error={create.error} pending={create.isPending}
+    <FormDialog title={t('gi.create')} submitLabel={t('gi.create')} submitAction="add" error={create.error} pending={create.isPending}
       canSubmit={lines.some((l) => num(qty[l.id] ?? 0) > 0)} onSubmit={() => create.mutate()} onClose={onClose}>
       <Typography variant="body2" color="text.secondary">{t('gi.createHint')}</Typography>
       {lines.map((l) => (
@@ -47,15 +48,17 @@ function SerialPicker({ girLineId, max, value, onChange }: {
   girLineId: number; max: number; value: { goodsReceiptDetailId: number; serialNumber: string }[]; onChange: (v: typeof value) => void;
 }) {
   const { t } = useTranslation();
+  const [keyword, setKeyword] = useState('');
   const options = useQuery({
     queryKey: ['serials', girLineId],
     queryFn: () => api<{ goodsReceiptDetailId: number; serialNumber: string }[]>(`/goods-issue-request-lines/${girLineId}/available-serials`),
   });
   return (
-    <Autocomplete multiple size="small" options={options.data ?? []} value={value} loading={options.isLoading}
+    <Autocomplete multiple inputValue={keyword} onInputChange={(_, value) => setKeyword(value)} clearText={t('common.clearSearch')} size="small" options={options.data ?? []} value={value} loading={options.isLoading}
       getOptionLabel={(o) => o.serialNumber} isOptionEqualToValue={(a, b) => a.goodsReceiptDetailId === b.goodsReceiptDetailId}
       getOptionDisabled={(o) => value.length >= max && !value.some((v) => v.goodsReceiptDetailId === o.goodsReceiptDetailId)}
       onChange={(_e, v) => onChange(v)}
-      renderInput={(params) => <TextField {...params} label={t('gi.serials', { selected: value.length, max })} />} />
+      renderInput={params => <SearchAutocompleteInput params={params} label={t('gi.serials', { selected: value.length, max })}
+        placeholder={t('searchFields.serial')} keyword={keyword} onClear={() => setKeyword('')} />} />
   );
 }

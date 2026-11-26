@@ -166,7 +166,7 @@ export class InventoryFacade {
       `SELECT l.source_sales_contract_id AS "sourceSalesContractId", l.owner_user_id AS "sourceOwnerUserId", u.full_name AS "sourceOwnerName",
               l.product_id AS "productId", p.part_number AS "partNumber", p.name AS "productName", SUM(l.on_hand_quantity - l.reserved_quantity) AS available
          FROM inventory_lots l JOIN users u ON u.id = l.owner_user_id JOIN products p ON p.id = l.product_id
-        WHERE l.warehouse_id = $1 AND l.on_hand_quantity > l.reserved_quantity
+        WHERE l.warehouse_id = $1 AND p.is_active AND l.on_hand_quantity > l.reserved_quantity
         GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 2, 4`,
       [warehouseId],
     ) as Promise<{ sourceSalesContractId: number; sourceOwnerUserId: number; sourceOwnerName: string; productId: number; partNumber: string;

@@ -1,6 +1,7 @@
 import { EntityManager } from 'typeorm';
 
-export type DocumentTarget = 'PR' | 'PO' | 'GRR' | 'GR' | 'GIR' | 'GI' | 'SALES_CONTRACT';
+export const DOCUMENT_TARGETS = ['PR', 'PO', 'GRR', 'GIR', 'GR', 'GI', 'SALES_CONTRACT'] as const;
+export type DocumentTarget = typeof DOCUMENT_TARGETS[number];
 export const DOCUMENT_PAGE_SIZE = 25;
 
 export interface ActivityDetails {

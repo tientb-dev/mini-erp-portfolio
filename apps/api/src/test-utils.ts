@@ -26,6 +26,10 @@ export async function bootTestApp(): Promise<{ app: INestApplication; ds: DataSo
   await setup.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await setup.runMigrations();
   await seed(setup);
+  await setup.query(`INSERT INTO brands (code, name) VALUES ('TEST', 'Test brand')`);
+  await setup.query(`INSERT INTO suppliers (id, code, name) VALUES (900001, 'PR-TEST', 'PR fixture supplier');
+    INSERT INTO tax_rates (id, code, name, rate) VALUES (900001, 'PR-TEST', 'Zero tax fixture', 0);
+    INSERT INTO brand_suppliers (brand_id, supplier_id) SELECT id, 900001 FROM brands WHERE code = 'TEST'`);
   await setup.query(`INSERT INTO pr_candidate_pool_members (pool, user_id)
     SELECT fixture.pool, u.id FROM (VALUES ('SALES','sales-head'), ('PM','pm-head'), ('RECEIPT','purchaser')) fixture(pool, username)
     JOIN users u ON u.username = fixture.username`);
@@ -54,4 +58,10 @@ export async function prSubmission(ds: DataSource, id: number, route = 'SALES') 
   const users = await ds.query(`SELECT username, id FROM users WHERE username IN ('sales-head', 'pm-head', 'purchaser')`);
   return { ...await prContext(ds, id), approverId: users.find((u: { username: string }) => u.username === (route === 'PM' ? 'pm-head' : 'sales-head')).id as number,
     receiverId: users.find((u: { username: string }) => u.username === 'purchaser').id as number };
+}
+
+export const prFixtureHeader = { name: 'Purchase requisition fixture' };
+export const prFixturePrice = { supplierId: 900001, taxRateId: 900001, unitPrice: '100' };
+export function pricedPr<T extends { lines: object[] }>(body: T) {
+  return { ...prFixtureHeader, ...body, lines: body.lines.map(line => ({ ...prFixturePrice, ...line })) };
 }

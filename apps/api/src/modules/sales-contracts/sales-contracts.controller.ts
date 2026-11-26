@@ -1,13 +1,16 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, Max, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, MaxLength, Max, Min, ValidateNested } from 'class-validator';
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { SalesContractsService } from './sales-contracts.service';
 
 class LineFieldsDto {
-  @ApiProperty() @IsString() @IsNotEmpty() itemCode!: string;
-  @ApiProperty() @IsString() @IsNotEmpty() itemName!: string;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @Min(1) productId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @Min(1) temporaryProductId?: number | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() itemDescription?: string | null;
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(100) itemCode!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(300) itemName!: string;
   @ApiProperty({ description: 'units_of_measure.id' }) @IsInt() unitOfMeasureId!: number;
   @ApiProperty() @IsPositive() quantity!: number;
 }

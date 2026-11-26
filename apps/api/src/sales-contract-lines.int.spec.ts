@@ -38,6 +38,222 @@ describe('Sales contract lines (integration)', () => {
     await app?.close();
   });
 
+  it('PR19: manages catalog entries under permissions and replaces brand suppliers atomically', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    await post(sales, '/brands', { code: 'B19', name: 'Brand 19' }).expect(403);
+    const brand = (await post(admin, '/brands', { code: 'B19', name: 'Brand 19' }).expect(201)).body;
+    const secondBrand = (await post(admin, '/brands', { code: 'B20', name: 'Brand 20' }).expect(201)).body;
+    await patch(admin, `/brands/${brand.id}`, { code: 'B19', name: 'Brand 19 updated' }).expect(200);
+    await post(admin, '/brands', { code: 'B19', name: 'Duplicate' }).expect(409);
+    const supplier = (await post(admin, '/suppliers', { code: 'B19-S', name: 'Supplier' }).expect(201)).body;
+    for (const id of [brand.id, secondBrand.id]) {
+      await http().put(`/brands/${id}/suppliers`).set(as(admin)).send({ supplierIds: [supplier.id] }).expect(204);
+      expect((await get(admin, `/brands/${id}/suppliers`).expect(200)).body).toEqual([expect.objectContaining({ id: supplier.id })]);
+    }
+    await http().put(`/brands/${brand.id}/suppliers`).set(as(admin)).send({ supplierIds: [999999] }).expect(422);
+    expect((await get(admin, `/brands/${brand.id}/suppliers`).expect(200)).body).toHaveLength(1);
+    await get(sales, `/brands/${brand.id}/suppliers`).expect(403);
+    await post(admin, '/products', { partNumber: 'B19-P', name: 'Missing brand', unitOfMeasureId: pcs }).expect(400);
+    const product = (await post(admin, '/products', { partNumber: 'B19-P', name: 'Branded', unitOfMeasureId: pcs, brandId: brand.id }).expect(201)).body;
+    await patch(admin, `/products/${product.id}`, { brandId: null }).expect(400);
+    await patch(admin, `/products/${product.id}`, { brandId: secondBrand.id }).expect(200);
+    await del(admin, `/brands/${secondBrand.id}`).expect(404);
+
+    const currencies = (await get(sales, '/currencies').expect(200)).body;
+    expect(currencies[0]).toMatchObject({ code: 'VND', exchangeRate: '1.00000000', decimalPlaces: 0 });
+    await patch(admin, `/currencies/${currencies[0].id}`, { code: 'VND', name: 'VND', exchangeRate: '2', decimalPlaces: 0 }).expect(422);
+    await del(admin, `/currencies/${currencies[0].id}`).expect(404);
+    const usd = { code: 'USD', name: 'US dollar', exchangeRate: '0', decimalPlaces: 2 };
+    await post(admin, '/currencies', usd).expect(422);
+    await post(admin, '/currencies', { ...usd, exchangeRate: '25123.123456789' }).expect(400);
+    const currency = (await post(admin, '/currencies', { ...usd, exchangeRate: '25123.12345678' }).expect(201)).body;
+    expect(currency.exchangeRate).toBe('25123.12345678');
+
+    await post(admin, '/tax-rates', { code: 'OVER', name: 'Invalid', rate: '100.0001' }).expect(422);
+    const tax = (await post(admin, '/tax-rates', { code: 'ZERO', name: 'Zero tax', rate: '0' }).expect(201)).body;
+    expect(tax.rate).toBe('0.0000');
+    await del(admin, `/tax-rates/${tax.id}`).expect(404);
+  });
+
+  it('persists optional descriptions and exposes no physical delete for all ten catalogs', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const basic = { code: 'F02', name: 'Description fixture' };
+    const catalogs = [
+      ['/brands', basic, 200], ['/temporary-products', basic, 200], ['/units-of-measure', basic, 204],
+      ['/warehouses', basic, 200], ['/customers', basic, 204], ['/suppliers', basic, 204],
+      ['/currencies', { ...basic, code: 'CAD', exchangeRate: '17000', decimalPlaces: 2 }, 200],
+      ['/tax-rates', { ...basic, rate: '8' }, 200], ['/dossier-types', basic, 200],
+      ['/products', { name: basic.name, partNumber: basic.code, brandId: 1, unitOfMeasureId: pcs }, 200],
+    ] as const;
+    for (const [route, body, updateStatus] of catalogs) {
+      const { id } = (await post(admin, route, body).expect(201)).body;
+      const find = async () => (await get(admin, route).expect(200)).body.find((item: { id: number }) => item.id === id);
+      expect((await find()).description).toBeNull();
+      await patch(admin, route + '/' + id, { ...body, description: 'Mô tả thử nghiệm' }).expect(updateStatus);
+      await post(admin, route, { ...body, description: 'Copy using original code' }).expect(409);
+      await del(admin, route + '/' + id).expect(404);
+      expect(await find()).toMatchObject({ description: 'Mô tả thử nghiệm', isActive: true });
+    }
+  });
+
+  it('creates a brand and multiple supplier links atomically and retains saved inactive suppliers', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const first = (await post(admin, '/suppliers', { code: 'LINK-A', name: 'A' }).expect(201)).body.id;
+    const second = (await post(admin, '/suppliers', { code: 'LINK-B', name: 'B' }).expect(201)).body.id;
+    const body = { code: 'F06', name: 'Links fixture', description: 'Initial' };
+    await post(admin, '/brands', { ...body, supplierIds: [first, first] }).expect(400);
+    await post(admin, '/brands', { ...body, supplierIds: [first, 999999] }).expect(422);
+    expect((await get(admin, '/brands').expect(200)).body).not.toContainEqual(expect.objectContaining({ code: body.code }));
+    const { id } = (await post(admin, '/brands', { ...body, supplierIds: [first, second] }).expect(201)).body;
+    const links = async () => (await get(admin, `/brands/${id}/suppliers`).expect(200)).body;
+    expect(await links()).toHaveLength(2);
+    await patch(admin, `/suppliers/${second}/status`, { isActive: false }).expect(204);
+    await patch(admin, `/brands/${id}`, { ...body, supplierIds: [first, second] }).expect(200);
+    expect(await links()).toContainEqual(expect.objectContaining({ id: second, isActive: false }));
+    await post(admin, '/brands', { ...body, code: 'F06-COPY', supplierIds: [second] }).expect(422);
+    await patch(admin, `/brands/${id}`, { ...body, description: 'Rejected', supplierIds: [999999] }).expect(422);
+    expect(await links()).toHaveLength(2);
+    expect((await get(admin, '/brands').expect(200)).body).toContainEqual(expect.objectContaining({ id, description: 'Initial' }));
+  });
+
+  it('PR19: saves three line sources, duplicate codes and historical snapshots without creating delivery approvals', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const product = (await post(admin, '/products', { partNumber: 'MIXED', name: 'Main product', description: 'Main snapshot',
+      unitOfMeasureId: pcs, brandId: 1 }).expect(201)).body;
+    const temporary = (await post(admin, '/temporary-products', { code: 'MIXED', name: 'Temporary product', description: 'Original' }).expect(201)).body;
+    const free = { ...line('MIXED'), itemDescription: 'Free snapshot' };
+    const sc = (await post(sales, '/sales-contracts', { customerId, lines: [
+      { ...line('Ignored'), productId: product.id },
+      { ...line('Ignored'), temporaryProductId: temporary.id },
+      free,
+    ] }).expect(201)).body.id;
+    const detailBefore = (await get(sales, `/sales-contracts/${sc}`).expect(200)).body;
+    const [mainLine, temporaryLine, freeLine] = detailBefore.lines;
+    expect(mainLine).toMatchObject({ itemCode: 'MIXED', itemName: 'Main product', productId: product.id,
+      itemDescription: 'Main snapshot', temporaryProductId: null, products: [] });
+    expect(temporaryLine).toMatchObject({ itemCode: 'MIXED', itemDescription: 'Original', productId: null, temporaryProductId: temporary.id, products: [] });
+    expect(freeLine).toMatchObject({ itemCode: 'MIXED', itemDescription: 'Free snapshot', productId: null, temporaryProductId: null, products: [] });
+    expect((await get(sales, '/products').expect(200)).body.filter((p: { partNumber: string }) => p.partNumber === 'MIXED')).toHaveLength(1);
+    expect((await get(sales, '/temporary-products').expect(200)).body.filter((p: { code: string }) => p.code === 'MIXED')).toHaveLength(1);
+
+    await patch(admin, `/temporary-products/${temporary.id}`, { code: 'CHANGED', name: 'Changed', description: 'Updated' }).expect(200);
+    await patch(admin, `/products/${product.id}`, { description: 'Changed' }).expect(200);
+    expect((await get(sales, `/sales-contracts/${sc}`).expect(200)).body.lines).toEqual(detailBefore.lines);
+    const bad = { ...free, productId: product.id, temporaryProductId: temporary.id, version: detailBefore.version };
+    await post(sales, `/sales-contracts/${sc}/lines`, bad).expect(422);
+    await expect(ds.query('UPDATE sales_contract_lines SET product_id=$2 WHERE id=$1',
+      [temporaryLine.id, product.id])).rejects.toMatchObject({ code: '23514' });
+    await patch(sales, `/sales-contract-lines/${temporaryLine.id}`, { ...line('CHANGED', 2), temporaryProductId: temporary.id, itemDescription: 'Contract requirement',
+      version: detailBefore.version }).expect(204);
+    const changed = (await get(sales, `/sales-contracts/${sc}`).expect(200)).body.lines[1];
+    expect((await get(sales, '/temporary-products').expect(200)).body).toContainEqual(expect.objectContaining({ id: temporary.id, description: 'Updated' }));
+    expect(changed).toMatchObject({ id: temporaryLine.id, itemCode: 'MIXED', itemDescription: 'Contract requirement', quantity: '2.000' });
+  });
+
+  it('Phase 1.1: edits catalogs by permission and sets explicit active status', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const uom = (await post(admin, '/units-of-measure', { code: 'P11', name: 'Pack' }).expect(201)).body;
+    await patch(sales, `/units-of-measure/${uom.id}`, { code: 'P11', name: 'Pack 11' }).expect(403);
+    await patch(admin, `/units-of-measure/${uom.id}`, { code: 'P11', name: 'Pack 11' }).expect(204);
+    const customer = (await post(admin, '/customers', { code: 'C11', name: 'Customer 11' }).expect(201)).body;
+    await patch(sales, `/customers/${customer.id}`, { code: 'C11', name: 'Edited' }).expect(403);
+    await patch(admin, `/customers/${customer.id}`, { code: 'C11', name: 'Edited' }).expect(204);
+    const supplier = (await post(admin, '/suppliers', { code: 'S11', name: 'Supplier 11' }).expect(201)).body;
+    await patch(admin, `/suppliers/${supplier.id}`, { code: 'S11', name: 'Supplier edited' }).expect(204);
+    await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [supplier.id] }).expect(200);
+    await patch(admin, '/brands/1', { code: 'TEST', name: 'Rolled back', supplierIds: [999999] }).expect(422);
+    expect((await get(admin, '/brands').expect(200)).body).toContainEqual(expect.objectContaining({ id: 1, code: 'TEST', name: 'Renamed', isActive: true }));
+    expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([expect.objectContaining({ id: supplier.id, code: 'S11', name: 'Supplier edited' })]);
+    await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [] }).expect(200);
+    expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([]);
+    expect((await get(admin, '/suppliers').expect(200)).body).toContainEqual(expect.objectContaining({ id: supplier.id, code: 'S11', name: 'Supplier edited', isActive: true }));
+
+    const product = (await post(admin, '/products', {
+      partNumber: 'P11', name: 'Product 11', unitOfMeasureId: uom.id, brandId: 1,
+    }).expect(201)).body;
+    await patch(sales, `/products/${product.id}/status`, { isActive: false }).expect(403);
+    await patch(admin, `/products/${product.id}/status`, { isActive: 'false' }).expect(400);
+    for (const isActive of [false, false, true]) {
+      const result = await patch(admin, `/products/${product.id}/status`, { isActive }).expect(200);
+      expect(result.body).toMatchObject({ id: product.id, isActive, name: 'Product 11' });
+    }
+    const warehouse = (await post(admin, '/warehouses', { code: 'W11', name: 'Warehouse 11' }).expect(201)).body;
+    await patch(admin, `/warehouses/${warehouse.id}/status`, { isActive: false }).expect(204);
+    expect((await get(admin, '/warehouses').expect(200)).body).toContainEqual(expect.objectContaining({ id: warehouse.id, isActive: false }));
+  });
+
+  it('maintains active-only selections, status guards and inactive historical references', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const add = async (path: string, fields: object) => (await post(admin, path, fields).expect(201)).body.id as number;
+    const setStatus = (path: string, id: number, isActive: boolean, status = 204) =>
+      patch(admin, `${path}/${id}/status`, { isActive }).expect(status);
+
+    const brand = await add('/brands', { code: 'STATUS-B', name: 'Brand' });
+    const uom = await add('/units-of-measure', { code: 'STATUS-U', name: 'Unit' });
+    const product = await add('/products', { partNumber: 'STATUS-P', name: 'Main', brandId: brand, unitOfMeasureId: uom });
+    const temp = await add('/temporary-products', { code: 'STATUS-T', name: 'Temporary' });
+    const customer = await add('/customers', { code: 'STATUS-C', name: 'Customer' });
+    const supplier = await add('/suppliers', { code: 'STATUS-S', name: 'Supplier' });
+    const rate = await add('/tax-rates', { code: 'STATUS-TAX', name: 'Tax', rate: '0' });
+    const currency = await add('/currencies', { code: 'ZUA', name: 'Foreign', exchangeRate: '2', decimalPlaces: 2 });
+    const warehouse = await add('/warehouses', { code: 'STATUS-W', name: 'Warehouse' });
+    const sc = (await post(sales, '/sales-contracts', { customerId: customer, lines: [
+      { ...line('STATUS-P', 1, uom), productId: product },
+      { ...line('STATUS-T', 1, uom), temporaryProductId: temp },
+    ] }).expect(201)).body.id;
+    expect((await setStatus('/brands', brand, false, 422)).body.code).toBe('CATALOG_HAS_ACTIVE_PRODUCTS');
+    expect((await setStatus('/units-of-measure', uom, false, 422)).body.code).toBe('CATALOG_HAS_ACTIVE_PRODUCTS');
+    const vnd = (await get(admin, '/currencies').expect(200)).body.find((row: { code: string }) => row.code === 'VND');
+    expect((await setStatus('/currencies', vnd.id, false, 422)).body.code).toBe('DEFAULT_CURRENCY_REQUIRED');
+    await patch(sales, `/temporary-products/${temp}/status`, { isActive: false }).expect(403);
+
+    for (const [path, id, status] of [
+      ['/products', product, 200], ['/brands', brand, 204], ['/units-of-measure', uom, 204],
+      ['/temporary-products', temp, 204], ['/customers', customer, 204], ['/suppliers', supplier, 204],
+      ['/tax-rates', rate, 204], ['/currencies', currency, 204], ['/warehouses', warehouse, 204],
+    ] as const) {
+      await setStatus(path, id, false, status);
+      expect((await get(admin, path).expect(200)).body).toContainEqual(expect.objectContaining({ id, isActive: false }));
+      expect((await get(admin, path + '?activeOnly=true').expect(200)).body).not.toContainEqual(expect.objectContaining({ id }));
+      expect((await get(admin, path + '?activeOnly=true&includeId=' + id).expect(200)).body).toContainEqual(expect.objectContaining({ id, isActive: false }));
+    }
+
+    await setStatus('/products', product, true, 422);
+    await setStatus('/brands', brand, true);
+    await setStatus('/products', product, true, 422);
+    await setStatus('/units-of-measure', uom, true);
+    await setStatus('/products', product, true, 200);
+    await setStatus('/products', product, false, 200);
+    expect((await post(sales, '/sales-contracts', { customerId: customer }).expect(422)).body.code).toBe('CUSTOMER_NOT_FOUND');
+    await patch(sales, `/sales-contracts/${sc}`, { customerId: customer, version: await version(sc) }).expect(204);
+    const detail = (await get(sales, `/sales-contracts/${sc}`).expect(200)).body;
+    expect(detail.lines).toHaveLength(2);
+    await patch(sales, `/sales-contract-lines/${detail.lines[0].id}`, {
+      ...line('STATUS-P', 2, uom), productId: product, version: detail.version,
+    }).expect(204);
+    await post(sales, `/sales-contracts/${sc}/lines`, {
+      ...line('STATUS-T', 1, uom), temporaryProductId: temp, version: await version(sc),
+    }).expect(422);
+    await post(sales, `/sales-contracts/${sc}/lines`, {
+      ...line('STATUS-P', 1, uom), productId: product, version: await version(sc),
+    }).expect(422);
+  });
+
+  it('serializes assigning a brand with deactivating that brand', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const brand = (await post(admin, '/brands', { code: 'CONCURRENT-B', name: 'Concurrent brand' }).expect(201)).body.id;
+    const [create, deactivate] = await Promise.all([
+      post(admin, '/products', { partNumber: 'CONCURRENT-P', name: 'Concurrent product', brandId: brand, unitOfMeasureId: pcs }),
+      patch(admin, `/brands/${brand}/status`, { isActive: false }),
+    ]);
+    expect([[201, 422], [422, 204]]).toContainEqual([create.status, deactivate.status]);
+    const [[current], [product]] = await Promise.all([
+      ds.query('SELECT is_active FROM brands WHERE id = $1', [brand]),
+      ds.query("SELECT is_active FROM products WHERE part_number = 'CONCURRENT-P'"),
+    ]);
+    expect(Boolean(product?.is_active) && !current.is_active).toBe(false);
+  });
+
   it('creates a header-only DRAFT; activation needs at least one line', async () => {
     const sc = (await post(sales, '/sales-contracts', { customerId, responsibleSalesUserId: salesId }).expect(201)).body.id;
     const d = (await get(sales, `/sales-contracts/${sc}`)).body;
@@ -89,7 +305,7 @@ describe('Sales contract lines (integration)', () => {
 
     // A product proposal references the line: deleting it would cascade business data, so it is refused.
     const [{ id: productId }] = await ds.query(
-      `INSERT INTO products (part_number, name, unit_of_measure_id, is_serial_tracked) VALUES ('PN-L1', 'P', $1, false) RETURNING id`, [pcs]);
+      `INSERT INTO products (part_number, name, unit_of_measure_id, is_serial_tracked, brand_id) VALUES ('PN-L1', 'P', $1, false, 1) RETURNING id`, [pcs]);
     await post(pm, `/sales-contract-lines/${lineId}/product-proposals`, { productId, reason: 'r' }).expect(201);
     expect((await del(sales, `/sales-contract-lines/${lineId}?version=${d.version}`).expect(409)).body.code).toBe('RECORD_IN_USE');
 

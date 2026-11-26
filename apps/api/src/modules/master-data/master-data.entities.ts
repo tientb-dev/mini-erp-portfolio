@@ -2,6 +2,8 @@ import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGenerat
 
 @Entity('units_of_measure')
 export class UnitOfMeasure {
+  @Column({ type: 'text', nullable: true }) description!: string | null;
+  @Column({ name: 'is_active', default: true }) isActive!: boolean;
   @PrimaryGeneratedColumn() id!: number;
   @Column({ unique: true }) code!: string;
   @Column() name!: string;
@@ -9,6 +11,7 @@ export class UnitOfMeasure {
 
 @Entity('warehouses')
 export class Warehouse {
+  @Column({ type: 'text', nullable: true }) description!: string | null;
   @PrimaryGeneratedColumn() id!: number;
   @Column({ unique: true }) code!: string;
   @Column() name!: string;
@@ -18,6 +21,7 @@ export class Warehouse {
 
 @Entity('products')
 export class Product {
+  @Column({ name: 'brand_id', type: 'int' }) brandId!: number;
   @PrimaryGeneratedColumn() id!: number;
   @Column({ name: 'part_number', unique: true }) partNumber!: string;
   @Column() name!: string;

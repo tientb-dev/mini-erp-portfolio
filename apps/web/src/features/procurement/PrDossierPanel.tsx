@@ -15,10 +15,9 @@ import { ScrollTable } from '../../shared/components/ScrollTable';
 import { parseDocumentDate } from '../../shared/utils/document-date';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import type { PrDossierModel, PrDossierRow } from './pr-dossier';
-import { tokens } from '../../config/theme';
 
 const fields = ['position', 'type', 'hasPaper', 'date', 'issuer', 'note', 'file'] as const;
-const widths = [48, 190, 64, 160, 150, undefined, '24%'];
+const widths = [48, 190, 116, 160, 150, undefined, '24%'];
 
 export function PrDossierPanel({ model, saving, onSave, onResult, templateConflict, onTemplateResolved }: {
   model: PrDossierModel; saving: boolean; onSave?: () => void; onResult: (result: ActionResult) => void;
@@ -62,12 +61,7 @@ export function PrDossierPanel({ model, saving, onSave, onResult, templateConfli
           </ActionButton>
         </Stack>}
         <ScrollTable label={t('prDossier.title')} columnWidths={widths} minWidth={980} maxHeight="min(46vh, 450px)">
-          <TableHead sx={{ position: 'sticky', top: 0, zIndex: 2, '& th': { position: 'static', bgcolor: tokens.gridHeader, py: 0.75 } }}>
-            <TableRow>
-              <TableCell colSpan={2} />
-              <TableCell align="center" scope="colgroup" colSpan={4}>{t('prDossier.paper')}</TableCell>
-              <TableCell align="center" scope="colgroup">{t('prDossier.electronic')}</TableCell>
-            </TableRow>
+          <TableHead>
             <TableRow>{fields.map(field => <TableCell key={field} scope="col" align={field === 'hasPaper' ? 'center' : undefined}
               sx={field === 'position' ? { px: 1 } : undefined}>
               <GridText value={t(`prDossier.${field}`)} />
@@ -75,7 +69,7 @@ export function PrDossierPanel({ model, saving, onSave, onResult, templateConfli
           </TableHead>
           <TableBody>{model.rows.map((row, index) => {
             const value = model.values(row);
-            const disabled = !value.hasPaper || saving;
+            const disabled = saving;
             const field = (key: 'issuer' | 'note', maxLength: number) => manage
               ? <TextField size="small" fullWidth disabled={disabled} value={value[key]}
                 onChange={event => model.update(row, { [key]: event.target.value })}

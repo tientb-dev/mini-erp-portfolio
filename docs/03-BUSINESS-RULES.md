@@ -5,7 +5,7 @@
 
 - **DOSSIER-001.** Hồ sơ dùng định danh loại chứng từ của Common Document Records. Module sở hữu chứng từ kiểm tra tồn tại, phạm vi đọc và trạng thái.
 - **DOSSIER-002.** Loại hồ sơ có mã duy nhất, tên, mô tả và trạng thái. Cấu hình theo loại chứng từ có thứ tự. Loại từng được áp dụng được giữ lại. Loại Inactive vẫn hiển thị trong cấu hình cũ và được bỏ qua khi tạo snapshot.
-- **DOSSIER-003.** Hồ sơ giấy độc lập với file điện tử. Bỏ chọn hồ sơ giấy vẫn giữ ngày phát hành, người phát hành và ghi chú.
+- **DOSSIER-003.** Có bản giấy mặc định bỏ tích và độc lập với file đính kèm. Ngày phát hành, người phát hành và ghi chú là metadata tùy chọn của hồ sơ. Người có quyền quản lý có thể sửa các trường này bất kể Có bản giấy. Bỏ tích giữ lại metadata.
 - **DOSSIER-004.** Mỗi loại hồ sơ chỉ có tối đa một file hiện hành trên một chứng từ. Giữ liên kết đã kết thúc để truy vết và giữ nguyên nội dung file vật lý đã tham chiếu.
 - **DOSSIER-005.** Lưu và phê duyệt chứng từ không phụ thuộc hồ sơ.
 - **DOSSIER-006.** Quyền xem và tải theo phạm vi đọc chứng từ. Với PR, quyền `PR.DOSSIER_MANAGE` độc lập với quyền sửa PR, cho phép cập nhật hồ sơ trong phạm vi đọc ở mọi trạng thái trừ Đã hủy. Lưu hồ sơ trong View giữ nguyên header, hàng hóa, phiên bản chứng từ và workflow.

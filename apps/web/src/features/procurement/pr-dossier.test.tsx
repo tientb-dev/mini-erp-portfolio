@@ -23,12 +23,12 @@ it('preserves local paper and file changes across tabs, blocks workflow, and sen
     [path]: { rows: [row], canManage: true } });
   const defaultFetch = vi.mocked(fetch).getMockImplementation()!;
   const save = vi.fn().mockImplementationOnce(() => json({ detail: 'Fixture: conflict' }, 409))
-    .mockImplementation(() => json({ rows: [{ ...row, hasPaper: false, file: null, version: 3 }], canManage: true }));
+    .mockImplementation(() => json({ rows: [{ ...row, hasPaper: false, issuer: 'NCC mới', file: null, version: 3 }], canManage: true }));
   vi.mocked(fetch).mockImplementation((url, init) =>
     init?.method === 'PUT' && String(url).endsWith(path) ? save(JSON.parse(String(init.body))) : defaultFetch(url, init));
   wrap(<PurchaseRequisitionsPage initialId={5} />);
   const panel = within(await dossierTab());
-  const checkbox = await panel.findByRole('checkbox', { name: 'Đã có · Báo giá' });
+  const checkbox = await panel.findByRole('checkbox', { name: 'Có bản giấy · Báo giá' });
   expect((panel.getByRole('button', { name: 'Lưu hồ sơ' }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(checkbox);
   fireEvent.click(panel.getByRole('button', { name: 'Xóa file đính kèm' }));
@@ -41,7 +41,9 @@ it('preserves local paper and file changes across tabs, blocks workflow, and sen
   fireEvent.click(screen.getByRole('tab', { name: 'Thông tin chung' }));
   const dossier = within(await dossierTab());
   expect((dossier.getByRole('textbox', { name: 'Người phát hành · Báo giá' }) as HTMLInputElement).value).toBe('NCC ABC');
-  expect((dossier.getByRole('textbox', { name: 'Người phát hành · Báo giá' }) as HTMLInputElement).disabled).toBe(true);
+  const issuer = dossier.getByRole<HTMLInputElement>('textbox', { name: 'Người phát hành · Báo giá' });
+  expect(issuer.disabled).toBe(false);
+  fireEvent.change(issuer, { target: { value: 'NCC mới' } });
   fireEvent.click(screen.getByRole('button', { name: 'Hủy chứng từ' }));
   expect(screen.getByRole('dialog').textContent).toContain('Hãy lưu hoặc bỏ thay đổi hồ sơ');
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Tiếp tục chỉnh sửa' }));
@@ -57,7 +59,7 @@ it('preserves local paper and file changes across tabs, blocks workflow, and sen
   expect(within(screen.getByRole('dialog')).queryByRole('button')).toBeNull();
   expect(save).toHaveBeenCalledTimes(2);
   expect(save).toHaveBeenLastCalledWith({ sessionKey: expect.any(String), rows: [
-    { dossierTypeId: 32, version: 2, hasPaper: false, issuedOn: '2026-11-25', issuer: 'NCC ABC', note: null, fileId: null },
+    { dossierTypeId: 32, version: 2, hasPaper: false, issuedOn: '2026-11-25', issuer: 'NCC mới', note: null, fileId: null },
   ] });
 });
 
@@ -86,7 +88,7 @@ it('keeps an attachment accessible in readonly and hides management actions', as
   wrap(<PurchaseRequisitionsPage initialId={5} />);
   const panel = within(await dossierTab());
   expect(await panel.findByRole('button', { name: 'Bao-gia.pdf' })).toBeTruthy();
-  expect((panel.getByRole('checkbox', { name: 'Đã có · Báo giá' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((panel.getByRole('checkbox', { name: 'Có bản giấy · Báo giá' }) as HTMLButtonElement).disabled).toBe(true);
   expect(panel.queryByRole('button', { name: 'Lưu hồ sơ' })).toBeNull();
   expect(panel.queryByRole('button', { name: 'Thay thế file đính kèm' })).toBeNull();
   expect(panel.getByText('25/11/2026')).toBeTruthy();
@@ -99,7 +101,7 @@ it('shows the configuration in Create and retains an invalid date during a tab c
     ] } });
   wrap(<PurchaseRequisitionsPage initialId={0} />);
   const panel = within(await dossierTab());
-  fireEvent.click(await panel.findByRole('checkbox', { name: 'Đã có · Báo giá' }));
+  fireEvent.click(await panel.findByRole('checkbox', { name: 'Có bản giấy · Báo giá' }));
   const date = panel.getByRole('textbox', { name: 'Ngày phát hành · Báo giá' }) as HTMLInputElement;
   fireEvent.change(date, { target: { value: '31/02/2026' } });
   fireEvent.click(screen.getByRole('tab', { name: 'Thông tin chung' }));

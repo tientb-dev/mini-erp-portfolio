@@ -61,11 +61,22 @@ export function DataTable<R extends GridValidRowModel>({ emptyHint, fill, error,
           loadingOverlay: () => null,
         }}
         {...props}
+        getRowClassName={params => [params.indexRelativeToCurrentPage % 2 ? 'common-grid-even' : '', props.getRowClassName?.(params)].join(' ')}
         // The caller's sx is merged after the table's own, never replacing it (overlay tint, pagination lock).
         sx={[
           {
+            '& .MuiDataGrid-row': {
+              '--grid-row-bg': tokens.surface,
+              bgcolor: 'var(--grid-row-bg)',
+              '&.common-grid-even': { '--grid-row-bg': tokens.gridEven },
+              '&:hover': { '--grid-row-bg': tokens.gridHover, bgcolor: 'var(--grid-row-bg)' },
+              '&.Mui-selected, &.Mui-selected:hover, &.common-grid-selected, &.common-grid-selected:hover': {
+                '--grid-row-bg': tokens.gridSelected, bgcolor: 'var(--grid-row-bg)',
+              },
+            },
+            '& .common-picker-check': { display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0, textOverflow: 'clip' },
             '& .MuiDataGrid-cell--textRight, & .MuiDataGrid-columnHeader--alignRight': { fontVariantNumeric: 'tabular-nums' },
-            '& .common-grid-actions': { position: 'sticky', right: 0, zIndex: 2, bgcolor: 'background.paper', borderLeft: 1, borderColor: 'divider' },
+            '& .common-grid-actions': { position: 'sticky', right: 0, zIndex: 2, bgcolor: 'var(--grid-row-bg, #fff)', borderLeft: 1, borderColor: tokens.gridSeparator },
             '& .MuiDataGrid-columnHeader.common-grid-actions': { zIndex: 4, bgcolor: tokens.gridHeader },
           },
           loading && { '& .MuiTablePagination-root': { pointerEvents: 'none', opacity: 0.6 } },

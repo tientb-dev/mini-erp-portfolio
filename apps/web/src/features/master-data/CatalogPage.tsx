@@ -21,7 +21,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const navigate = useNavigate();
   const permissions = useMe().data?.permissions ?? [];
   const path = `/${catalog.path}`;
-  const { search, state } = useLocation();
+  const { search, state, key: locationKey } = useLocation();
   const listParams = new URLSearchParams(search);
   listParams.delete('mode');
   listParams.delete('copy');
@@ -39,13 +39,15 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const uoms = useQuery({ queryKey: ['uoms', selecting ? 'selection' : 'list', entry?.unitOfMeasureId],
     queryFn: () => api<Entry[]>(selecting ? catalogSelectionPath('/units-of-measure', entry?.unitOfMeasureId) : '/units-of-measure'), enabled: isProduct });
   const [confirmation, setConfirmation] = useState<Entry>();
-  const [result, setResult] = useState<ActionResult | undefined>(state?.catalogResult);
+  const qc = useQueryClient();
+  const [result, setResult] = useState<ActionResult | undefined>(() =>
+    state?.catalogResult ?? qc.getQueryData<ActionResult>(['catalog-return-result', locationKey]));
   const dismissResult = useCallback(() => setResult(undefined), []);
   useEffect(() => {
+    qc.removeQueries({ queryKey: ['catalog-return-result', locationKey], exact: true });
     if (state?.catalogResult) navigate(listUrl, { replace: true, state: null });
-  }, [listUrl, navigate, state]);
+  }, [listUrl, locationKey, navigate, qc, state]);
   const [pending, setPending] = useState<number[]>([]);
-  const qc = useQueryClient();
   const updateStatus = useMutation({
     mutationFn: ({ row, isActive }: { row: Entry; isActive: boolean }) =>
       api(`${path}/${row.id}/status`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
@@ -87,6 +89,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const title = t(`nav.${catalog.key}`);
   const canEdit = permissions.includes(catalog.update);
   const canCreate = permissions.includes(catalog.create);
+  const openFromList = (url: string) => navigate(url, { state: { catalogListKey: locationKey } });
   const columns: GridColDef<Entry>[] = [
     { field: isProduct ? 'partNumber' : 'code', headerName: catalog.key === 'dossierTypes' ? t('dossier.typeCode') : label(t, isProduct ? 'partNumber' : 'code'), minWidth: 145, flex: 0.75,
       renderCell: ({ row, tabIndex }) => <CatalogRecordLink path={path} row={row} tabIndex={tabIndex} /> },
@@ -123,15 +126,23 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
     renderCell: ({ row, tabIndex }) => <Stack direction="row" sx={{ alignItems: 'center', height: '100%' }}>
       {canEdit && <Tooltip title={t('master.editAction')}><IconButton size="small" color="primary" tabIndex={tabIndex}
         aria-label={`${t('master.editAction')} ${entryCode(row)}`}
-        onClick={() => navigate(`${path}/${row.id}?${new URLSearchParams([...listParams, ['mode', 'edit']])}`)}><Edit fontSize="small" /></IconButton></Tooltip>}
+        onClick={() => openFromList(`${path}/${row.id}?${new URLSearchParams([...listParams, ['mode', 'edit']])}`)}><Edit fontSize="small" /></IconButton></Tooltip>}
       {canCreate && <Tooltip title={t('master.duplicate')}><IconButton size="small" color="primary" tabIndex={tabIndex}
         aria-label={`${t('master.duplicate')} ${entryCode(row)}`}
-        onClick={() => navigate(`${path}/new?${new URLSearchParams([...listParams, ['copy', String(row.id)]])}`)}><Copy fontSize="small" /></IconButton></Tooltip>}
+        onClick={() => openFromList(`${path}/new?${new URLSearchParams([...listParams, ['copy', String(row.id)]])}`)}><Copy fontSize="small" /></IconButton></Tooltip>}
     </Stack>,
   });
   const sort = params.get('sort');
   const direction = params.get('direction') === 'desc' ? 'desc' : 'asc';
-  const close = (catalogResult?: ActionResult) => navigate(listUrl, { state: catalogResult ? { catalogResult } : null });
+  const close = (catalogResult?: ActionResult) => {
+    if (typeof state?.catalogListKey === 'string') {
+      // Pop back to the original list entry and deliver its result once.
+      if (catalogResult) qc.setQueryData(['catalog-return-result', state.catalogListKey], catalogResult);
+      navigate(-1);
+    } else {
+      navigate(listUrl, { replace: true, state: catalogResult ? { catalogResult } : null });
+    }
+  };
   const resultDialog = result && <ActionResultDialog result={result} onClose={dismissResult} />;
   const opened = initialId !== undefined;
   const editor = opened && (initialId === 0 && canCreate && (!copyId || copySource) || entry) && (
@@ -148,13 +159,13 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   return (
     <>
       <ListPageLayout title={title} error={catalogQuery.error ?? brands.error ?? uoms.error}
-        actions={canCreate && <ActionButton action="add" onClick={() => navigate(path + '/new' + listSearch)}>
+        actions={canCreate && <ActionButton action="add" onClick={() => openFromList(path + '/new' + listSearch)}>
           {t('master.create', { name: title.toLocaleLowerCase(i18n.language) })}
         </ActionButton>}
         toolbar={<FilterToolbar refreshing={catalogQuery.isFetching || updateStatus.isPending}
           onRefresh={() => { setParams({}, { replace: true }); void catalogQuery.refetch(); }}>
           <SearchInput label={t('master.search')} placeholder={t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
-            value={q} onChange={value => setFilter('q', value)} sx={{ flex: '1 1 310px', minWidth: 0 }} />
+            value={q} onChange={value => setFilter('q', value)} sx={{ flex: { xs: '1 1 100%', sm: '0 1 420px' }, minWidth: 0 }} />
           <TextField select size="small" label={t('common.status')} value={status || 'all'}
             onChange={event => setFilter('status', event.target.value === 'all' ? '' : event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
             <MenuItem value="all">{t('common.all')}</MenuItem>
@@ -203,6 +214,6 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
 }
 
 function CatalogRecordLink({ path, row, tabIndex }: { path: string; row: Entry; tabIndex: number }) {
-  const { search } = useLocation();
-  return <GridText to={path + '/' + row.id + search} tabIndex={tabIndex} value={entryCode(row)} />;
+  const { search, key } = useLocation();
+  return <GridText linkState={{ catalogListKey: key }} to={path + '/' + row.id + search} tabIndex={tabIndex} value={entryCode(row)} />;
 }

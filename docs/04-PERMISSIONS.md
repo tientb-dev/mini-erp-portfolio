@@ -67,5 +67,5 @@ PR = Purchase Requisition (`purchase_requisitions`); PO = Purchase Order (`purch
 
 - `DOSSIER_TYPE.VIEW` đọc danh mục loại hồ sơ. `DOSSIER_TYPE.MANAGE` tạo, sửa và đổi trạng thái. Loại hồ sơ áp dụng vòng đời Active/Inactive của Master Data.
 - `DOSSIER_CONFIG.MANAGE` đọc và cập nhật cấu hình, kèm quyền đọc danh sách loại hồ sơ trong picker cấu hình.
-- `PR.DOSSIER_MANAGE` cho phép sửa hồ sơ giấy, tải tạm, thay thế, gỡ liên kết và lưu hồ sơ trong phạm vi đọc của PR. Procurement kiểm tra lại quyền, phạm vi và trạng thái khác Đã hủy ở lần lưu. Quyền này độc lập với `PR.CREATE`. Tạo PR có upload tạm cần cả hai quyền. Người có quyền đọc PR xem hồ sơ và tải file đã lưu trong cùng phạm vi, kể cả khi PR đã hủy. File tạm chỉ truy cập được từ ngữ cảnh chỉnh sửa của người tải lên.
+- `PR.DOSSIER_MANAGE` cho phép cập nhật Có bản giấy và metadata chung của hồ sơ, tải tạm, thay thế, gỡ liên kết và lưu hồ sơ trong phạm vi đọc của PR. Procurement kiểm tra lại quyền, phạm vi và trạng thái khác Đã hủy ở lần lưu. Quyền này độc lập với `PR.CREATE`. Tạo PR có upload tạm cần cả hai quyền. Người có quyền đọc PR xem hồ sơ và tải file đã lưu trong cùng phạm vi, kể cả khi PR đã hủy. File tạm chỉ truy cập được từ ngữ cảnh chỉnh sửa của người tải lên.
 - Migration và seed cấp bốn quyền trên cho Admin theo convention của hệ thống.

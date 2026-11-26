@@ -73,7 +73,7 @@ export function PrLineTable({ lines, scale = 0, currency = 'VND', official, sele
             const value = preview?.[key];
             return money(official ? snapshot : value == null ? null : decimalFromMinor(value, scale));
           };
-          return <TableRow key={line.key}>
+          return <TableRow key={line.key} selected={selected?.has(line.key)}>
             {onSelection && <TableCell data-grid-left style={{ left: 0 }}><Checkbox size="small" checked={selected?.has(line.key) ?? false}
               slotProps={{ input: { 'aria-label': t('prPhase.row') + ' ' + (index + 1) } }}
               onChange={e => { const keys = new Set(selected); e.target.checked ? keys.add(line.key) : keys.delete(line.key); onSelection(keys); }} /></TableCell>}

@@ -46,6 +46,7 @@ it('stages supplier selections across search and refresh and submits them with t
   const dialog = within(await screen.findByRole('dialog'));
   fireEvent.click(await dialog.findByRole('checkbox', { name: 'A' }));
   expect(dialog.queryByRole('checkbox', { name: 'C' })).toBeNull();
+  expect(dialog.getAllByRole('checkbox')[0].getAttribute('aria-checked')).toBe('mixed');
   fireEvent.change(dialog.getByRole('textbox'), { target: { value: 'Second' } });
   fireEvent.click(await dialog.findByRole('checkbox', { name: 'B' }));
   fireEvent.click(dialog.getByRole('button', { name: 'Làm mới' }));

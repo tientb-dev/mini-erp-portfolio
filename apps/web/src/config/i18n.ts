@@ -3,8 +3,8 @@ import { initReactI18next } from 'react-i18next';
 
 const vi = {
   prDossier: {
-    title: 'Hồ sơ chứng từ', position: 'STT', type: 'Loại hồ sơ', paper: 'Hồ sơ giấy', electronic: 'Hồ sơ điện tử',
-    hasPaper: 'Đã có', date: 'Ngày phát hành', issuer: 'Người phát hành', note: 'Ghi chú', file: 'File đính kèm',
+    title: 'Hồ sơ chứng từ', position: 'STT', type: 'Loại hồ sơ',
+    hasPaper: 'Có bản giấy', date: 'Ngày phát hành', issuer: 'Người phát hành', note: 'Ghi chú', file: 'File đính kèm',
     save: 'Lưu hồ sơ', savedTitle: 'Lưu hồ sơ thành công', saved: 'Đã cập nhật hồ sơ chứng từ của {{number}}.', saveFailed: 'Lưu hồ sơ thất bại',
     saveConflict: 'Ghi lại phần đang chỉnh sửa và kiểm tra phiên bản PR mới nhất trước khi lưu lại.',
     saveMissingFile: 'Chọn và tải lại file đính kèm trước khi lưu lại.',
@@ -413,8 +413,8 @@ const vi = {
 
 const en: typeof vi = {
   prDossier: {
-    title: 'Document dossier', position: 'No.', type: 'Dossier type', paper: 'Paper records', electronic: 'Electronic record',
-    hasPaper: 'Available', date: 'Issue date', issuer: 'Issued by', note: 'Note', file: 'Attachment',
+    title: 'Document dossier', position: 'No.', type: 'Dossier type',
+    hasPaper: 'Has paper copy', date: 'Issue date', issuer: 'Issued by', note: 'Note', file: 'Attachment',
     save: 'Save dossier', savedTitle: 'Dossier saved', saved: 'Updated the document dossier for {{number}}.', saveFailed: 'Could not save the dossier',
     saveConflict: 'Keep a copy of your changes and review the latest PR before saving again.',
     saveMissingFile: 'Select and upload the attachment again before saving.',

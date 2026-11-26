@@ -112,7 +112,7 @@ Grid tổng cộng theo từng dòng đã làm tròn. Số 0 hợp lệ hiển t
 | Mã | Tài khoản | Điều kiện | Dữ liệu | Thao tác UI | Kỳ vọng | Thực tế | Trạng thái |
 |---|---|---|---|---|---|---|---|
 | 07.01 | sales | 02.01, trước lần lưu đầu của 04.01/05.01 | Hai loại hồ sơ đã cấu hình | Ngay khi đang tạo từng PR, mở Hồ sơ. Quay về Thông tin chung, lưu theo UAT-04/05 rồi mở lại tab. | Có Báo giá và Biên bản đúng thứ tự. Sales thiếu PR.DOSSIER_MANAGE nên chỉ đọc. | — | Not Run |
-| 07.02 | admin | 06.03, hai PR đã lưu | PR Hàng bán, Báo giá, file v1 | Mở Hồ sơ của PR Hoàn tất. Tick Đã có, nhập ngày 26/11/2026, người phát hành “NCC UAT”, tải v1. Chuyển tab rồi quay lại và Lưu hồ sơ. | Dữ liệu giữ qua chuyển tab. Popup thành công nêu đúng mã PR. Báo giá có giấy và file; Biên bản vẫn trống. Stepper, hàng hóa và trạng thái Hoàn tất giữ nguyên. | — | Not Run |
+| 07.02 | admin | 06.03, hai PR đã lưu | PR Hàng bán, Báo giá, file v1 | Mở Hồ sơ của PR Hoàn tất. Tích Có bản giấy, nhập ngày 26/11/2026, người phát hành “NCC UAT”, tải v1. Chuyển tab rồi quay lại và Lưu hồ sơ. | Dữ liệu giữ qua chuyển tab. Popup thành công nêu đúng mã PR. Báo giá có giấy và file; Biên bản vẫn trống. Stepper, hàng hóa và trạng thái Hoàn tất giữ nguyên. | — | Not Run |
 | 07.03 | admin, purchaser | 07.02 | File v2; Biên bản có giấy | Admin chọn thay v2 rồi Hủy bỏ, sau đó chọn lại và xác nhận. Bỏ tick Báo giá, tick Biên bản mà không tải file. Lưu. Purchaser tải file qua tên hiển thị. | Hủy giữ v1. Sau lưu Báo giá có file v2, checkbox tắt và dữ liệu phát hành còn nguyên. Biên bản có giấy, không file. Purchaser tải được nhưng không thấy nút thay/xóa. | — | Not Run |
 | 07.04 | admin | 07.03 | File v2 | Bấm Xóa, xác nhận, kiểm tra thay đổi chưa lưu. Thử rời trang rồi ở lại. Lưu hồ sơ và xem tab Lịch sử. | Có cảnh báo thay đổi chưa lưu. Lưu xóa liên kết hiện hành, giữ dòng và dữ liệu giấy; nhật ký ghi người, thời gian, giá trị trước/sau. | — | Not Run |
 | 07.05 | admin, sales | Hai PR đã lưu; hoàn thành 07.02–07.04 trước khi sửa danh mục | Đổi tên Báo giá thành “Báo giá UAT mới”; đưa Biên bản lên trước rồi ngừng sử dụng | Sửa tên loại và lưu lại thứ tự cấu hình. Sau đó ngừng sử dụng Biên bản. Mở hai PR cũ; mở một form PR mới đến tab Hồ sơ rồi thoát trước khi lưu. | Hai PR cũ giữ tên và thứ tự ban đầu. Form mới thấy tên mới và bỏ loại Inactive. Không sinh PR thứ ba. | — | Not Run |
@@ -129,19 +129,30 @@ Nguồn đối chiếu gồm [Luồng nghiệp vụ](../02-BUSINESS-FLOWS.md), [
 
 ## Retest Phase 5.2.1 · Master Data và Common UI
 
-Bổ sung sau khi BA phát hiện F01–F10. Giữ nguyên kết quả đã ghi ở các nhóm phía trên. Chạy retest với tài khoản admin và dữ liệu UAT19 đã có; dùng mã mới có hậu tố -RETEST cho ca cần Lưu. Các ca dưới đây chờ BA thực hiện.
+Bổ sung sau khi BA phát hiện F01–F10. Giữ nguyên kết quả đã ghi ở các nhóm phía trên. Chạy retest với tài khoản admin và dữ liệu UAT19 đã có; dùng mã mới có hậu tố -RETEST cho ca cần Lưu. BA đã xác nhận F01–F10 trước Phase 5.2.2.
 
 Sau Phase 5.2.1, DB Dev cổng 5442 có 23 migration. Migration `1733356800000` bổ sung cột Mô tả tùy chọn. Dữ liệu UAT19 đã có được giữ nguyên.
 
 | Mã | Tài khoản | Dữ liệu và điều kiện | Thao tác UI | Kỳ vọng | Thực tế | Trạng thái |
 |---|---|---|---|---|---|---|
-| F01 | admin | Mười danh mục | Mở từ cột mã, chuyển Edit, mở Create từ danh sách | Mã chính/Hãng full page; tám danh mục còn lại popup | — | Not Run |
-| F02 | admin | Bản ghi UAT19, mô tả hai dòng dài | Nhập và lưu; mở View và xem List | Mô tả optional, đúng dữ liệu, một dòng và tooltip khi cắt trong List | — | Not Run |
-| F03 | admin | Danh sách có từ khóa, trạng thái, sort và cỡ trang khác mặc định | Bấm Làm mới hai lần | Trở về Tất cả, trang đầu, 25 dòng, bỏ sort và tải lại; nút ngoài cùng bên phải | — | Not Run |
-| F04 | admin | Master List, Picker hoặc grid Hồ sơ | Quan sát header và thử cuộn tại 1366×768 và 1920×1080 | Header rõ, không xuống dòng, sticky nền đặc và icon còn đọc được | — | Not Run |
-| F05 | admin | Bản ghi có mô tả và tham chiếu | Pencil mở Edit. Copy mở Create, kiểm tra Mã trống và tham chiếu; Hủy. Quay lại danh sách đã lọc | Nhánh Copy giữ thuộc tính hợp lệ và không giữ liên kết Hãng–NCC; hủy giữ nguồn và trạng thái danh sách | — | Not Run |
-| F06 | admin | Hãng UAT19 và hai NCC Active | Thử Create/Edit Hãng, thêm nhiều NCC qua lọc/refresh, gỡ một mục, hủy rồi mở lại. Lặp và Lưu. Mở View | Picker chỉ có NCC Active chưa gắn; chỉ lưu khi bấm Lưu Hãng; View chỉ đọc. NCC đã liên kết vẫn hiện sau khi inactive | — | Not Run |
-| F07 | admin | Hãng full page và Khách hàng popup | Kiểm tra mã/tên, footer và quay lại khi đang sửa | Mã ngắn hơn tên, nút có icon, điều hướng ArrowLeft và Dirty Guard hoạt động | — | Not Run |
-| F08 | admin | Bản ghi Retest chưa dùng | Kiểm tra List/View/Edit, thử Switch Active/Inactive | Không có Xóa vật lý. Switch là điểm đổi trạng thái. Gỡ liên kết NCC giữ NCC | — | Not Run |
-| F09 | admin | Mã chính có Hãng/ĐVT và Khách hàng thiếu mô tả | Mở View, chọn và sao chép giá trị; chuyển Edit | Chữ rõ, không caret/xóa/required ở View; trống hiện dấu —; trạng thái là chip | — | Not Run |
-| F10 | admin | Popup Khách hàng, Loại hồ sơ, Supplier Picker | Kiểm tra header và footer; dùng Tab/Escape và cuộn nội dung | Header trắng căn giữa; body cuộn riêng; footer và focus giữ đúng | — | Not Run |
+| F01 | admin | Mười danh mục | Mở từ cột mã, chuyển Edit, mở Create từ danh sách | Mã chính/Hãng full page; tám danh mục còn lại popup | BA xác nhận đã xử lý | Pass |
+| F02 | admin | Bản ghi UAT19, mô tả hai dòng dài | Nhập và lưu; mở View và xem List | Mô tả optional, đúng dữ liệu, một dòng và tooltip khi cắt trong List | BA xác nhận đã xử lý | Pass |
+| F03 | admin | Danh sách có từ khóa, trạng thái, sort và cỡ trang khác mặc định | Bấm Làm mới hai lần | Trở về Tất cả, trang đầu, 25 dòng, bỏ sort và tải lại; nút ngoài cùng bên phải | BA xác nhận đã xử lý | Pass |
+| F04 | admin | Master List, Picker hoặc grid Hồ sơ | Quan sát header và thử cuộn tại 1366×768 và 1920×1080 | Header rõ, không xuống dòng, sticky nền đặc và icon còn đọc được | BA xác nhận đã xử lý | Pass |
+| F05 | admin | Bản ghi có mô tả và tham chiếu | Pencil mở Edit. Copy mở Create, kiểm tra Mã trống và tham chiếu; Hủy. Quay lại danh sách đã lọc | Nhánh Copy giữ thuộc tính hợp lệ và không giữ liên kết Hãng–NCC; hủy giữ nguồn và trạng thái danh sách | BA xác nhận đã xử lý | Pass |
+| F06 | admin | Hãng UAT19 và hai NCC Active | Thử Create/Edit Hãng, thêm nhiều NCC qua lọc/refresh, gỡ một mục, hủy rồi mở lại. Lặp và Lưu. Mở View | Picker chỉ có NCC Active chưa gắn; chỉ lưu khi bấm Lưu Hãng; View chỉ đọc. NCC đã liên kết vẫn hiện sau khi inactive | BA xác nhận đã xử lý | Pass |
+| F07 | admin | Hãng full page và Khách hàng popup | Kiểm tra mã/tên, footer và quay lại khi đang sửa | Mã ngắn hơn tên, nút có icon, điều hướng ArrowLeft và Dirty Guard hoạt động | BA xác nhận đã xử lý | Pass |
+| F08 | admin | Bản ghi Retest chưa dùng | Kiểm tra List/View/Edit, thử Switch Active/Inactive | Không có Xóa vật lý. Switch là điểm đổi trạng thái. Gỡ liên kết NCC giữ NCC | BA xác nhận đã xử lý | Pass |
+| F09 | admin | Mã chính có Hãng/ĐVT và Khách hàng thiếu mô tả | Mở View, chọn và sao chép giá trị; chuyển Edit | Chữ rõ, không caret/xóa/required ở View; trống hiện dấu —; trạng thái là chip | BA xác nhận đã xử lý | Pass |
+| F10 | admin | Popup Khách hàng, Loại hồ sơ, Supplier Picker | Kiểm tra header và footer; dùng Tab/Escape và cuộn nội dung | Header trắng căn giữa; body cuộn riêng; footer và focus giữ đúng | BA xác nhận đã xử lý | Pass |
+
+## Retest Phase 5.2.2 · F11–F14
+
+BA retest bốn ca dưới đây trước khi tiếp tục luồng HĐ bán → PR. Dùng lại bản ghi và PR UAT19; tạo mã hậu tố -F11 nếu cần thử Create/Copy. Kiểm tra giao diện đại diện ở 1366×768 và 1920×1080.
+
+| Mã | Tài khoản | Dữ liệu và điều kiện | Thao tác UI | Kỳ vọng | Thực tế | Trạng thái |
+|---|---|---|---|---|---|---|
+| F11 | admin | Hãng full page, Khách hàng popup; List có lọc, sort và cỡ trang đã chọn | Từ List mở Edit bằng Pencil rồi thử hủy, đóng/quay lại, và lưu; lặp trong View → Edit; thử Create/Copy, đổi trường rồi hủy, lưu mã mới và thử mã trùng | Edit từ List, Create và Copy trả về cùng List; View → Edit trả về View có dữ liệu mới sau lưu; Dirty Guard xác nhận trước khi bỏ; lỗi giữ form và mode | — | Chờ BA Retest |
+| F12 | admin | Hãng có ít nhất hai NCC Active chưa liên kết; PR có mã chính và mã tạm | Mở Supplier Picker, chọn một dòng rồi chọn cả trang, đổi sort/trang, tìm và Làm mới; thử Hủy rồi mở lại và Xác nhận. Lặp thao tác chọn trang ở Product Picker | Checkbox chọn một phần hiển thị đúng. Chọn cả trang chỉ đổi các dòng trang hiện tại. Lựa chọn giữ qua thay đổi truy vấn; chỉ Xác nhận áp dụng vào form. Search/Làm mới cao 36px | — | Chờ BA Retest |
+| F13 | admin | Danh mục, PR List, grid hàng hóa PR và Hồ sơ có từ hai dòng | So sánh màu xen kẽ, rê chuột, chọn dòng, cuộn ngang và dọc; thử trường nhập lỗi ở grid hàng hóa | Sticky đồng màu với dòng. Màu chọn ưu tiên khi hover; lỗi nhập và cảnh báo trùng vẫn rõ; kích thước dòng ổn định | — | Chờ BA Retest |
+| F14 | admin và người chỉ đọc PR | PR có hồ sơ với các loại Active; PDF kiểm thử | Trên các dòng hoặc qua các lần lưu, thử 4 tổ hợp Có bản giấy/File. Khi bỏ tích, nhập ngày 26/11/2026, người phát hành NCC UAT, ghi chú “Đối chiếu F14”; tích rồi bỏ tích, lưu, tải lại, kiểm tra Lịch sử, rồi mở PR bằng người chỉ đọc | Header một tầng; metadata luôn sửa được khi có quyền và giữ sau khi bỏ tích/tải lại. Checkbox và file độc lập. Lịch sử phản ánh trước/sau. Người chỉ đọc xem metadata và tải file hiện hành | — | Chờ BA Retest |

@@ -80,7 +80,7 @@ Hàng nhập từ PR của HĐ khách A thuộc trách nhiệm Sales phụ trác
 ## F. Giao diện chứng từ
 Mọi chứng từ dùng cùng cấu trúc tab: **Thông tin chung**, **Người phê duyệt**, **Hồ sơ đính kèm**, **Ghi chú**. GR có thêm tab **Chi tiết hàng nhập kho** (SN và thông tin nhập thực tế). MVP chỉ cần file đính kèm và ghi chú cơ bản.
 
-PR dùng thứ tự tab **Thông tin chung**, **Hồ sơ**, **Người phê duyệt**, **Ghi chú**, **Lịch sử** theo Common Document Page. PR mới chụp danh sách loại hồ sơ khi lưu lần đầu. Người có quyền quản lý chuẩn bị hồ sơ trong Create/Edit và lưu cùng PR, hoặc dùng **Lưu hồ sơ** trong View. Hồ sơ giấy và file điện tử độc lập. PR cũ giữ hồ sơ trống. Xem [DOSSIER-001 đến DOSSIER-009](03-BUSINESS-RULES.md#hồ-sơ-chứng-từ).
+PR dùng thứ tự tab **Thông tin chung**, **Hồ sơ**, **Người phê duyệt**, **Ghi chú**, **Lịch sử** theo Common Document Page. PR mới chụp danh sách loại hồ sơ khi lưu lần đầu. Người có quyền quản lý chuẩn bị hồ sơ trong Create/Edit và lưu cùng PR, hoặc dùng **Lưu hồ sơ** trong View. Có bản giấy và file đính kèm độc lập. Người có quyền quản lý có thể nhập metadata chung của hồ sơ với cả hai giá trị của Có bản giấy. PR cũ giữ hồ sơ trống. Xem [DOSSIER-001 đến DOSSIER-009](03-BUSINESS-RULES.md#hồ-sơ-chứng-từ).
 
 ## Quy ước thuật ngữ và tên bảng
 HĐ = Sales Contract (`sales_contracts`); PR = Purchase Requisition (`purchase_requisitions`); PO = Purchase Order (`purchase_orders`); GRR = Goods Receipt Request (`goods_receipt_requests`); GR = Goods Receipt (`goods_receipts`); GIR = Goods Issue Request (`goods_issue_requests`); GI = Goods Issue (`goods_issues`). Các bảng dòng dùng hậu tố `_lines`. Tham chiếu chi tiết xem `01-MVP-SCOPE.md`.

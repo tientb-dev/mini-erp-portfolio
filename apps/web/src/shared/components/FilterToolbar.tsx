@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Stack } from '@mui/material';
 import RotateLeftIcon from '@mui/icons-material/RotateLeft';
+import { tokens } from '../../config/theme';
 import { ActionButton } from './ActionButton';
 
 /**
@@ -14,14 +15,16 @@ export function FilterToolbar({ active, onClear, onRefresh, refreshing, children
 }) {
   const { t } = useTranslation();
   return (
-    <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1.5, alignItems: onRefresh ? 'flex-end' : 'center' }}>
+    <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1.5, alignItems: 'flex-end',
+      '& .MuiOutlinedInput-root': { minHeight: tokens.control, height: tokens.control },
+      '& .MuiOutlinedInput-input': { py: 0 } }}>
       {children}
       {onClear && <Button variant="text" color="inherit" startIcon={<RotateLeftIcon />} disabled={!active} onClick={onClear}
-        sx={{ flexShrink: 0, color: 'text.secondary' }}>
+        sx={{ flexShrink: 0, height: tokens.control, color: 'text.secondary' }}>
         {t('common.clearFilters')}
       </Button>}
       {onRefresh && <ActionButton action="refresh" onClick={onRefresh} disabled={refreshing}
-        sx={{ ml: 'auto', flexShrink: 0, height: 36 }}>{t('prPhase.refresh')}</ActionButton>}
+        sx={{ ml: 'auto', flexShrink: 0, height: tokens.control }}>{t('prPhase.refresh')}</ActionButton>}
     </Stack>
   );
 }

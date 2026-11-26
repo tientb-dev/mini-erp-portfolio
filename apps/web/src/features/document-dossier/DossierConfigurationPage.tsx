@@ -1,7 +1,7 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { UNSAFE_DataRouterContext, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Checkbox, IconButton, Paper, Stack, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import { IconButton, Paper, Stack, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
 import Up from '@mui/icons-material/ArrowUpward';
 import Down from '@mui/icons-material/ArrowDownward';
@@ -9,9 +9,10 @@ import Delete from '@mui/icons-material/DeleteOutlined';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../../services/api-client';
-import { ActionResultDialog, DataTable, DetailPageLayout, FormDialog, GridText, ListPageLayout, ScrollTable, StatusChip } from '../../shared/components';
+import { ActionResultDialog, DataTable, DetailPageLayout, FilterToolbar, FormDialog, GridText, ListPageLayout, ScrollTable, StatusChip } from '../../shared/components';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { DiscardDialog, RouteDiscardGuard } from '../../shared/components/FormDialog';
+import { pickerSelectionColumn } from '../../shared/components/PickerSelection';
 import { SearchInput } from '../../shared/components/SearchInput';
 import { ActionButton } from '../../shared/components/ActionButton';
 
@@ -163,28 +164,28 @@ function DossierTypePicker({ exclude, onClose, onConfirm }: {
   const keyword = search.trim().toLocaleLowerCase();
   const rows = (query.data ?? []).filter(item => item.isActive && !exclude.has(item.id)
     && [item.code, item.name].some(value => value.toLocaleLowerCase().includes(keyword)));
+  const changeSelection = (items: Entry[], checked: boolean) => setSelected(previous => {
+    const next = new Map(previous);
+    for (const item of items) {
+      if (checked) next.set(item.id, item); else next.delete(item.id);
+    }
+    return next;
+  });
   const columns: GridColDef<Entry>[] = [
-    { field: 'selection', headerName: '', width: 58, sortable: false, align: 'center', cellClassName: 'dossier-picker-check', renderCell: p =>
-      <Checkbox size="small" checked={selected.has(p.row.id)} slotProps={{ input: { 'aria-label': p.row.code, tabIndex: p.tabIndex } }}
-        onChange={event => setSelected(previous => {
-          const next = new Map(previous);
-          if (event.target.checked) next.set(p.row.id, p.row); else next.delete(p.row.id);
-          return next;
-        })} /> },
+    pickerSelectionColumn<Entry>(row => selected.has(row.id), changeSelection, row => row.code, query.isFetching),
     { field: 'code', headerName: t('dossier.typeCode'), width: 150 },
     { field: 'name', headerName: t('dossier.typeName'), minWidth: 200, flex: 1 },
   ];
-  return <FormDialog compact title={t('dossier.choose')} submitLabel={t('dossier.confirm', { count: selected.size })} submitAction="confirm"
+  return <FormDialog title={t('dossier.choose')} submitLabel={t('dossier.confirm', { count: selected.size })} submitAction="confirm"
     pending={false} canSubmit={selected.size > 0 && !query.isError} error={query.error} onClose={onClose}
     footerAside={t('dossier.selected', { count: selected.size })} onSubmit={() => onConfirm([...selected.values()])}>
-    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-end' }}>
+    <FilterToolbar refreshing={query.isFetching}
+      onRefresh={() => { setSearch(''); setPage({ page: 0, pageSize: 25 }); void query.refetch(); }}>
       <SearchInput label={t('common.search')} value={search} placeholder={t('searchFields.catalog.dossierTypes')}
-        onChange={value => { setSearch(value); setPage(previous => ({ ...previous, page: 0 })); }} />
-      <ActionButton action="refresh" sx={{ flexShrink: 0, height: 40 }}
-        onClick={() => { setSearch(''); setPage({ page: 0, pageSize: 25 }); void query.refetch(); }}>{t('prPhase.refresh')}</ActionButton>
-    </Stack>
+        onChange={value => { setSearch(value); setPage(previous => ({ ...previous, page: 0 })); }} sx={{ flex: '1 1 200px' }} />
+    </FilterToolbar>
     <DataTable rows={rows} columns={columns} loading={query.isFetching} maxHeight="min(48dvh, 470px)"
       paginationModel={page} onPaginationModelChange={setPage}
-      sx={{ '& .dossier-picker-check': { display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0, textOverflow: 'clip' } }} />
+      getRowClassName={({ row }) => selected.has(row.id) ? 'common-grid-selected' : ''} />
   </FormDialog>;
 }

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Checkbox, Stack } from '@mui/material';
+import { Stack } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, catalogSelectionPath } from '../../services/api-client';
-import { ActionButton } from '../../shared/components/ActionButton';
+import { pickerSelectionColumn } from '../../shared/components/PickerSelection';
 import { DataTable, FilterToolbar, FormDialog } from '../../shared/components';
 import { SearchInput } from '../../shared/components/SearchInput';
 import type { Entry } from './catalogs';
@@ -22,27 +22,28 @@ export function SupplierPicker({ excluded, onClose, onConfirm }: {
   const selected = [...picked.values()].filter(row => availableIds.has(row.id));
   const keyword = search.trim().toLocaleLowerCase();
   const rows = available.filter(row => [row.code ?? '', row.name].some(value => value.toLocaleLowerCase().includes(keyword)));
-  return <FormDialog compact title={t('master.chooseSupplier')} submitAction="confirm" submitLabel={t('dossier.confirm', { count: selected.length })}
+  const changeSelection = (items: Entry[], checked: boolean) => setPicked(previous => {
+    const next = new Map(previous);
+    for (const item of items) {
+      if (checked) next.set(item.id, item); else next.delete(item.id);
+    }
+    return next;
+  });
+  return <FormDialog title={t('master.chooseSupplier')} submitAction="confirm" submitLabel={t('dossier.confirm', { count: selected.length })}
     canSubmit={selected.length > 0 && !query.isFetching && !query.error} pending={false} error={query.error} pageGuardsNavigation
     footerAside={t('master.selectedSuppliers', { count: selected.length })} onClose={onClose} onSubmit={() => onConfirm(selected)}>
     <Stack spacing={1}>
-      <FilterToolbar>
+      <FilterToolbar refreshing={query.isFetching} onRefresh={() => {
+        setSearch(''); setPage(model => ({ ...model, page: 0 })); void query.refetch();
+      }}>
         <SearchInput label={t('master.search')} placeholder={t('searchFields.codeOrName')} value={search}
           onChange={value => { setSearch(value); setPage(model => ({ ...model, page: 0 })); }} sx={{ flex: '1 1 220px' }} />
-        <ActionButton action="refresh" disabled={query.isFetching} onClick={() => {
-          setSearch(''); setPage(model => ({ ...model, page: 0 })); void query.refetch();
-        }}>{t('prPhase.refresh')}</ActionButton>
       </FilterToolbar>
       <DataTable rows={rows} loading={query.isFetching} maxHeight="min(42dvh, 430px)" paginationModel={page} onPaginationModelChange={setPage}
+        getRowClassName={({ id }) => picked.has(Number(id)) ? 'common-grid-selected' : ''}
         columns={[
-          { field: 'picked', headerName: '', width: 48, sortable: false, renderCell: ({ row, tabIndex }) =>
-            <Checkbox size="small" checked={picked.has(row.id)} slotProps={{ input: { 'aria-label': row.code, tabIndex } }}
-              onChange={event => setPicked(previous => {
-                const next = new Map(previous);
-                if (event.target.checked) next.set(row.id, row); else next.delete(row.id);
-                return next;
-              })} /> },
-          { field: 'code', headerName: t('master.supplierCode'), minWidth: 125 },
+          pickerSelectionColumn<Entry>(row => picked.has(row.id), changeSelection, row => row.code, query.isFetching),
+          { field: 'code', headerName: t('master.supplierCode'), width: 150 },
           { field: 'name', headerName: t('master.supplierName'), flex: 1, minWidth: 180 },
         ]} />
     </Stack>

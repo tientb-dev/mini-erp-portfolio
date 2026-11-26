@@ -19,6 +19,10 @@ export const tokens = {
   gridHeader: '#E8EEF5',
   gridHeaderInk: '#334155',
   gridHeaderBorder: '#CBD5E1',
+  gridEven: '#F5F7FA',
+  gridHover: '#EDF2F7',
+  gridSelected: '#EFF5FF',
+  gridSeparator: '#E2E8F0',
   ink: '#18222F',
   inkMuted: '#5A6878',
   border: '#DCE2E9',
@@ -158,9 +162,10 @@ function build(locale: 'vi' | 'en'): Theme {
         MuiDataGrid: {
           defaultProps: { rowHeight: tokens.touch, columnHeaderHeight: 40 },
           styleOverrides: {
-            root: { border: 0, fontSize: '0.875rem', '--DataGrid-containerBackground': tokens.gridHeader, '--DataGrid-rowBorderColor': tokens.border },
+            root: { border: 0, fontSize: '0.875rem', '--DataGrid-containerBackground': tokens.gridHeader, '--DataGrid-rowBorderColor': tokens.gridSeparator },
             columnHeader: { backgroundColor: tokens.gridHeader, color: tokens.gridHeaderInk,
-              borderBottom: `1px solid ${tokens.gridHeaderBorder}`, '& .MuiDataGrid-sortIcon': { color: tokens.gridHeaderInk } },
+              borderBottom: `1px solid ${tokens.gridHeaderBorder}`, '& .MuiDataGrid-sortIcon': { color: tokens.gridHeaderInk },
+              '& .MuiDataGrid-columnSeparator': { color: tokens.gridSeparator } },
             columnHeaderTitle: { fontSize: '0.8125rem', fontWeight: 600, color: tokens.gridHeaderInk },
             cell: { '&:focus, &:focus-within': { outline: 'none' } },
             row: { '&:focus-within': { boxShadow: `inset 2px 0 0 ${tokens.primary}` } },

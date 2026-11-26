@@ -62,7 +62,7 @@ export function FormDialog(props: {
       </Dialog>
       {router && !props.pageGuardsNavigation && (props.dirty || props.pending)
         && <RouteDiscardGuard dirty={Boolean(props.dirty)} pending={props.pending} />}
-      {asking && <DiscardDialog onKeep={() => setAsking(false)} onDiscard={props.onClose} />}
+      {asking && <DiscardDialog onKeep={() => setAsking(false)} onDiscard={() => { setAsking(false); props.onClose(); }} />}
     </>
   );
 }

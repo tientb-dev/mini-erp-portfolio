@@ -76,7 +76,7 @@ export function CatalogEditor({ catalog, entry, copySource, initiallyEditing, cl
       await qc.invalidateQueries({ queryKey: [catalog.key === 'unitsOfMeasure' ? 'uoms' : catalog.path] });
       if (showSupplierLinks) await qc.invalidateQueries({ queryKey: [path + '/suppliers'] });
       const result = resultFor(saveAction, true);
-      if (entry) { resetEditor(); report(result); }
+      if (entry && !initiallyEditing) { resetEditor(); report(result); }
       else { allowNavigation.current = true; close(result); }
     },
     onError: error => { if (!inlineField(error)) report(resultFor(saveAction, false, error)); },
@@ -97,7 +97,7 @@ export function CatalogEditor({ catalog, entry, copySource, initiallyEditing, cl
     save.reset();
   };
   const cancel = () => {
-    if (entry && editing) resetEditor();
+    if (entry && editing && !initiallyEditing) resetEditor();
     else { allowNavigation.current = true; close(); }
   };
   const title = t(`nav.${catalog.key}`);
@@ -203,11 +203,10 @@ export function CatalogEditor({ catalog, entry, copySource, initiallyEditing, cl
   </>;
 
   const maybeCancel = () => { if (!pending) dirty ? setDiscard(true) : cancel(); };
-  const goBack = () => { if (!pending) dirty ? setDiscard(true) : close(); };
   const crumbs = <PageBreadcrumbs items={[{ label: t('nav.masterData') }, { label: title },
     { label: entry ? entryCode(entry) : editorTitle }]} />;
   return <>
-    <DetailPageLayout title={editorTitle} breadcrumbs={crumbs} onBack={goBack} backLabel={t('common.back')} naturalFlow error={error}
+    <DetailPageLayout title={editorTitle} breadcrumbs={crumbs} onBack={maybeCancel} backLabel={t('common.back')} naturalFlow error={error}
       actions={!editing && canEdit && <ActionButton action="edit" onClick={submit}>{t('master.editAction')}</ActionButton>}
       footer={editing && <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
         <ActionButton action="cancel" disabled={pending} onClick={maybeCancel}>{t('common.cancel')}</ActionButton>
@@ -222,7 +221,7 @@ export function CatalogEditor({ catalog, entry, copySource, initiallyEditing, cl
     </DetailPageLayout>
     {picker && <SupplierPicker excluded={shownSuppliers.map(item => item.id)} onClose={() => setPicker(false)}
       onConfirm={items => { setChangedSuppliers([...shownSuppliers, ...items]); setPicker(false); }} />}
-    {discard && <DiscardDialog onKeep={() => setDiscard(false)} onDiscard={() => { allowNavigation.current = true; close(); }} />}
+    {discard && <DiscardDialog onKeep={() => setDiscard(false)} onDiscard={cancel} />}
     {guard}
   </>;
 }

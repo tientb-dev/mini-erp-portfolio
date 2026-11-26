@@ -5,8 +5,8 @@ import { Link as RouterLink } from 'react-router-dom';
 const singleLine = { minWidth: 0, maxWidth: '100%', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const;
 
 /** Text can shrink independently of any adjacent icon. Only clipped values get a tooltip. */
-export function GridText({ value, trailing, to, onActivate, tabIndex }: {
-  value: string; trailing?: ReactNode; to?: string; onActivate?: () => void; tabIndex?: number;
+export function GridText({ value, trailing, to, linkState, onActivate, tabIndex }: {
+  value: string; trailing?: ReactNode; to?: string; linkState?: unknown; onActivate?: () => void; tabIndex?: number;
 }) {
   const measure = useRef<HTMLElement>(null);
   const [clipped, setClipped] = useState(false);
@@ -22,7 +22,7 @@ export function GridText({ value, trailing, to, onActivate, tabIndex }: {
   }, [value, to, Boolean(onActivate)]);
   const content = (
     <Tooltip title={clipped ? value : ''} describeChild>
-      {to ? <Link component={RouterLink} to={to} ref={measure as React.Ref<HTMLAnchorElement>} tabIndex={tabIndex} sx={singleLine}>{value}</Link>
+      {to ? <Link component={RouterLink} to={to} state={linkState} ref={measure as React.Ref<HTMLAnchorElement>} tabIndex={tabIndex} sx={singleLine}>{value}</Link>
         : onActivate ? <Link component="button" type="button" onClick={onActivate} ref={measure as React.Ref<HTMLButtonElement>}
           tabIndex={tabIndex} sx={{ ...singleLine, textAlign: 'left' }}>{value}</Link>
           : <Box component="span" ref={measure} tabIndex={tabIndex ?? (clipped ? 0 : undefined)} sx={singleLine}>{value}</Box>}

@@ -124,7 +124,7 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     await get(staged + '/' + uploadedA.id).expect(200);
     await get(`${endpoint}/dossier-staging/${randomUUID()}/${uploadedA.id}`).expect(404);
     const rows = [row(types[0], 0, { hasPaper: true, issuedOn: '2026-11-25', issuer: 'VN', note: 'Paper', fileId: uploadedA.id }),
-      row(types[1], 0, { fileId: uploadedB.id }), row(types[2], 0, { hasPaper: true })];
+      row(types[1], 0, { issuedOn: '2026-11-24', issuer: 'NCC', note: 'Electronic only', fileId: uploadedB.id }), row(types[2], 0, { hasPaper: true })];
     const dto = { ...header(), submit: true, requestKey: randomUUID(), dossier: { revision, sessionKey: session, rows } };
     await post(endpoint + '/save-new', dto).expect(422);
     expect((await ds.query('SELECT committed_at FROM document_dossier_files WHERE id IN ($1,$2) ORDER BY id', [uploadedA.id, uploadedB.id])))
@@ -134,6 +134,7 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     const current = (await get(dossier(id)).expect(200)).body.rows;
     expect(current.map((entry: { hasPaper: boolean; file: object | null }) => [entry.hasPaper, Boolean(entry.file)]))
       .toEqual([[true, true], [false, true], [true, false], [false, false]]);
+    expect(current[1]).toMatchObject({ hasPaper: false, issuedOn: '2026-11-24', issuer: 'NCC', note: 'Electronic only' });
     await get(dossier(id) + '/files/' + uploadedA.id, reader).expect(200).expect('Content-Type', /application\/pdf/);
     await get(dossier(id) + '/files/' + uploadedA.id, scopedReader).expect(403);
     const unrelated = await create();
@@ -145,7 +146,7 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     const replacement = (await upload(dossier(id) + '/files/' + types[0] + suffix, pdf, 'A2.pdf').expect(201)).body;
     await get(dossier(id) + '/files/' + replacement.id).expect(404);
     await get(dossier(id) + '/files/' + replacement.id + suffix).expect(200);
-    const patch = row(types[0], current[0].version, { issuedOn: '2026-11-25', issuer: 'VN', note: 'Paper', fileId: replacement.id });
+    const patch = row(types[0], current[0].version, { fileId: replacement.id });
     await put(dossier(id), { rows: [patch] }).expect(404);
     await put(dossier(id), { sessionKey: editSession, rows: [patch, row(types[1], 0)] }).expect(409);
     expect((await get(dossier(id)).expect(200)).body.rows).toEqual(current);
@@ -157,7 +158,7 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     const detail = (await get(endpoint + '/' + id).expect(200)).body;
     expect(detail.history.filter((entry: { action: string }) => entry.action === 'DOSSIER_UPDATE')).toHaveLength(4);
     expect(detail.history[0].metadata).toMatchObject({ fileAction: 'REPLACE', before: { file: uploadedA },
-      after: { hasPaper: false, issuer: 'VN', note: 'Paper', file: replacement } });
+      after: { hasPaper: false, issuedOn: '2026-11-25', issuer: 'VN', note: 'Paper', file: replacement } });
     const head = await login(app, 'sales-head', 'role-users-test');
     await post(`${endpoint}/${id}/approve`, await prContext(ds, id), head).expect(204);
     await post(`${endpoint}/${id}/receive`, await prContext(ds, id), reader).expect(204);

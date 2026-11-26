@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Box, Checkbox, Dialog, DialogActions, DialogContent, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, Dialog, DialogActions, DialogContent, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material';
 import { GridColDef, GridPaginationModel, GridSortModel } from '@mui/x-data-grid';
 import { ActionButton } from './ActionButton';
 import { DialogHeading } from './DialogHeading';
+import { FilterToolbar } from './FilterToolbar';
+import { pickerSelectionColumn } from './PickerSelection';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api-client';
 import { SearchInput } from './SearchInput';
@@ -32,7 +34,6 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
   const rows = useServerList<PickerProduct>('/product-picker/' + source, params, q === f.q);
   const brands = useQuery({ queryKey: ['brands','picker'], queryFn: () => api<{id: number; name: string}[]>('/brands?activeOnly=true') });
   const items = rows.isPlaceholderData ? [] : rows.data?.items ?? [];
-  const count = items.filter(item => picked.has(keyOf(source, item.id))).length;
   const mainCount = [...picked.values()].filter(item => item.source === 'main').length;
   function change(value: Partial<Filters>) { setFilters(previous => ({ ...previous, [source]: { ...previous[source], ...value } })); }
   function select(values: PickerProduct[], checked: boolean) {
@@ -46,11 +47,7 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
     });
   }
   const columns: GridColDef<PickerProduct>[] = [
-    { field: 'selection', width: 54, sortable: false, filterable: false, disableColumnMenu: true, headerName: '', align: 'center', headerAlign: 'center', cellClassName: 'picker-selection', renderHeader: () =>
-      <Checkbox size="small" checked={count > 0 && count === items.length} indeterminate={count > 0 && count < items.length}
-        slotProps={{ input: { 'aria-label': t('prPhase.selectPage') } }} disabled={!items.length} onChange={e => select(items, e.target.checked)} />,
-      renderCell: p => <Checkbox size="small" checked={picked.has(keyOf(source, p.row.id))} onChange={e => select([p.row], e.target.checked)}
-        slotProps={{ input: { 'aria-label': p.row.code, tabIndex: p.tabIndex } }} /> },
+    pickerSelectionColumn<PickerProduct>(row => picked.has(keyOf(source, row.id)), select, row => row.code, rows.isFetching || q !== f.q),
     { field: 'code', headerName: t('prPhase.itemCode'), width: 180, renderCell: p => <GridText value={p.row.code} tabIndex={p.tabIndex} /> },
     { field: 'name', headerName: t('product.name'), minWidth: 235, flex: 2 },
     ...(source === 'main' ? [{ field: 'brand', headerName: t('prPhase.brand'), minWidth: 150, flex: 1 }, { field: 'uom', headerName: t('product.uom'), width: 140 }]
@@ -58,11 +55,14 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
   ];
   return <Dialog open onClose={onClose} aria-labelledby="product-picker-heading" maxWidth={false} slotProps={{ paper: { sx: { width: 1100, maxWidth: '95vw', m: 1 } } }}>
     <DialogHeading id="product-picker-heading" onClose={onClose}>{t('prPhase.picker')}</DialogHeading>
-    <DialogContent data-compact="">
+    <DialogContent>
       <Tabs value={source} onChange={(_, value: Source) => setSource(value)} sx={{ mb: 1 }}>
         <Tab value="main" label={t('prPhase.main')} /><Tab value="temporary" label={t('prPhase.temporary')} />
       </Tabs>
-      <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
+      <FilterToolbar onRefresh={() => {
+        if (JSON.stringify(f) === JSON.stringify(defaults())) void rows.refetch();
+        change(defaults());
+      }}>
         <SearchInput label={t('common.search')} placeholder={t('searchFields.product')} value={f.q}
           onChange={value => change({ q: value, page: { ...f.page, page: 0 } })} sx={{ flex: '2 1 195px', minWidth: 0 }} />
         {source === 'main' && <TextField select size="small" label={t('prPhase.brand')} value={f.brand}
@@ -70,12 +70,10 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
           <MenuItem value="">{t('common.all')}</MenuItem>
           {brands.data?.map(b => <MenuItem key={b.id} value={String(b.id)}>{b.name}</MenuItem>)}
         </TextField>}
-        <Tooltip title={t('prPhase.refreshHint')}><ActionButton action="refresh" sx={{ ml: 'auto', flexShrink: 0, height: 40 }}
-          onClick={() => { if (JSON.stringify(f) === JSON.stringify(defaults())) void rows.refetch(); change(defaults()); }}>{t('prPhase.refresh')}</ActionButton></Tooltip>
-      </Stack>
+      </FilterToolbar>
       <Box sx={{ mt: 1.5, '& .MuiDataGrid-root': { height: 'min(48vh, 510px)' } }}>
         <DataTable columns={columns} rows={items} rowCount={rows.data?.total ?? 0} loading={rows.isFetching || q !== f.q}
-          error={rows.error} sx={{ '& .picker-selection': { display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0, textOverflow: 'clip' } }} maxHeight="min(48vh, 510px)" paginationMode="server" sortingMode="server"
+          error={rows.error} getRowClassName={({ row }) => picked.has(keyOf(source, row.id)) ? 'common-grid-selected' : ''} maxHeight="min(48vh, 510px)" paginationMode="server" sortingMode="server"
           paginationModel={f.page} sortModel={f.sort} onPaginationModelChange={page => change({ page })}
           onSortModelChange={sort => change({ sort, page: { ...f.page, page: 0 } })} />
       </Box>

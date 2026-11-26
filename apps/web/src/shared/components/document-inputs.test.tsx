@@ -5,6 +5,17 @@ import { wrap } from '../../test/helpers/api';
 import { formatDocumentDate, parseDocumentDate } from '../utils/document-date';
 import { DocumentDatePicker } from './DocumentDatePicker';
 import { DocumentNumericInput, displayDocumentNumber, parseDocumentNumber } from './DocumentNumericInput';
+import { DocumentTotals } from './DocumentTotals';
+
+it('preserves monetary zero and uses a bare dash for unknown totals', () => {
+  const { rerender } = wrap(<DocumentTotals count={2} currency="VND" scale={0} values={[0, '0', '0']} />);
+  expect(screen.getAllByText('0')).toHaveLength(2);
+  expect(screen.getByText('0 VND')).toBeTruthy();
+  rerender(<DocumentTotals count={2} currency="VND" scale={0} values={['0', null, undefined]} />);
+  expect(screen.getByText('0')).toBeTruthy();
+  expect(screen.getAllByText('—')).toHaveLength(2);
+  expect(screen.queryByText('— VND')).toBeNull();
+});
 
 it('round-trips Vietnamese dates as calendar dates and rejects invalid dates', () => {
   expect(formatDocumentDate('2026-11-26', 'vi')).toBe('26/11/2026');

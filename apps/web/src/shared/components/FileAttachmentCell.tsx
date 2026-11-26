@@ -17,7 +17,8 @@ export function FileAttachmentCell({ name, editable, pending, onChoose, onDownlo
     event.target.value = '';
     if (file) onChoose(file);
   }
-  return <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 0.5, minHeight: 32 }}>
+  return <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 0.5, minHeight: 32,
+    '& > span': { flexShrink: 0 } }}>
     {editable && <input ref={input} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" hidden onChange={select} />}
     {name ? <>
       <InsertDriveFileOutlined fontSize="small" color="primary" sx={{ flexShrink: 0 }} />

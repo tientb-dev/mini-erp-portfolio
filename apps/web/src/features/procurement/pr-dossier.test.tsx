@@ -47,14 +47,37 @@ it('preserves local paper and file changes across tabs, blocks workflow, and sen
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Tiếp tục chỉnh sửa' }));
   fireEvent.click(dossier.getByRole('button', { name: 'Lưu hồ sơ' }));
   expect(await screen.findByText('Fixture: conflict')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Lưu hồ sơ thất bại' })).toBeTruthy();
+  expect(screen.getByText(/kiểm tra phiên bản PR mới nhất/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Đã hiểu' }));
   expect(dossier.getByText('Có thay đổi chưa lưu')).toBeTruthy();
   fireEvent.click(dossier.getByRole('button', { name: 'Lưu hồ sơ' }));
-  expect(await screen.findByText('Đã lưu hồ sơ chứng từ')).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: 'Lưu hồ sơ thành công' })).toBeTruthy();
+  expect(screen.getByText('Đã cập nhật hồ sơ chứng từ của PR-2026-000005.')).toBeTruthy();
+  expect(within(screen.getByRole('dialog')).queryByRole('button')).toBeNull();
   expect(save).toHaveBeenCalledTimes(2);
   expect(save).toHaveBeenLastCalledWith({ sessionKey: expect.any(String), rows: [
     { dossierTypeId: 32, version: 2, hasPaper: false, issuedOn: '2026-11-25', issuer: 'NCC ABC', note: null, fileId: null },
   ] });
+});
+
+it('shows current and replacement file separately before staging a replacement', async () => {
+  mockApi({ '/auth/me': me(['PR.VIEW', 'PR.DOSSIER_MANAGE']), '/purchase-requisitions/5': document,
+    [path]: { rows: [row], canManage: true } });
+  wrap(<PurchaseRequisitionsPage initialId={5} />);
+  const panel = within(await dossierTab());
+  await panel.findByRole('button', { name: 'Bao-gia.pdf' });
+  const next = new File(['fixture'], 'Bao-gia-' + 'chi-tiet-'.repeat(12) + '.pdf');
+  fireEvent.change(screen.getByRole('tabpanel').querySelector('input[type=file]')!, { target: { files: [next] } });
+  const popup = within(screen.getByRole('dialog'));
+  expect(popup.getByText('Bạn có chắc chắn muốn thay thế file của hồ sơ Báo giá?')).toBeTruthy();
+  expect(popup.getByText('File hiện tại')).toBeTruthy();
+  expect(popup.getByText('Bao-gia.pdf')).toBeTruthy();
+  expect(popup.getByText('File thay thế')).toBeTruthy();
+  expect(popup.getByText(next.name)).toBeTruthy();
+  fireEvent.click(popup.getByRole('button', { name: 'Hủy bỏ' }));
+  expect(panel.getByRole('button', { name: 'Bao-gia.pdf' })).toBeTruthy();
+  expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });
 
 it('keeps an attachment accessible in readonly and hides management actions', async () => {

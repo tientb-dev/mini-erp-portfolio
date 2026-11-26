@@ -246,3 +246,7 @@ Nút thao tác nghiệp vụ dùng `ActionButton` và mapping icon theo ngữ ng
 `FileAttachmentCell` hiển thị nút Tải lên có icon khi trống và có quyền quản lý. Khi có file, icon file, tên tải xuống, icon thay thế và icon xóa nằm cạnh nhau trong một dòng. `GridText` bổ sung ellipsis và tooltip truy cập bàn phím khi tên bị cắt. Cell chỉ đọc hiện tên tải xuống hoặc dấu —. Xác nhận dùng Common FormDialog. Lỗi dùng Action Result Dialog. Loading giới hạn tại cell đang xử lý.
 
 Tab Hồ sơ PR dùng `ScrollTable` với hai tầng header sticky, 7 cột và footer đếm hồ sơ. Các trường giấy khóa khi bỏ chọn Đã có và giữ giá trị. Document Grid hàng hóa tiếp tục nằm dưới tab. Create/Edit lưu cùng PR. View có nút Lưu hồ sơ dạng phụ khi có quyền quản lý và có dòng hồ sơ. Dirty Guard giữ dữ liệu qua các lần chuyển tab và bảo vệ khi rời trang. Xem [vòng đời và lưu trữ](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42).
+
+Grid Hồ sơ dành đủ chỗ cho tên loại thông dụng và cho cột Ghi chú, File đính kèm co giãn. Hộp thoại thay thế tách file hiện tại và file thay thế thành hai khối, dùng chung FormDialog. Kết quả lưu dùng Action Result Dialog theo UI-15, nêu mã PR khi thành công và nguyên nhân kèm hướng xử lý khi thất bại.
+
+`DocumentTotals` hiển thị số 0 theo precision tiền tệ. Gắn mã tiền tệ với tổng thanh toán có giá trị, ví dụ **0 VND**. Giá trị thiếu dùng **—**.

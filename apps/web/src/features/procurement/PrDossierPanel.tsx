@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Alert, Box, Checkbox, Stack, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
+import ArrowDownward from '@mui/icons-material/ArrowDownward';
+import InsertDriveFileOutlined from '@mui/icons-material/InsertDriveFileOutlined';
 import { useTranslation } from 'react-i18next';
 import { ActionButton } from '../../shared/components/ActionButton';
 import { DocumentEmptyState } from '../../shared/components/DocumentEmptyState';
@@ -15,7 +17,7 @@ import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import type { PrDossierModel, PrDossierRow } from './pr-dossier';
 
 const fields = ['position', 'type', 'hasPaper', 'date', 'issuer', 'note', 'file'] as const;
-const widths = [48, 144, 64, 166, 136, 151, 310];
+const widths = [48, 190, 64, 160, 150, undefined, '24%'];
 
 export function PrDossierPanel({ model, saving, onSave, onResult, templateConflict, onTemplateResolved }: {
   model: PrDossierModel; saving: boolean; onSave?: () => void; onResult: (result: ActionResult) => void;
@@ -58,7 +60,7 @@ export function PrDossierPanel({ model, saving, onSave, onResult, templateConfli
             {t('prDossier.save')}
           </ActionButton>
         </Stack>}
-        <ScrollTable label={t('prDossier.title')} columnWidths={widths} maxHeight="min(46vh, 450px)">
+        <ScrollTable label={t('prDossier.title')} columnWidths={widths} minWidth={980} maxHeight="min(46vh, 450px)">
           <TableHead sx={{ position: 'sticky', top: 0, zIndex: 2, '& th': { position: 'static', bgcolor: 'background.default', py: 0.75 } }}>
             <TableRow>
               <TableCell colSpan={2} />
@@ -114,8 +116,21 @@ export function PrDossierPanel({ model, saving, onSave, onResult, templateConfli
         else model.update(confirmation.row, { file: null });
         setConfirmation(undefined);
       }} onClose={() => setConfirmation(undefined)}>
-      <Box sx={{ overflowWrap: 'anywhere' }}>{t(confirmation.file ? 'prDossier.replaceHint' : 'prDossier.removeHint',
-        { type: confirmation.row.name, current: currentFile.name, replacement: confirmation.file?.name })}</Box>
+      <Typography sx={{ overflowWrap: 'anywhere' }}>{t(confirmation.file ? 'prDossier.replaceHint' : 'prDossier.removeHint',
+        { type: confirmation.row.name, current: currentFile.name })}</Typography>
+      {confirmation.file && <Stack spacing={0.5}>
+        {([['currentFile', currentFile.name], ['replacementFile', confirmation.file.name]] as const).map(([label, name], index) =>
+          <Stack key={label} spacing={0.5}>
+            {index === 1 && <ArrowDownward aria-hidden sx={{ alignSelf: 'center', color: 'text.secondary' }} />}
+            <Stack direction="row" spacing={1} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.25 }}>
+              <InsertDriveFileOutlined aria-hidden color="primary" sx={{ flexShrink: 0 }} />
+              <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{t(`prDossier.${label}`)}</Typography>
+                <Typography variant="body2">{name}</Typography>
+              </Box>
+            </Stack>
+          </Stack>)}
+      </Stack>}
       <Typography color="text.secondary">{t(confirmation.file ? 'prDossier.replaceRetention' : 'prDossier.onSave')}</Typography>
     </FormDialog>}
     {confirmConfigRemoval && <FormDialog title={t('prDossier.discardRemoved')} submitLabel={t('prDossier.discardRemoved')}

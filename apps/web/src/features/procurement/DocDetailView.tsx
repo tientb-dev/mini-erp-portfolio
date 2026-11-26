@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Stack, Typography } from '@mui/material';
 import { GridColDef } from '@mui/x-data-grid';
-import { api } from '../../services/api-client';
+import { ApiError, api } from '../../services/api-client';
 import { ApprovalStatusChip, DataTable, DetailPageLayout, DetailTabs, Field } from '../../shared/components';
 import { DocumentWorkflowNodes, DocumentWorkflowStepper, WorkflowCardField } from '../../shared/components/DocumentWorkflow';
 import { DocumentFormCell, DocumentFormGrid } from '../../shared/components/DocumentFormGrid';
@@ -55,9 +55,14 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
     && doc.data.createdBy === me.data.id && me.data.permissions.includes('PR.CREATE')
     && ['DRAFT', 'REJECTED'].includes(doc.data.approvalStatus)));
   const dossierSave = useMutation({ mutationFn: dossier.save, onSuccess: () => {
-    setResult({ success: true, message: t('prDossier.saved') });
+    setResult({ success: true, title: t('prDossier.savedTitle'),
+      message: t('prDossier.saved', { number: doc.data?.documentNumber }) });
     void doc.refetch();
-  }, onError: error => setResult({ success: false, message: t('prDossier.saveFailed'), error }) });
+  }, onError: error => {
+    const status = error instanceof ApiError ? error.status : undefined;
+    const hint = status === 409 ? 'saveConflict' : status === 404 ? 'saveMissingFile' : status === 403 ? 'savePermission' : 'saveRetry';
+    setResult({ success: false, title: t('prDossier.saveFailed'), hint: t(`prDossier.${hint}`), error });
+  } });
   const viewGuard = !editorActive && (dossier.dirty || dossier.pending || dossierSave.isPending);
   useEffect(() => {
     if (!viewGuard) return;

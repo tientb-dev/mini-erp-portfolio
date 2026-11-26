@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, ParseFilePipe, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, ParseFilePipe, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -12,7 +12,14 @@ import { WORKFLOW_STEPS, WorkflowStep } from '../workflow/action-context';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { dossierMaxFileBytes } from '../document-dossier/dossier-file-policy';
 import { IncomingDossierFile } from '../document-dossier/dossier-storage';
-import { DossierUpdate, NewDossierUpdate } from '../document-dossier/dossier-update.dto';
+import { DossierUpdate, MAX_DOSSIER_ID, NewDossierUpdate } from '../document-dossier/dossier-update.dto';
+
+const dossierIdRange = {
+  transform(value: number) {
+    if (value < 1 || value > MAX_DOSSIER_ID) throw new BadRequestException('Dossier identifiers must be positive 32-bit integers');
+    return value;
+  },
+};
 
 const dossierUpload = FileInterceptor('file', { limits: { fileSize: dossierMaxFileBytes() + 1, files: 1, parts: 2 } });
 const dossierUploadBody = { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } };
@@ -157,13 +164,13 @@ export class ProcurementController {
   prDossierTemplate() { return this.svc.prDossierTemplate(); }
 
   @Get('purchase-requisitions/:id/dossier')
-  prDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  prDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe, dossierIdRange) id: number) {
     return this.svc.prDossier(req.user, id);
   }
 
   @Put('purchase-requisitions/:id/dossier')
   @RequirePermissions('PR.DOSSIER_MANAGE')
-  savePrDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() body: DossierUpdate) {
+  savePrDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe, dossierIdRange) id: number, @Body() body: DossierUpdate) {
     return this.svc.savePrDossier(req.user, id, body);
   }
 
@@ -172,7 +179,7 @@ export class ProcurementController {
   @ApiConsumes('multipart/form-data') @ApiBody(dossierUploadBody)
   @UseInterceptors(dossierUpload)
   stageNewDossier(@Req() req: AuthedRequest, @Param('key', new ParseUUIDPipe({ version: '4' })) key: string,
-    @Param('typeId', ParseIntPipe) typeId: number, @UploadedFile(new ParseFilePipe()) file: IncomingDossierFile) {
+    @Param('typeId', ParseIntPipe, dossierIdRange) typeId: number, @UploadedFile(new ParseFilePipe()) file: IncomingDossierFile) {
     return this.svc.stagePrDossier(req.user, key, typeId, file);
   }
 
@@ -180,8 +187,8 @@ export class ProcurementController {
   @RequirePermissions('PR.DOSSIER_MANAGE')
   @ApiConsumes('multipart/form-data') @ApiBody(dossierUploadBody)
   @UseInterceptors(dossierUpload)
-  stageExistingDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
-    @Param('typeId', ParseIntPipe) typeId: number, @Query('session', new ParseUUIDPipe({ version: '4' })) session: string,
+  stageExistingDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe, dossierIdRange) id: number,
+    @Param('typeId', ParseIntPipe, dossierIdRange) typeId: number, @Query('session', new ParseUUIDPipe({ version: '4' })) session: string,
     @UploadedFile(new ParseFilePipe()) file: IncomingDossierFile) {
     return this.svc.stagePrDossier(req.user, id, typeId, file, session);
   }
@@ -191,15 +198,15 @@ export class ProcurementController {
   @Header('Cache-Control', 'private, no-store')
   @Header('X-Content-Type-Options', 'nosniff')
   async downloadStagedDossier(@Req() req: AuthedRequest, @Param('key', new ParseUUIDPipe({ version: '4' })) key: string,
-    @Param('fileId', ParseIntPipe) fileId: number) {
+    @Param('fileId', ParseIntPipe, dossierIdRange) fileId: number) {
     return this.dossierDownload(await this.svc.downloadPrDossier(req.user, key, fileId));
   }
 
   @Get('purchase-requisitions/:id/dossier/files/:fileId')
   @Header('Cache-Control', 'private, no-store')
   @Header('X-Content-Type-Options', 'nosniff')
-  async downloadDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
-    @Param('fileId', ParseIntPipe) fileId: number, @Query('session', new ParseUUIDPipe({ version: '4', optional: true })) session?: string) {
+  async downloadDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe, dossierIdRange) id: number,
+    @Param('fileId', ParseIntPipe, dossierIdRange) fileId: number, @Query('session', new ParseUUIDPipe({ version: '4', optional: true })) session?: string) {
     return this.dossierDownload(await this.svc.downloadPrDossier(req.user, id, fileId, session));
   }
 

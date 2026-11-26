@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AppBar, Box, Button, Drawer, IconButton, Toolbar, Typography, useMediaQuery } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { fillMedia, tokens } from '../../config/theme';
-import { DossierConfigurationRoute } from '../../features/document-dossier/DossierConfigurationPage';
+import { DossierConfigurationRoute } from '../../features/document-dossier';
 import { PrNotifications } from '../../features/procurement';
 import { useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';

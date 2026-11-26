@@ -18,7 +18,7 @@ import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import SwapHoriz from '@mui/icons-material/SwapHoriz';
 import { fmtDate, num } from '../../shared/utils/format';
 import { useMe } from '../identity';
-import type { HistoryEntry, WorkflowActionContext } from "../workflow/types";
+import type { HistoryEntry, WorkflowActionContext } from '../workflow';
 import { DocAction, DocActionDialog, DocumentActivityDialog, DocumentHistoryTable, HistoryList } from '../workflow';
 import { DocConfig, DocDetail, DocLine } from './types';
 import { PrPageEditor, PrReadonlyField, type PrEditorModel } from './PrPageEditor';

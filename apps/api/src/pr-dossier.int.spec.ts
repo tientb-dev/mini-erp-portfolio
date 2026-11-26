@@ -92,6 +92,15 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     expect((await template()).revision).not.toBe(dto.dossier.revision);
     expect((await get(dossier(id)).expect(200)).body.rows.map(({ code, name }: { code: string; name: string }) => [code, name]))
       .toEqual([['PD-B', 'Fixture B'], ['PD-A', 'Fixture A']]);
+    await configure([types[0], types[2], types[1]]);
+    await http().patch('/dossier-types/' + types[1] + '/status').auth(admin, { type: 'bearer' })
+      .send({ isActive: false }).expect(204);
+    try {
+      expect((await get(dossier(id)).expect(200)).body.rows.map(({ code }: { code: string }) => code)).toEqual(['PD-B', 'PD-A']);
+    } finally {
+      await http().patch('/dossier-types/' + types[1] + '/status').auth(admin, { type: 'bearer' })
+        .send({ isActive: true }).expect(204);
+    }
     for (const old of [legacy, empty]) {
       const doc = (await get(endpoint + '/' + old).expect(200)).body;
       await http().patch(endpoint + '/' + old).auth(admin, { type: 'bearer' })
@@ -127,6 +136,8 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
       .toEqual([[true, true], [false, true], [true, false], [false, false]]);
     await get(dossier(id) + '/files/' + uploadedA.id, reader).expect(200).expect('Content-Type', /application\/pdf/);
     await get(dossier(id) + '/files/' + uploadedA.id, scopedReader).expect(403);
+    const unrelated = await create();
+    await get(dossier(unrelated) + '/files/' + uploadedA.id).expect(404);
     await get(staged + '/' + uploadedA.id).expect(404);
     await put(dossier(id), { rows: [row(types[0], current[0].version)] }, reader).expect(403);
     const editSession = randomUUID();
@@ -154,7 +165,10 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     await put(dossier(id), { rows: [row(types[1], current[1].version, { fileId: null })] }).expect(200);
     expect(await prContext(ds, id)).toEqual(done);
     const abandoned = (await upload(dossier(id) + '/files/' + types[0] + suffix, pdf, 'unused.pdf').expect(201)).body;
+    const [expiry] = await ds.query('SELECT extract(epoch FROM expires_at - uploaded_at)::int AS seconds FROM document_dossier_files WHERE id = $1', [abandoned.id]);
+    expect(expiry.seconds).toBe(86_400);
     await ds.query("UPDATE document_dossier_files SET expires_at = now() - interval '1 hour' WHERE id = $1", [abandoned.id]);
+    await get(dossier(id) + '/files/' + abandoned.id + suffix).expect(404);
     const count = (await readdir(storage)).length;
     await app.get(DossierStorage).cleanup();
     expect((await readdir(storage)).length).toBe(count - 1);
@@ -188,5 +202,66 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     expect(saved).toMatchObject({ approvalStatus: 'DRAFT', name: 'Edited fixture', lines: [{ quantity: '2.000' }] });
     expect(saved.history.some((entry: { action: string }) => entry.action === 'DOSSIER_UPDATE')).toBe(true);
     expect((await get(dossier(id)).expect(200)).body.rows[0]).toMatchObject({ version: 2, hasPaper: true, issuer: 'Optional', file });
+  });
+
+  it('rejects invalid IDs and cross-document staging, and retains committed history across a no-op save', async () => {
+    await configure([types[0]]);
+    const id = await create();
+    const other = await create();
+    const sessionKey = randomUUID();
+    const target = dossier(id) + '/files/';
+    const staged = (await upload(target + types[0] + '?session=' + sessionKey, pdf, '../../fixture.pdf').expect(201)).body;
+    expect(staged.name).toBe('fixture.pdf');
+    const [stored] = await ds.query('SELECT storage_key FROM document_dossier_files WHERE id = $1', [staged.id]);
+    expect(stored.storage_key).toMatch(/^[0-9a-f-]{36}$/);
+    await get('/dossiers/' + stored.storage_key).expect(404);
+    for (const invalid of [0, -1, 2_147_483_648]) await get(target + invalid).expect(400);
+    await get(dossier(2_147_483_648)).expect(400);
+    await put(dossier(id), { rows: [row(types[0], 1, { fileId: 2_147_483_648 })] }).expect(400);
+    const patch = row(types[0], 1, { fileId: staged.id });
+    await put(dossier(other), { sessionKey, rows: [patch] }).expect(404);
+    await put(dossier(id), { sessionKey, rows: [patch] }).expect(200);
+    await put(dossier(id), { rows: [row(types[0], 2, { fileId: staged.id })] }).expect(200);
+    const detail = (await get(endpoint + '/' + id).expect(200)).body;
+    const recorded = detail.history.filter((h: { action: string }) => h.action === 'DOSSIER_UPDATE');
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({ actorId: detail.createdBy, createdAt: expect.any(String),
+      metadata: { fileAction: 'UPLOAD', before: { file: null }, after: { file: staged } } });
+  });
+
+  it('serializes dossier saves with workflow changes and rechecks a revoked grant', async () => {
+    await configure([types[0]]);
+    const id = await create();
+    const path = endpoint + '/' + id;
+    await put(dossier(id), { rows: [] }, manager).expect(403);
+    const { approverId, receiverId } = await prSubmission(ds, id);
+    const context = await prContext(ds, id);
+    const edits = { ...context, approverId, receiverId, lines: header().lines,
+      dossier: { rows: [row(types[0], 1, { hasPaper: true })] } };
+    await http().patch(path + '/submit-edited').auth(admin, { type: 'bearer' }).send(edits).expect(204);
+    const head = await login(app, 'sales-head', 'role-users-test');
+    await post(path + '/reject', { ...await prContext(ds, id), reason: 'Fixture' }, head).expect(204);
+    expect((await get(dossier(id)).expect(200)).body.canManage).toBe(true);
+    await post(path + '/submit', await prSubmission(ds, id)).expect(204);
+    const approvalContext = await prContext(ds, id);
+    const [save, approve] = await Promise.all([
+      put(dossier(id), { rows: [row(types[0], 2, { hasPaper: true, note: 'During approval' })] }),
+      post(path + '/approve', approvalContext, head),
+    ]);
+    expect([save.status, approve.status]).toEqual([200, 204]);
+    expect(await prContext(ds, id)).toMatchObject({ version: approvalContext.version + 1, round: approvalContext.round, step: 'RECEIPT' });
+    expect((await get(dossier(id)).expect(200)).body.rows[0]).toMatchObject({ version: 3, note: 'During approval' });
+    const task = (await get(path).expect(200)).body;
+    expect(task.assignedApproverId).toBe(receiverId);
+    await ds.query(`INSERT INTO role_permissions (role_id, permission_id)
+      SELECT ur.role_id, p.id FROM user_roles ur CROSS JOIN permissions p
+      WHERE ur.user_id = $1 AND p.code = 'PR.DOSSIER_MANAGE' ON CONFLICT DO NOTHING`, [receiverId]);
+    expect((await get(dossier(id), reader).expect(200)).body.canManage).toBe(true);
+    await ds.query(`DELETE FROM role_permissions rp USING user_roles ur, permissions p
+      WHERE rp.role_id = ur.role_id AND rp.permission_id = p.id AND p.code = 'PR.DOSSIER_MANAGE' AND ur.user_id = $1`, [receiverId]);
+    await put(dossier(id), { rows: [row(types[0], 3, { note: 'Revoked' })] }, reader).expect(403);
+    expect((await get(dossier(id), reader).expect(200)).body).toMatchObject({
+      canManage: false, rows: [{ version: 3, note: 'During approval' }],
+    });
   });
 });

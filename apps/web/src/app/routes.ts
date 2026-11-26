@@ -22,7 +22,7 @@ import { InventoryLotsPage, InventoryPage } from '../features/inventory';
 import { BrandsPage, CurrenciesPage, CustomersPage, DossierTypesPage, ProductsPage, SuppliersPage, TaxRatesPage, TemporaryProductsPage, UnitsOfMeasurePage, WarehousesPage } from '../features/master-data';
 import { GoodsIssueRequestsPage, GoodsIssuesPage } from '../features/outbound';
 import { GoodsReceiptRequestsPage, PurchaseOrdersPage, PurchaseRequisitionsPage } from '../features/procurement';
-import { DossierConfigurationsPage } from '../features/document-dossier/DossierConfigurationPage';
+import { DossierConfigurationsPage } from '../features/document-dossier';
 import { SalesContractsPage } from '../features/sales-contracts';
 
 /**

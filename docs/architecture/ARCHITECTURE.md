@@ -188,6 +188,8 @@ Migration `1733184000000` thêm các bảng `document_dossier_*` và `document_d
 
 Procurement cung cấp `GET /purchase-requisitions/catalog/dossier` để lấy cấu hình PR Active kèm revision. `GET/PUT /purchase-requisitions/:id/dossier` đọc hoặc lưu tập trung trong View. Create/Edit gửi payload hồ sơ trong API lưu PR hiện hành. Upload/tải tạm khi Create đi qua `/purchase-requisitions/dossier-staging/:key/…`; View/Edit dùng `/purchase-requisitions/:id/dossier/files/…`. File tải qua endpoint xác thực. Version dòng hồ sơ và khóa PR bảo vệ cập nhật song song. Lưu View ghi lịch sử append-only, giữ nguyên version, trạng thái và phân công của workflow. Xem [lưu trữ và cleanup](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42).
 
+API hồ sơ PR trả HTTP 400 cho ID ngoài miền số nguyên dương 32 bit trước khi truy vấn PostgreSQL. Common Dossier quản lý snapshot, file bất biến, liên kết và lịch sử theo định danh loại chứng từ. Module sở hữu chứng từ kiểm tra quyền, trạng thái, phạm vi và giữ khóa chứng từ trong transaction trước khi lưu. Nhiều liên kết có thể tham chiếu cùng một file, mỗi dòng hồ sơ giữ phiên bản và lịch sử riêng. Việc kế thừa từ PR sang PO cần bổ sung luồng cấp quyền và liên kết tại module sở hữu PO.
+
 PR phối hợp thao tác lưu chứng từ và Gửi duyệt trong cùng transaction ở module Procurement. Workflow nhận cùng EntityManager với thao tác ghi header, dòng hàng và phân công. Các API kết hợp vẫn kiểm tra ngữ cảnh workflow và ghi Activity History cùng Notification trong transaction đó. Xem [ADR-0015](decisions/ADR-0015-purchase-requisition-workflow.md) và [chuẩn Common Document Page](FRONTEND.md).
 
 #### API và lưu trữ PR Phase 2

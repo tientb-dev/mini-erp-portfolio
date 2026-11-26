@@ -25,6 +25,7 @@ export interface Catalog {
   create: string;
   update: string;
   fullPage?: boolean;
+  refresh?: boolean;
   remove?: boolean;
   fields: FieldKey[];
   columns?: FieldKey[];
@@ -47,6 +48,8 @@ export const catalogs = {
     fields: ['code', 'name', 'exchangeRate', 'decimalPlaces'], columns: ['exchangeRate', 'decimalPlaces'] },
   taxRates: { key: 'taxRates', path: 'tax-rates', create: manage, update: manage, remove: true,
     fields: ['code', 'name', 'rate'], columns: ['rate'] },
+  dossierTypes: { key: 'dossierTypes', path: 'dossier-types', create: 'DOSSIER_TYPE.MANAGE', update: 'DOSSIER_TYPE.MANAGE',
+    refresh: true, fields: ['code', 'name', 'description'], columns: ['description'] },
 } satisfies Record<string, Catalog>;
 
 export const label = (t: TFunction, field: FieldKey) => t(`master.fields.${field}`);

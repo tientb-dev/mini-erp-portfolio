@@ -3,6 +3,7 @@ import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'r
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, MenuItem, Stack, Switch, TextField } from '@mui/material';
+import Refresh from '@mui/icons-material/Refresh';
 import Add from '@mui/icons-material/Add';
 import type { GridColDef } from '@mui/x-data-grid';
 import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
@@ -80,9 +81,9 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const canEdit = permissions.includes(catalog.update);
   const canCreate = permissions.includes(catalog.create);
   const columns: GridColDef<Entry>[] = [
-    { field: isProduct ? 'partNumber' : 'code', headerName: label(t, isProduct ? 'partNumber' : 'code'), minWidth: 145, flex: 0.75,
+    { field: isProduct ? 'partNumber' : 'code', headerName: catalog.key === 'dossierTypes' ? t('dossier.typeCode') : label(t, isProduct ? 'partNumber' : 'code'), minWidth: 145, flex: 0.75,
       renderCell: ({ row, tabIndex }) => <CatalogRecordLink path={path} row={row} tabIndex={tabIndex} /> },
-    { field: 'name', headerName: label(t, 'name'), flex: 1.5, minWidth: 200 },
+    { field: 'name', headerName: catalog.key === 'dossierTypes' ? t('dossier.typeName') : label(t, 'name'), flex: 1.5, minWidth: 200 },
     ...(catalog.columns ?? []).map((field): GridColDef<Entry> => ({
       field, headerName: label(t, field), minWidth: 135, flex: 1,
       valueGetter: (_value, row) => {
@@ -128,8 +129,9 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
         actions={canCreate && <Button variant="contained" startIcon={<Add />} component={RouterLink} to={path + '/new' + search}>
           {t('master.create', { name: title.toLocaleLowerCase(i18n.language) })}
         </Button>}
-        toolbar={<FilterToolbar active={Boolean(q || status || brand)} onClear={() => setParams({}, { replace: true })}>
-          <SearchInput label={t('master.search')} placeholder={t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
+        toolbar={<FilterToolbar active={Boolean(q || status || brand)} onClear={catalog.refresh ? undefined : () => setParams({}, { replace: true })}>
+          <SearchInput label={t('master.search')} placeholder={catalog.refresh ? t('searchFields.codeOrName')
+            : t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
             value={q} onChange={value => setFilter('q', value)} sx={{ width: { xs: '100%', sm: 280 } }} />
           <TextField select size="small" label={t('common.status')} value={status || 'all'}
             onChange={event => setFilter('status', event.target.value === 'all' ? '' : event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
@@ -142,6 +144,8 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
             <MenuItem value="all">{t('common.all')}</MenuItem>
             {brands.data?.map(item => <MenuItem key={item.id} value={String(item.id)}>{item.name}</MenuItem>)}
           </TextField>}
+          {catalog.refresh && <Button variant="outlined" startIcon={<Refresh />} sx={{ alignSelf: 'flex-end', height: 40 }}
+            onClick={() => { setParams({}, { replace: true }); void catalogQuery.refetch(); }}>{t('prPhase.refresh')}</Button>}
         </FilterToolbar>}>
         <DataTable rows={filtered} columns={columns} maxHeight="clamp(310px, calc(100dvh - 235px), 680px)" loading={catalogQuery.isPending} error={catalogQuery.error}
           paginationModel={{ page, pageSize }}

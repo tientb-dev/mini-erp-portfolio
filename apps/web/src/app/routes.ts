@@ -19,9 +19,10 @@ import WarehouseOutlined from '@mui/icons-material/WarehouseOutlined';
 import WorkOutline from '@mui/icons-material/WorkOutlined';
 import { GoodsReceiptsPage } from '../features/inbound';
 import { InventoryLotsPage, InventoryPage } from '../features/inventory';
-import { BrandsPage, CurrenciesPage, CustomersPage, ProductsPage, SuppliersPage, TaxRatesPage, TemporaryProductsPage, UnitsOfMeasurePage, WarehousesPage } from '../features/master-data';
+import { BrandsPage, CurrenciesPage, CustomersPage, DossierTypesPage, ProductsPage, SuppliersPage, TaxRatesPage, TemporaryProductsPage, UnitsOfMeasurePage, WarehousesPage } from '../features/master-data';
 import { GoodsIssueRequestsPage, GoodsIssuesPage } from '../features/outbound';
 import { GoodsReceiptRequestsPage, PurchaseOrdersPage, PurchaseRequisitionsPage } from '../features/procurement';
+import { DossierConfigurationsPage } from '../features/document-dossier/DossierConfigurationPage';
 import { SalesContractsPage } from '../features/sales-contracts';
 
 /**
@@ -43,6 +44,8 @@ export const PAGES = {
   brands: [BrandsPage, 'PRODUCT.VIEW', StorefrontOutlined],
   unitsOfMeasure: [UnitsOfMeasurePage, 'PRODUCT.VIEW', CategoryOutlined],
   currencies: [CurrenciesPage, 'PRODUCT.VIEW', ReceiptLongOutlined],
+  dossierTypes: [DossierTypesPage, 'DOSSIER_TYPE.VIEW', FolderOutlined],
+  dossierConfigurations: [DossierConfigurationsPage, 'DOSSIER_CONFIG.MANAGE', FolderOutlined],
   taxRates: [TaxRatesPage, 'PRODUCT.VIEW', ReceiptLongOutlined],
   warehouses: [WarehousesPage, 'WAREHOUSE.VIEW', WarehouseOutlined],
   customers: [CustomersPage, 'CUSTOMER.VIEW', GroupsOutlined],
@@ -55,7 +58,7 @@ export const PAGE_CREATE: Partial<Record<PageKey, string>> = {
   purchaseRequisitions: 'PR.CREATE', products: 'PRODUCT.CREATE', temporaryProducts: 'PROCUREMENT_CATALOG.MANAGE',
   brands: 'PROCUREMENT_CATALOG.MANAGE', unitsOfMeasure: 'UOM.MANAGE', warehouses: 'WAREHOUSE.CREATE',
   customers: 'CUSTOMER.CREATE', suppliers: 'SUPPLIER.CREATE', currencies: 'PROCUREMENT_CATALOG.MANAGE',
-  taxRates: 'PROCUREMENT_CATALOG.MANAGE',
+  taxRates: 'PROCUREMENT_CATALOG.MANAGE', dossierTypes: 'DOSSIER_TYPE.MANAGE',
 };
 
 /**
@@ -69,5 +72,6 @@ export const NAV: { group: string; icon: SvgIconComponent; items: PageKey[] }[] 
   { group: 'nav.sales', icon: WorkOutline, items: ['salesContracts'] },
   { group: 'nav.purchasing', icon: ShoppingCartOutlined, items: ['purchaseRequisitions', 'purchaseOrders'] },
   { group: 'nav.warehouseOps', icon: StorefrontOutlined, items: ['goodsReceiptRequests', 'goodsReceipts', 'goodsIssueRequests', 'goodsIssues', 'inventory', 'inventoryLots'] },
-  { group: 'nav.masterData', icon: FolderOutlined, items: ['products', 'temporaryProducts', 'brands', 'unitsOfMeasure', 'warehouses', 'customers', 'suppliers', 'currencies', 'taxRates'] },
+  { group: 'nav.masterData', icon: FolderOutlined, items: ['products', 'temporaryProducts', 'brands', 'unitsOfMeasure', 'warehouses', 'customers', 'suppliers', 'currencies', 'taxRates', 'dossierTypes'] },
+  { group: 'nav.system', icon: FolderOutlined, items: ['dossierConfigurations'] },
 ];

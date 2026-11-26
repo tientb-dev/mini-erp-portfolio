@@ -2,6 +2,14 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 const vi = {
+  dossier: {
+    configurations: 'Cấu hình hồ sơ chứng từ', documentCode: 'Mã loại CT', documentName: 'Tên loại chứng từ',
+    configuredCount: 'Số loại hồ sơ', detail: 'Hồ sơ — {{name}} ({{code}})', back: 'Danh sách loại chứng từ',
+    applied: 'Danh sách hồ sơ áp dụng', addType: 'Thêm loại hồ sơ', typeCode: 'Mã loại hồ sơ', typeName: 'Tên loại hồ sơ',
+    empty: 'Chưa áp dụng loại hồ sơ nào', save: 'Lưu cấu hình', saved: 'Đã lưu cấu hình hồ sơ.',
+    saveFailed: 'Lưu cấu hình hồ sơ thất bại.', up: 'Di chuyển lên', down: 'Di chuyển xuống', remove: 'Xóa khỏi cấu hình',
+    count: '{{count}} loại hồ sơ', choose: 'Chọn loại hồ sơ', selected: 'Đã chọn {{count}} loại hồ sơ', confirm: 'Xác nhận ({{count}})',
+  },
   documentRows: {
     bulkDelete: 'Xóa ({{count}})', deleteItems: 'Xóa hàng hóa',
     confirmBulkDelete: 'Bạn có chắc chắn muốn xóa {{count}} dòng hàng hóa đã chọn?',
@@ -15,7 +23,7 @@ const vi = {
       brands: 'Nhập mã hoặc tên hãng...', unitsOfMeasure: 'Nhập mã hoặc tên đơn vị tính...',
       warehouses: 'Nhập mã hoặc tên kho...', customers: 'Nhập mã hoặc tên khách hàng...',
       suppliers: 'Nhập mã hoặc tên nhà cung cấp...', currencies: 'Nhập mã hoặc tên tiền tệ...',
-      taxRates: 'Nhập mã hoặc tên thuế suất...',
+      taxRates: 'Nhập mã hoặc tên thuế suất...', dossierTypes: 'Nhập mã hoặc tên loại hồ sơ...',
     },
   },
   prPhase: {
@@ -126,6 +134,7 @@ const vi = {
   },
   nav: {
     temporaryProducts: "Mã tạm", brands: "Hãng", unitsOfMeasure: "Đơn vị tính", currencies: "Tiền tệ", taxRates: "Thuế suất",
+    dossierTypes: 'Loại hồ sơ', dossierConfigurations: 'Cấu hình hồ sơ chứng từ', system: 'Hệ thống',
     label: 'Điều hướng chính', open: 'Mở menu', masterData: 'Danh mục', warehouseOps: 'Kho vận',
     sales: 'Bán hàng', purchasing: 'Mua hàng', salesContracts: 'Hợp đồng bán', purchaseRequisitions: 'Đề nghị mua hàng (PR)', purchaseOrders: 'Đơn đặt hàng (PO)',
     goodsReceiptRequests: 'Đề nghị nhập kho', customers: 'Khách hàng', suppliers: 'Nhà cung cấp',
@@ -377,6 +386,14 @@ const vi = {
 };
 
 const en: typeof vi = {
+  dossier: {
+    configurations: 'Document dossier configuration', documentCode: 'Document type code', documentName: 'Document type',
+    configuredCount: 'Dossier types', detail: 'Dossier — {{name}} ({{code}})', back: 'Document type list',
+    applied: 'Applied dossier types', addType: 'Add dossier type', typeCode: 'Dossier type code', typeName: 'Dossier type name',
+    empty: 'No dossier types applied', save: 'Save configuration', saved: 'Dossier configuration saved.',
+    saveFailed: 'Could not save dossier configuration.', up: 'Move up', down: 'Move down', remove: 'Remove from configuration',
+    count: '{{count}} dossier types', choose: 'Select dossier types', selected: '{{count}} dossier types selected', confirm: 'Confirm ({{count}})',
+  },
   documentRows: {
     bulkDelete: 'Delete ({{count}})', deleteItems: 'Delete items',
     confirmBulkDelete: 'Are you sure you want to delete the {{count}} selected item rows?',
@@ -390,7 +407,7 @@ const en: typeof vi = {
       brands: 'Enter brand code or name...', unitsOfMeasure: 'Enter unit code or name...',
       warehouses: 'Enter warehouse code or name...', customers: 'Enter customer code or name...',
       suppliers: 'Enter supplier code or name...', currencies: 'Enter currency code or name...',
-      taxRates: 'Enter tax rate code or name...',
+      taxRates: 'Enter tax rate code or name...', dossierTypes: 'Enter dossier type code or name...',
     },
   },
   prPhase: {
@@ -501,6 +518,7 @@ const en: typeof vi = {
   },
   nav: {
     temporaryProducts: "Temporary products", brands: "Brands", unitsOfMeasure: "Units of measure", currencies: "Currencies", taxRates: "Tax rates",
+    dossierTypes: 'Dossier types', dossierConfigurations: 'Document dossier configuration', system: 'System',
     label: 'Main navigation', open: 'Open menu', masterData: 'Master data', warehouseOps: 'Warehouse',
     sales: 'Sales', purchasing: 'Purchasing', salesContracts: 'Sales contracts', purchaseRequisitions: 'Purchase requisitions', purchaseOrders: 'Purchase orders',
     goodsReceiptRequests: 'Receipt requests', customers: 'Customers', suppliers: 'Suppliers',

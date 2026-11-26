@@ -62,3 +62,10 @@ Danh mục hãng, mã tạm, tiền tệ và thuế dùng `PRODUCT.VIEW` để �
 
 ## Quy ước thuật ngữ và tên bảng
 PR = Purchase Requisition (`purchase_requisitions`); PO = Purchase Order (`purchase_orders`); GRR = Goods Receipt Request (`goods_receipt_requests`); GR = Goods Receipt (`goods_receipts`); GIR = Goods Issue Request (`goods_issue_requests`); GI = Goods Issue (`goods_issues`). Các bảng dòng dùng hậu tố `_lines`. Tham chiếu chi tiết xem `01-MVP-SCOPE.md`.
+
+## Quyền Common Dossier
+
+- `DOSSIER_TYPE.VIEW` đọc danh mục loại hồ sơ. `DOSSIER_TYPE.MANAGE` tạo, sửa, đổi trạng thái và xóa loại chưa từng dùng. Màn hình quản trị danh mục sử dụng cả hai quyền.
+- `DOSSIER_CONFIG.MANAGE` đọc và cập nhật cấu hình, kèm quyền đọc danh sách loại hồ sơ trong picker cấu hình.
+- `PR.DOSSIER_MANAGE` được đăng ký cho tích hợp Phase 4.2. Khi cập nhật hồ sơ, Procurement kết hợp quyền này với phạm vi đọc của PR và kiểm tra trạng thái khác Đã hủy. Quyền đọc PR cho phép xem và tải hồ sơ trong cùng phạm vi.
+- Migration và seed cấp bốn quyền trên cho Admin theo convention của hệ thống.

@@ -232,3 +232,9 @@ Giữa toolbar, vùng validation và grid header dùng khoảng cách 8px. Giữ
 **Validation trên grid.** Dùng token `error.main` cho icon, chữ và đường viền ở input, message và tooltip lỗi. Message và tooltip nền trắng. Slot thông báo giữ chiều cao cố định và tooltip thường giữ style mặc định.
 
 **Căn lề PR.** Form, toolbar, grid và tổng tiền dùng cùng lề ngang của card. Tiêu đề hàng hóa hiển thị cả khi View. Tổng tiền dùng cỡ chữ 16px, tổng thanh toán 18px màu chủ đạo, với divider nhẹ giữa ba nhóm.
+
+## Quản trị Common Dossier
+
+Danh mục Loại hồ sơ dùng Common Master Data với Search Input, filter trạng thái, Làm mới và popup Create/View/Edit. Hệ thống có trang Cấu hình hồ sơ chứng từ lấy loại chứng từ từ API. Mã loại chứng từ mở Detail Page với ScrollTable, các nút di chuyển và xóa, và picker nhiều lựa chọn dùng Search Input, DataTable và FormDialog. Picker giữ lựa chọn qua tìm kiếm và phân trang, hiển thị loại Active chưa áp dụng. Thay đổi chỉ áp dụng khi Lưu cấu hình. Dirty Guard bảo vệ dữ liệu chưa lưu. Action Result Dialog hiển thị kết quả và giữ danh sách đang sửa nếu API thất bại.
+
+Common File Attachment Cell thuộc Phase 4.2. Xem [đặc tả](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42).

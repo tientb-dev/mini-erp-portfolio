@@ -32,7 +32,7 @@ PO hiện có số lượng, NCC và ĐVT. Để khóa hạn mức cần bổ su
 
 ## DEC-19-06 · Common Dossier
 
-Phase 4 triển khai DOSSIER-001 đến DOSSIER-008 theo roadmap. Hồ sơ giấy độc lập file, hồ sơ không bắt buộc khi gửi duyệt, snapshot tại lần lưu đầu, file server local và metadata DB. File hỗ trợ PDF, Word, Excel, JPG, PNG và giới hạn mặc định 20 MB cấu hình được. Quyền xem chứng từ cho phép xem/tải, quyền quản lý riêng cho phép sửa sau Hoàn tất. Mỗi loại có tối đa một file hiện hành, giữ file cũ khi xóa hoặc thay, ghi Common Activity History. PO kế thừa và quản lý độc lập.
+Áp dụng DOSSIER-001 đến DOSSIER-009 trong [Business Rules](../../03-BUSINESS-RULES.md#hồ-sơ-chứng-từ). Phase 4.1 cung cấp nền tảng dữ liệu, snapshot và màn hình quản trị. Phạm vi PR và Common File Attachment Cell được mô tả trong [roadmap](../DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).
 
 ## DEC-19-07 · Tính tiền chứng từ ERP
 

@@ -4,6 +4,7 @@ import { env } from './env';
 import { hashPassword } from '../modules/identity/password';
 
 export const PERMISSIONS = [
+  'DOSSIER_TYPE.VIEW', 'DOSSIER_TYPE.MANAGE', 'DOSSIER_CONFIG.MANAGE', 'PR.DOSSIER_MANAGE',
   'PRODUCT.VIEW', 'PRODUCT.CREATE', 'PRODUCT.UPDATE', 'PROCUREMENT_CATALOG.MANAGE',
   'WAREHOUSE.VIEW', 'WAREHOUSE.CREATE', 'WAREHOUSE.UPDATE',
   'INVENTORY.VIEW',

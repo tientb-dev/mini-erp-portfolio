@@ -1,3 +1,4 @@
+import { DossierModule } from './modules/document-dossier/dossier.module';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -18,6 +19,7 @@ import { SalesContractsModule } from './modules/sales-contracts/sales-contracts.
   imports: [
     TypeOrmModule.forRoot(dataSourceOptions()),
     IdentityModule,
+    DossierModule,
     MasterDataModule,
     InventoryModule,
     SalesContractsModule,

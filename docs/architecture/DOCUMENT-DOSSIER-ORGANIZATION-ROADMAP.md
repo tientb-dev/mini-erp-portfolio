@@ -1,16 +1,17 @@
 # Roadmap Common Document Dossier và Organization Master Data
 
-Hai module dưới đây là thiết kế roadmap. Phase 1 của PR #18 chỉ cập nhật tài liệu.
+Phase 4.1 của PR #19 triển khai nền tảng Common Document Dossier và hai màn hình quản trị. Organization Master Data thuộc roadmap riêng.
 
 ## Common Document Dossier
 
-PR #18 Phase 4.1 hiển thị trạng thái Chưa có hồ sơ trong Common Document Page. PR #19 Phase 4 triển khai Common Document Dossier trong tab này. Xem DEC-19-06 trong [ADR-0017](decisions/ADR-0017-pr-business-completion.md) cho quyền xem/tải, vòng đời file và giới hạn dung lượng.
+Phase 4.1 cung cấp catalog, cấu hình, hàm snapshot cho transaction của module sở hữu và nền tảng metadata. Tab Hồ sơ vẫn hiển thị placeholder. Quy tắc DOSSIER-001 đến DOSSIER-009 nằm trong [Business Rules](../03-BUSINESS-RULES.md#hồ-sơ-chứng-từ).
 
-- Master Data định nghĩa loại hồ sơ theo loại chứng từ. Danh mục được chụp snapshot khi lưu chứng từ lần đầu.
-- Mỗi loại hồ sơ có checkbox bản giấy độc lập với file điện tử và tối đa một file.
-- Hồ sơ không bắt buộc cho workflow. Người có quyền quản lý hồ sơ riêng được cập nhật sau Done.
-- PO kế thừa hồ sơ PR rồi chỉnh sửa độc lập. Khi nhiều PR nguồn có file trùng loại, người dùng chọn file kế thừa.
-- Ghi nhận thay đổi hồ sơ vào Common Activity History.
+### Phase 4.2
+
+- Tích hợp snapshot khi PR được lưu lần đầu. Với PR có trước Phase 4 chưa có dấu mốc, đề xuất giữ trạng thái chưa khởi tạo trong View và chỉ chụp cấu hình hiện hành theo một thao tác riêng sau khi BA duyệt. Cần chốt phạm vi, quyền và thời điểm.
+- Common File Attachment Cell hiển thị tên file, trạng thái tạm hoặc hiện hành và thao tác theo quyền. Tên dài dùng ellipsis và tooltip. Chọn hoặc thay file chuẩn bị upload tạm. Xóa hoặc thay thế chỉ kết thúc liên kết hiện hành khi lưu chính thức. Backend kiểm tra quyền đọc chứng từ khi tải.
+- File PDF, Word, Excel, JPG và PNG lưu riêng tư trên máy chủ. Giới hạn mặc định 20 MiB, điều chỉnh qua `DOSSIER_MAX_FILE_BYTES`. Lưu hồ sơ cập nhật binding và con trỏ hiện hành trong cùng transaction. Giữ các binding đã kết thúc để truy vết và ghi Common Activity History.
+- Kế thừa PR sang PO là backlog nghiệp vụ PO. Khi nhiều PR nguồn có file cùng loại, người dùng chọn file kế thừa. Metadata đã cho phép nhiều chứng từ tham chiếu cùng file vật lý và lưu provenance.
 
 ## Phạm vi PR #19 cho Đề nghị mua hàng
 

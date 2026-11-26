@@ -16,3 +16,5 @@ export const CustomersPage = page(catalogs.customers);
 export const SuppliersPage = page(catalogs.suppliers);
 export const CurrenciesPage = page(catalogs.currencies);
 export const TaxRatesPage = page(catalogs.taxRates);
+
+export const DossierTypesPage = page(catalogs.dossierTypes);

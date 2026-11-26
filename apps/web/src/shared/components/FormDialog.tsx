@@ -16,6 +16,7 @@ export function FormDialog(props: {
   /** `error` for destructive actions (delete, cancel). */ submitColor?: 'primary' | 'error';
   /** One short line under the title (what to enter, what happens). */ description?: ReactNode;
   submitIcon?: ReactNode;
+  footerAside?: ReactNode;
   pageGuardsNavigation?: boolean;
 }) {
   const { t } = useTranslation();
@@ -54,6 +55,7 @@ export function FormDialog(props: {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
+          {props.footerAside && <Typography variant="body2" sx={{ mr: 'auto' }}>{props.footerAside}</Typography>}
           <Button variant="outlined" onClick={requestClose} disabled={props.pending}>{props.closeLabel ?? t('common.cancel')}</Button>
           {props.submitLabel && <Button type="submit" variant={props.submitColor === 'error' ? 'outlined' : 'contained'} startIcon={props.submitIcon}
             color={props.submitColor ?? 'primary'} disabled={!props.canSubmit || props.pending}>{props.submitLabel}</Button>}

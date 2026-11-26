@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AppBar, Box, Button, Drawer, IconButton, Toolbar, Typography, useMediaQuery } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { fillMedia, tokens } from '../../config/theme';
+import { DossierConfigurationRoute } from '../../features/document-dossier/DossierConfigurationPage';
 import { PrNotifications } from '../../features/procurement';
 import { useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';
@@ -70,6 +71,8 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
               {me.data && (
                 <Routes>
                   <Route path="/" element={first ? <Navigate to={pagePath(first)} replace /> : null} />
+                  <Route path="/dossier-configurations/:documentType" element={allowed('dossierConfigurations')
+                    ? <DossierConfigurationRoute /> : <Typography color="text.secondary">{t('common.notFound')}</Typography>} />
                   <Route path="/:page/:id?" element={<PageRoute allowed={allowed} has={(p) => Boolean(me.data?.permissions.includes(p))} />} />
                   <Route path="*" element={<Typography color="text.secondary">{t('common.notFound')}</Typography>} />
                 </Routes>

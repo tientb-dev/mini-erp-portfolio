@@ -1,6 +1,18 @@
 # Mini ERP MVP — Quy tắc nghiệp vụ
 **Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
 
+## Hồ sơ chứng từ
+
+- **DOSSIER-001.** Hồ sơ dùng định danh loại chứng từ của Common Document Records. Module sở hữu chứng từ kiểm tra tồn tại, phạm vi đọc và trạng thái.
+- **DOSSIER-002.** Loại hồ sơ có mã duy nhất, tên, mô tả và trạng thái. Cấu hình theo loại chứng từ có thứ tự. Loại từng được áp dụng được giữ lại. Loại Inactive vẫn hiển thị trong cấu hình cũ và được bỏ qua khi tạo snapshot.
+- **DOSSIER-003.** Hồ sơ giấy độc lập với file điện tử. Bỏ chọn hồ sơ giấy vẫn giữ ngày phát hành, người phát hành và ghi chú.
+- **DOSSIER-004.** Mỗi loại hồ sơ chỉ có tối đa một file hiện hành trên một chứng từ. Giữ liên kết đã kết thúc để truy vết và giữ nguyên nội dung file vật lý đã tham chiếu.
+- **DOSSIER-005.** Lưu và phê duyệt chứng từ không phụ thuộc hồ sơ.
+- **DOSSIER-006.** Quyền xem/tải theo phạm vi đọc chứng từ. Quyền quản lý hồ sơ cho phép cập nhật ở mọi trạng thái trừ Đã hủy, trong phạm vi được phép truy cập. Cập nhật hồ sơ không ảnh hưởng workflow.
+- **DOSSIER-007.** PO có thể kế thừa hồ sơ PR và quản lý độc lập trong giai đoạn nghiệp vụ PO.
+- **DOSSIER-008.** Chụp mã, tên và thứ tự các loại hồ sơ Active khi lưu chứng từ thành công lần đầu, gồm Lưu nháp. Ghi nhận cả snapshot rỗng và giữ nguyên sau khi cấu hình thay đổi.
+- **DOSSIER-009.** Create/Edit lưu hồ sơ cùng chứng từ. View dùng thao tác Lưu hồ sơ riêng. Upload tạm chỉ chuẩn bị file cho lần lưu chính thức.
+
 ## 1. Số lượng và liên kết mua hàng — đã chốt
 - Mỗi PR thuộc một HĐ `ACTIVE` (cấp chứng từ); mỗi dòng PR giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
 - **Phân loại dòng** (đã chốt 2026-11-13, ADR-0012): mỗi dòng PR có phân loại tường minh hàng bán/vật tư; MVP không trộn hai loại trong một PR.

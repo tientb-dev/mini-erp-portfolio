@@ -182,6 +182,10 @@ Ngoại lệ đã có giữ nguyên: `GR.DECLARE_DETAILS` cho phép sửa chi ti
 
 Module document records cung cấp Notes và Activity History dùng chung. Module sở hữu chứng từ kiểm tra đích và quyền. Activity append-only kể cả khi workflow có state, assignment và snapshot riêng. Xem [ADR-0016](decisions/ADR-0016-common-document-records.md) và [roadmap Dossier/Organization](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).
 
+Module `document-dossier` dùng registry Common Document Records. API `/dossier-types` quản trị danh mục. `/dossier-configurations` trả các loại chứng từ có sẵn, `/dossier-configurations/catalog` phục vụ picker, và `PUT /dossier-configurations/:type` nhận `{ version, dossierTypeIds }` theo thứ tự. Update khóa dòng cấu hình và kiểm tra version, sau đó thay mappings trong cùng transaction. Mã loại có thể sửa trong Master Data. Dấu thời điểm dùng lần đầu bảo vệ loại từng được áp dụng khi mappings đã gỡ.
+
+Migration `1733184000000` thêm các bảng `document_dossier_*` và `document_dossiers`. `snapshotDocumentDossier` nhận transaction của module sở hữu sau khi tạo chứng từ. Dấu mốc theo loại và ID chứng từ phân biệt chưa snapshot với snapshot rỗng. Dòng hồ sơ giữ mã, tên, thứ tự, trạng thái hồ sơ giấy, dữ liệu phát hành, audit/version và provenance. Phase 4.1 kiểm thử hàm độc lập, chưa gọi từ luồng lưu PR. Metadata file lưu khóa lưu trữ riêng, thời hạn upload tạm và liên kết đính kèm có lịch sử. Xem [roadmap](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42) cho thao tác file và tích hợp chứng từ.
+
 PR phối hợp thao tác lưu chứng từ và Gửi duyệt trong cùng transaction ở module Procurement. Workflow nhận cùng EntityManager với thao tác ghi header, dòng hàng và phân công. Các API kết hợp vẫn kiểm tra ngữ cảnh workflow và ghi Activity History cùng Notification trong transaction đó. Xem [ADR-0015](decisions/ADR-0015-purchase-requisition-workflow.md) và [chuẩn Common Document Page](FRONTEND.md).
 
 #### API và lưu trữ PR Phase 2

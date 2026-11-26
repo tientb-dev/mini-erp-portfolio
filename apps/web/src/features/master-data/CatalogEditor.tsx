@@ -57,7 +57,8 @@ export function CatalogEditor({ catalog, entry, close, report, showingResult, pe
   });
   const inlineField = (error: unknown) => error instanceof ApiError
     ? (({ INVALID_EXCHANGE_RATE: 'exchangeRate', INVALID_TAX_RATE: 'rate', PRODUCT_UOM_LOCKED: 'unitOfMeasureId',
-        PRODUCT_IDENTITY_LOCKED: 'partNumber', SERIAL_TRACKING_LOCKED: 'isSerialTracked', DUPLICATE_VALUE: catalog.key === 'products' ? 'partNumber' : 'code' }) as Record<string, FieldKey>)[error.code]
+        PRODUCT_IDENTITY_LOCKED: 'partNumber', SERIAL_TRACKING_LOCKED: 'isSerialTracked', INVALID_DOSSIER_CODE: 'code',
+        DUPLICATE_VALUE: catalog.key === 'products' ? 'partNumber' : 'code' }) as Record<string, FieldKey>)[error.code]
     : undefined;
   const saveAction = t(entry ? 'doc.saveEdit' : 'master.addAction');
   const save = useMutation({
@@ -136,7 +137,9 @@ export function CatalogEditor({ catalog, entry, close, report, showingResult, pe
     const shown = !editing && (field === 'exchangeRate' || field === 'rate') && fixed ? displayDecimal(fixed, i18n.language) : fixed;
     return (
       <DocumentFormCell key={field} span={field === 'description' ? 12 : catalog.key === 'products' ? 4 : 6}>
-        <TextField fullWidth size="small" label={label(t, field)} value={select && !booleans.has(field) && !options?.some(item => String(item.id) === shown) ? '' : shown}
+        <TextField fullWidth size="small" label={catalog.key === 'dossierTypes' && (field === 'code' || field === 'name')
+          ? t(field === 'code' ? 'dossier.typeCode' : 'dossier.typeName') : label(t, field)}
+          value={select && !booleans.has(field) && !options?.some(item => String(item.id) === shown) ? '' : shown}
           disabled={pending || Boolean(select && (locked || integers.has(field) && !options))}
           slotProps={{ input: select ? undefined : { readOnly: Boolean(locked) }, htmlInput: { inputMode: field === 'decimalPlaces' ? 'numeric' : ['rate', 'exchangeRate'].includes(field) ? 'decimal' : undefined } }}
           select={select} required={editing && field !== 'description'} multiline={field === 'description'} minRows={field === 'description' ? 2 : undefined}

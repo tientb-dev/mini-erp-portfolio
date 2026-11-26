@@ -25,8 +25,6 @@ export interface Catalog {
   create: string;
   update: string;
   fullPage?: boolean;
-  refresh?: boolean;
-  remove?: boolean;
   fields: FieldKey[];
   columns?: FieldKey[];
 }
@@ -37,19 +35,19 @@ export const catalogs = {
     fields: ['partNumber', 'name', 'brandId', 'unitOfMeasureId', 'isSerialTracked', 'description'],
     columns: ['brandId', 'unitOfMeasureId', 'isSerialTracked'] },
   temporaryProducts: { key: 'temporaryProducts', path: 'temporary-products', create: manage, update: manage,
-    remove: true, fields: ['code', 'name', 'description'], columns: ['description'] },
-  brands: { key: 'brands', path: 'brands', create: manage, update: manage, fullPage: true, remove: true, fields: ['code', 'name'] },
-  unitsOfMeasure: { key: 'unitsOfMeasure', path: 'units-of-measure', create: 'UOM.MANAGE', update: 'UOM.MANAGE', fields: ['code', 'name'] },
+    fields: ['code', 'name', 'description'] },
+  brands: { key: 'brands', path: 'brands', create: manage, update: manage, fullPage: true, fields: ['code', 'name', 'description'] },
+  unitsOfMeasure: { key: 'unitsOfMeasure', path: 'units-of-measure', create: 'UOM.MANAGE', update: 'UOM.MANAGE', fields: ['code', 'name', 'description'] },
   warehouses: { key: 'warehouses', path: 'warehouses', create: 'WAREHOUSE.CREATE', update: 'WAREHOUSE.UPDATE',
-    fields: ['code', 'name', 'allowAvailableStockIssue'], columns: ['allowAvailableStockIssue'] },
-  customers: { key: 'customers', path: 'customers', create: 'CUSTOMER.CREATE', update: 'CUSTOMER.UPDATE', fullPage: true, fields: ['code', 'name'] },
-  suppliers: { key: 'suppliers', path: 'suppliers', create: 'SUPPLIER.CREATE', update: 'SUPPLIER.UPDATE', fullPage: true, fields: ['code', 'name'] },
-  currencies: { key: 'currencies', path: 'currencies', create: manage, update: manage, remove: true,
-    fields: ['code', 'name', 'exchangeRate', 'decimalPlaces'], columns: ['exchangeRate', 'decimalPlaces'] },
-  taxRates: { key: 'taxRates', path: 'tax-rates', create: manage, update: manage, remove: true,
-    fields: ['code', 'name', 'rate'], columns: ['rate'] },
+    fields: ['code', 'name', 'allowAvailableStockIssue', 'description'], columns: ['allowAvailableStockIssue'] },
+  customers: { key: 'customers', path: 'customers', create: 'CUSTOMER.CREATE', update: 'CUSTOMER.UPDATE', fields: ['code', 'name', 'description'] },
+  suppliers: { key: 'suppliers', path: 'suppliers', create: 'SUPPLIER.CREATE', update: 'SUPPLIER.UPDATE', fields: ['code', 'name', 'description'] },
+  currencies: { key: 'currencies', path: 'currencies', create: manage, update: manage,
+    fields: ['code', 'name', 'exchangeRate', 'decimalPlaces', 'description'], columns: ['exchangeRate', 'decimalPlaces'] },
+  taxRates: { key: 'taxRates', path: 'tax-rates', create: manage, update: manage,
+    fields: ['code', 'name', 'rate', 'description'], columns: ['rate'] },
   dossierTypes: { key: 'dossierTypes', path: 'dossier-types', create: 'DOSSIER_TYPE.MANAGE', update: 'DOSSIER_TYPE.MANAGE',
-    refresh: true, fields: ['code', 'name', 'description'], columns: ['description'] },
+    fields: ['code', 'name', 'description'] },
 } satisfies Record<string, Catalog>;
 
 export const label = (t: TFunction, field: FieldKey) => t(`master.fields.${field}`);

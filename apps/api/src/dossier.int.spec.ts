@@ -41,8 +41,8 @@ describe('Common dossier foundation (PostgreSQL)', () => {
     await status(created.id, false).expect(204);
     expect((await http().get(types + '/' + created.id).auth(admin, { type: 'bearer' }).expect(200)).body)
       .toMatchObject({ code: 'AMENDED', name: 'Edited', description: 'Checklist', isActive: false });
-    await http().delete(types + '/' + created.id).auth(admin, { type: 'bearer' }).expect(204);
-    await http().get(types + '/' + created.id).auth(admin, { type: 'bearer' }).expect(404);
+    await http().delete(types + '/' + created.id).auth(admin, { type: 'bearer' }).expect(404);
+    await http().get(types + '/' + created.id).auth(admin, { type: 'bearer' }).expect(200);
     const list = (await http().get(configurations).auth(admin, { type: 'bearer' }).expect(200)).body;
     expect(list).toHaveLength(7);
     expect(list.every((entry: {count: number}) => entry.count === 0)).toBe(true);
@@ -76,7 +76,7 @@ describe('Common dossier foundation (PostgreSQL)', () => {
     expect((await read('PO').expect(200)).body).toEqual(current);
     await put('PO', 3, []).expect(204);
     await http().get(types + '/' + b.id).auth(admin, { type: 'bearer' }).expect(200);
-    await http().delete(types + '/' + b.id).auth(admin, { type: 'bearer' }).expect(409);
+    await http().delete(types + '/' + b.id).auth(admin, { type: 'bearer' }).expect(404);
   });
 
   it('snapshots once, including empty configurations, and ignores changed or inactive definitions', async () => {

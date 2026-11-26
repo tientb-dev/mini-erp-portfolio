@@ -101,6 +101,11 @@ const vi = {
     "duplicate": "Mã hàng xuất hiện trên nhiều dòng"
   },
   master: {
+    duplicate: 'Sao chép tạo mới',
+    supplierCode: 'Mã NCC',
+    supplierName: 'Tên nhà cung cấp',
+    supplierCount: '{{count}} nhà cung cấp liên kết',
+    selectedSuppliers: 'Đã chọn {{count}} nhà cung cấp',
     "create": "Thêm {{name}}",
     "edit": "Chỉnh sửa {{name}}",
     "view": "Chi tiết {{name}}",
@@ -133,7 +138,7 @@ const vi = {
     "tooLong": "Tối đa {{count}} ký tự.",
     "linkedSuppliers": "Nhà cung cấp liên kết",
     "chooseSupplier": "Chọn nhà cung cấp",
-    "addSupplier": "Thêm liên kết",
+    "addSupplier": "Thêm nhà cung cấp",
     "unlinkSupplier": "Bỏ liên kết",
     "general": "Thông tin chung",
     "duplicateRows": "Mã hàng cũng xuất hiện ở dòng {{rows}}.",
@@ -506,6 +511,11 @@ const en: typeof vi = {
     "duplicate": "Item code appears on multiple lines"
   },
   master: {
+    duplicate: 'Duplicate as new',
+    supplierCode: 'Supplier code',
+    supplierName: 'Supplier name',
+    supplierCount: '{{count}} linked suppliers',
+    selectedSuppliers: '{{count}} suppliers selected',
     "create": "Add {{name}}",
     "edit": "Edit {{name}}",
     "view": "{{name}} details",
@@ -538,7 +548,7 @@ const en: typeof vi = {
     "tooLong": "Maximum {{count}} characters.",
     "linkedSuppliers": "Linked suppliers",
     "chooseSupplier": "Select supplier",
-    "addSupplier": "Link supplier",
+    "addSupplier": "Add suppliers",
     "unlinkSupplier": "Unlink supplier",
     "general": "General information",
     "duplicateRows": "This item code also appears on line(s) {{rows}}.",

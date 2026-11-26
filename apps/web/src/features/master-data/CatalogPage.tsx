@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, MenuItem, Stack, Switch, TextField } from '@mui/material';
-import Refresh from '@mui/icons-material/Refresh';
-import Add from '@mui/icons-material/Add';
+import { IconButton, MenuItem, Stack, Switch, TextField, Tooltip } from '@mui/material';
+import Edit from '@mui/icons-material/EditOutlined';
+import Copy from '@mui/icons-material/ContentCopyOutlined';
 import type { GridColDef } from '@mui/x-data-grid';
 import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
 import { ActionResultDialog, DataTable, DetailPageLayout, FilterToolbar, FormDialog, GridText, ListPageLayout } from '../../shared/components';
@@ -12,6 +12,7 @@ import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { useMe } from '../identity';
 import { SearchInput } from '../../shared/components/SearchInput';
 import { CatalogEditor } from './CatalogEditor';
+import { ActionButton } from '../../shared/components/ActionButton';
 import { Catalog, displayDecimal, Entry, entryCode, label, statusLabel } from './catalogs';
 
 export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialId?: number }) {
@@ -21,11 +22,17 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   const permissions = useMe().data?.permissions ?? [];
   const path = `/${catalog.path}`;
   const { search, state } = useLocation();
-  const listUrl = path + search;
+  const listParams = new URLSearchParams(search);
+  listParams.delete('mode');
+  listParams.delete('copy');
+  const listSearch = listParams.size ? '?' + listParams : '';
+  const listUrl = path + listSearch;
   const catalogKey = [catalog.key === 'unitsOfMeasure' ? 'uoms' : catalog.path];
   const catalogQuery = useQuery({ queryKey: catalogKey, queryFn: () => api<Entry[]>(path) });
   const isProduct = catalog.key === 'products';
   const entry = catalogQuery.data?.find(row => row.id === initialId);
+  const copyId = initialId === 0 ? Number(params.get('copy')) : 0;
+  const copySource = copyId ? catalogQuery.data?.find(row => row.id === copyId) : undefined;
   const selecting = initialId !== undefined;
   const brands = useQuery({ queryKey: ['brands', selecting ? 'selection' : 'list', entry?.brandId],
     queryFn: () => api<Entry[]>(selecting ? catalogSelectionPath('/brands', entry?.brandId) : '/brands'), enabled: isProduct });
@@ -84,6 +91,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
     { field: isProduct ? 'partNumber' : 'code', headerName: catalog.key === 'dossierTypes' ? t('dossier.typeCode') : label(t, isProduct ? 'partNumber' : 'code'), minWidth: 145, flex: 0.75,
       renderCell: ({ row, tabIndex }) => <CatalogRecordLink path={path} row={row} tabIndex={tabIndex} /> },
     { field: 'name', headerName: catalog.key === 'dossierTypes' ? t('dossier.typeName') : label(t, 'name'), flex: 1.5, minWidth: 200 },
+    { field: 'description', headerName: label(t, 'description'), flex: 1.5, minWidth: 180 },
     ...(catalog.columns ?? []).map((field): GridColDef<Entry> => ({
       field, headerName: label(t, field), minWidth: 135, flex: 1,
       valueGetter: (_value, row) => {
@@ -110,11 +118,25 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
       </Stack>
     ),
   });
+  if (canCreate || canEdit) columns.push({
+    field: 'actions', headerName: t('common.actions'), width: 96, sortable: false, align: 'center',
+    renderCell: ({ row, tabIndex }) => <Stack direction="row" sx={{ alignItems: 'center', height: '100%' }}>
+      {canEdit && <Tooltip title={t('master.editAction')}><IconButton size="small" color="primary" tabIndex={tabIndex}
+        aria-label={`${t('master.editAction')} ${entryCode(row)}`}
+        onClick={() => navigate(`${path}/${row.id}?${new URLSearchParams([...listParams, ['mode', 'edit']])}`)}><Edit fontSize="small" /></IconButton></Tooltip>}
+      {canCreate && <Tooltip title={t('master.duplicate')}><IconButton size="small" color="primary" tabIndex={tabIndex}
+        aria-label={`${t('master.duplicate')} ${entryCode(row)}`}
+        onClick={() => navigate(`${path}/new?${new URLSearchParams([...listParams, ['copy', String(row.id)]])}`)}><Copy fontSize="small" /></IconButton></Tooltip>}
+    </Stack>,
+  });
+  const sort = params.get('sort');
+  const direction = params.get('direction') === 'desc' ? 'desc' : 'asc';
   const close = (catalogResult?: ActionResult) => navigate(listUrl, { state: catalogResult ? { catalogResult } : null });
   const resultDialog = result && <ActionResultDialog result={result} onClose={dismissResult} />;
   const opened = initialId !== undefined;
-  const editor = opened && (initialId === 0 && canCreate || entry) && (
-    <CatalogEditor catalog={catalog} key={initialId} entry={entry} close={close} report={setResult} showingResult={Boolean(result)} permissions={permissions}
+  const editor = opened && (initialId === 0 && canCreate && (!copyId || copySource) || entry) && (
+    <CatalogEditor catalog={catalog} key={`${initialId}:${params.get('mode')}:${copyId}`} entry={entry} copySource={copySource}
+      initiallyEditing={canEdit && params.get('mode') === 'edit'} close={close} report={setResult} showingResult={Boolean(result)} permissions={permissions}
       brands={brands} uoms={uoms} />
   );
   const missing = opened && !editor;
@@ -126,13 +148,13 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   return (
     <>
       <ListPageLayout title={title} error={catalogQuery.error ?? brands.error ?? uoms.error}
-        actions={canCreate && <Button variant="contained" startIcon={<Add />} component={RouterLink} to={path + '/new' + search}>
+        actions={canCreate && <ActionButton action="add" onClick={() => navigate(path + '/new' + listSearch)}>
           {t('master.create', { name: title.toLocaleLowerCase(i18n.language) })}
-        </Button>}
-        toolbar={<FilterToolbar active={Boolean(q || status || brand)} onClear={catalog.refresh ? undefined : () => setParams({}, { replace: true })}>
-          <SearchInput label={t('master.search')} placeholder={catalog.refresh ? t('searchFields.codeOrName')
-            : t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
-            value={q} onChange={value => setFilter('q', value)} sx={{ width: { xs: '100%', sm: 280 } }} />
+        </ActionButton>}
+        toolbar={<FilterToolbar refreshing={catalogQuery.isFetching || updateStatus.isPending}
+          onRefresh={() => { setParams({}, { replace: true }); void catalogQuery.refetch(); }}>
+          <SearchInput label={t('master.search')} placeholder={t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
+            value={q} onChange={value => setFilter('q', value)} sx={{ flex: '1 1 310px', minWidth: 0 }} />
           <TextField select size="small" label={t('common.status')} value={status || 'all'}
             onChange={event => setFilter('status', event.target.value === 'all' ? '' : event.target.value)} sx={{ width: { xs: '100%', sm: 180 } }}>
             <MenuItem value="all">{t('common.all')}</MenuItem>
@@ -144,10 +166,17 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
             <MenuItem value="all">{t('common.all')}</MenuItem>
             {brands.data?.map(item => <MenuItem key={item.id} value={String(item.id)}>{item.name}</MenuItem>)}
           </TextField>}
-          {catalog.refresh && <Button variant="outlined" startIcon={<Refresh />} sx={{ alignSelf: 'flex-end', height: 40 }}
-            onClick={() => { setParams({}, { replace: true }); void catalogQuery.refetch(); }}>{t('prPhase.refresh')}</Button>}
         </FilterToolbar>}>
         <DataTable rows={filtered} columns={columns} maxHeight="clamp(310px, calc(100dvh - 235px), 680px)" loading={catalogQuery.isPending} error={catalogQuery.error}
+          sortModel={sort && columns.some(column => column.field === sort && column.sortable !== false) ? [{ field: sort, sort: direction }] : []}
+          onSortModelChange={model => setParams(previous => {
+            const next = new URLSearchParams(previous);
+            next.delete('page');
+            next.delete('sort'); next.delete('direction');
+            const first = model[0];
+            if (first?.sort) { next.set('sort', first.field); next.set('direction', first.sort); }
+            return next;
+          }, { replace: true })}
           paginationModel={{ page, pageSize }}
           onPaginationModelChange={model => {
             if (catalogQuery.isPending || (model.page === page && model.pageSize === pageSize)) return;

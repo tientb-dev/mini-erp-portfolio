@@ -13,6 +13,12 @@
 - **DOSSIER-008.** Chụp ID, mã, tên và thứ tự các loại hồ sơ Active khi lưu chứng từ thành công lần đầu, gồm Lưu nháp và Gửi duyệt trực tiếp. Ghi nhận cả snapshot rỗng. Khi cấu hình PR đổi trong Create, báo xung đột, giữ dữ liệu đang nhập và cho đối chiếu lại trước khi lưu. PR tồn tại trước Phase 4.2 giữ hồ sơ trống trong suốt vòng đời.
 - **DOSSIER-009.** Create/Edit lưu hồ sơ cùng header, hàng hóa và workflow trong một transaction. View dùng Lưu hồ sơ riêng và kiểm tra phiên bản từng dòng. Upload chuẩn bị file tạm. Lưu thành công mới thay liên kết hiện hành và ghi Activity History với loại hồ sơ, người thực hiện, thời điểm, dữ liệu trước/sau và thao tác file. Khi hồ sơ còn thay đổi chưa lưu, xử lý các thay đổi trước khi chạy thao tác workflow riêng.
 
+## Vòng đời Master Data
+
+Mã chính, Mã tạm, Hãng, Đơn vị tính, Kho, Khách hàng, Nhà cung cấp, Tiền tệ, Thuế suất và Loại hồ sơ chỉ dùng Active/Inactive. Mọi bản ghi được giữ, kể cả bản ghi chưa sử dụng. Mô tả danh mục là tùy chọn và độc lập với mô tả trên chứng từ. Khi tạo bản sao, chỉ kế thừa dữ liệu có thể nhập; mã để trống và trạng thái mặc định Active. Tham chiếu không còn hợp lệ cần được chọn lại trước khi lưu.
+
+Hãng có thể chưa liên kết NCC. Lưu Create/Edit Hãng ghi thông tin và tập liên kết trong cùng transaction. Thêm liên kết cần NCC đang hoạt động, đúng quyền và chưa có trong tập. Liên kết đã lưu vẫn hiển thị nếu NCC ngừng hoạt động. Gỡ liên kết giữ bản ghi NCC và snapshot chứng từ.
+
 ## 1. Số lượng và liên kết mua hàng — đã chốt
 - Mỗi PR thuộc một HĐ `ACTIVE` (cấp chứng từ); mỗi dòng PR giữ snapshot yêu cầu ban đầu; có nhiều dòng và có thể lặp PN/mã tạm.
 - **Phân loại dòng** (đã chốt 2026-11-13, ADR-0012): mỗi dòng PR có phân loại tường minh hàng bán/vật tư; MVP không trộn hai loại trong một PR.

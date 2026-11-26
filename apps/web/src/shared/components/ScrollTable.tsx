@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Table, TableContainer } from '@mui/material';
-import { fillMedia } from '../../config/theme';
+import { fillMedia, tokens } from '../../config/theme';
 
 /**
  * Data table of a document detail (items, materials, serials): sticky column headers, horizontal scroll inside its own
@@ -22,9 +22,9 @@ export function ScrollTable({ label, minWidth, children, maxHeight, columnWidths
           '& th': { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
           ...(stickyLeftWidth && { '& th, & td': { paddingInline: '8px' } }),
           '& [data-grid-left]': { position: 'sticky', zIndex: 1, bgcolor: 'background.paper' },
-          '& thead [data-grid-left]': { zIndex: 3, bgcolor: 'background.default' },
+          '& thead [data-grid-left]': { zIndex: 3, bgcolor: tokens.gridHeader },
           '& [data-grid-actions]': { position: 'sticky', right: 0, zIndex: 1, bgcolor: 'background.paper', borderLeft: 1, borderColor: 'divider' },
-          '& thead [data-grid-actions]': { zIndex: 3, bgcolor: 'background.default' },
+          '& thead [data-grid-actions]': { zIndex: 3, bgcolor: tokens.gridHeader },
           '& .MuiTableCell-alignRight': { fontVariantNumeric: 'tabular-nums' },
         }),
       }}>

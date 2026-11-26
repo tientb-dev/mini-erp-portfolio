@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { ArrayUnique, IsArray, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { DataSource, EntityManager } from 'typeorm';
@@ -10,18 +10,18 @@ import { BusinessError } from '../workflow/workflow';
 
 class CatalogEntryDto {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(300) name!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() description?: string | null;
 }
 
 class BrandDto extends CatalogEntryDto {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(50) code!: string;
 }
-class UpdateBrandDto extends BrandDto {
+class BrandWithSuppliersDto extends BrandDto {
   @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true })
   supplierIds?: number[];
 }
 class TemporaryProductDto extends CatalogEntryDto {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(100) code!: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
 }
 class CurrencyDto extends CatalogEntryDto {
   @ApiProperty() @IsString() @Matches(/^[A-Z]{3}$/) code!: string;
@@ -44,7 +44,7 @@ export class PrCatalogController {
   @Get('brands')
   @RequirePermissions('PRODUCT.VIEW')
   listBrand(@Query() query: CatalogSelectionDto) {
-    return this.ds.query(`SELECT id, code, name, is_active AS "isActive" FROM brands
+    return this.ds.query(`SELECT id, code, name, description, is_active AS "isActive" FROM brands
       WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
   }
 
@@ -57,27 +57,28 @@ export class PrCatalogController {
 
   @Post('brands')
   @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
-  createBrand(@Body() dto: BrandDto) {
-    return this.saveBrand(dto);
-  }
-
-  @Patch('brands/:id')
-  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
-  updateBrand(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateBrandDto, @Req() request: AuthedRequest) {
+  createBrand(@Body() dto: BrandWithSuppliersDto, @Req() request: AuthedRequest) {
     if (dto.supplierIds && !request.user.permissions.includes('SUPPLIER.VIEW')) throw new ForbiddenException();
     return this.ds.transaction(async m => {
-      const [[brand]] = await m.query('UPDATE brands SET code = $2, name = $3 WHERE id = $1 RETURNING id, code, name',
-        [id, dto.code.trim(), dto.name.trim()]);
-      if (!brand) throw new NotFoundException();
-      if (dto.supplierIds) await this.replaceBrandSuppliers(m, id, dto.supplierIds);
+      const [brand] = await m.query('INSERT INTO brands (code, name, description) VALUES ($1, $2, $3) RETURNING id, code, name, description',
+        [dto.code.trim(), dto.name.trim(), dto.description]);
+      if (dto.supplierIds?.length) await this.replaceBrandSuppliers(m, brand.id, dto.supplierIds);
       return brand;
     });
   }
 
-  private async saveBrand(dto: BrandDto) {
-    const [row] = await this.ds.query('INSERT INTO brands (code, name) VALUES ($1, $2) RETURNING id, code, name',
-      [dto.code.trim(), dto.name.trim()]);
-    return row;
+  @Patch('brands/:id')
+  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
+  updateBrand(@Param('id', ParseIntPipe) id: number, @Body() dto: BrandWithSuppliersDto, @Req() request: AuthedRequest) {
+    if (dto.supplierIds && !request.user.permissions.includes('SUPPLIER.VIEW')) throw new ForbiddenException();
+    return this.ds.transaction(async m => {
+      const [[brand]] = await m.query(`UPDATE brands SET code = $2, name = $3,
+        description = CASE WHEN $4 THEN $5 ELSE description END WHERE id = $1 RETURNING id, code, name, description`,
+        [id, dto.code.trim(), dto.name.trim(), dto.description !== undefined, dto.description]);
+      if (!brand) throw new NotFoundException();
+      if (dto.supplierIds) await this.replaceBrandSuppliers(m, id, dto.supplierIds);
+      return brand;
+    });
   }
 
   @Get('temporary-products')
@@ -122,7 +123,7 @@ export class PrCatalogController {
   @Get('currencies')
   @RequirePermissions('PRODUCT.VIEW')
   listCurrency(@Query() query: CatalogSelectionDto) {
-    return this.ds.query(`SELECT id, code, name, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces", is_active AS "isActive" FROM currencies
+    return this.ds.query(`SELECT id, code, name, description, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces", is_active AS "isActive" FROM currencies
       WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
   }
 
@@ -149,14 +150,16 @@ export class PrCatalogController {
     if (Number(dto.exchangeRate) <= 0 || (dto.code === 'VND' && Number(dto.exchangeRate) !== 1)) {
       throw new BusinessError('INVALID_EXCHANGE_RATE', 'Exchange rate must be positive and equal to 1 for VND');
     }
-    const values = [dto.code.trim(), dto.name.trim(), dto.exchangeRate, dto.decimalPlaces];
+    const values = [dto.code.trim(), dto.name.trim(), dto.exchangeRate, dto.decimalPlaces, dto.description];
     if (id === undefined) {
-      const [row] = await this.ds.query(`INSERT INTO currencies (code, name, exchange_rate, decimal_places)
-        VALUES ($1, $2, $3, $4) RETURNING id, code, name, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces"`, values);
+      const [row] = await this.ds.query(`INSERT INTO currencies (code, name, exchange_rate, decimal_places, description)
+        VALUES ($1, $2, $3, $4, $5) RETURNING id, code, name, description, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces"`, values);
       return row;
     }
-    const [[row]] = await this.ds.query(`UPDATE currencies SET code = $1, name = $2, exchange_rate = $3, decimal_places = $4
-      WHERE id = $5 AND (code = 'VND') = ($1 = 'VND') RETURNING id, code, name, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces"`, [...values, id]);
+    const [[row]] = await this.ds.query(`UPDATE currencies SET code = $1, name = $2, exchange_rate = $3, decimal_places = $4,
+      description = CASE WHEN $7 THEN $5 ELSE description END
+      WHERE id = $6 AND (code = 'VND') = ($1 = 'VND') RETURNING id, code, name, description, exchange_rate AS "exchangeRate", decimal_places AS "decimalPlaces"`,
+    [...values, id, dto.description !== undefined]);
     if (!row) throw new NotFoundException();
     return row;
   }
@@ -164,7 +167,7 @@ export class PrCatalogController {
   @Get('tax-rates')
   @RequirePermissions('PRODUCT.VIEW')
   listTaxRate(@Query() query: CatalogSelectionDto) {
-    return this.ds.query(`SELECT id, code, name, rate, is_active AS "isActive" FROM tax_rates
+    return this.ds.query(`SELECT id, code, name, description, rate, is_active AS "isActive" FROM tax_rates
       WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
   }
 
@@ -191,54 +194,23 @@ export class PrCatalogController {
     if (!nonNegativeDecimal(dto.rate, DOCUMENT_MONEY_PRECISION.taxRate) || Number(dto.rate) > 100) {
       throw new BusinessError('INVALID_TAX_RATE', 'Tax rate must be between 0 and 100 with up to two decimal places');
     }
-    const values = [dto.code.trim(), dto.name.trim(), dto.rate];
+    const values = [dto.code.trim(), dto.name.trim(), dto.rate, dto.description];
     if (id === undefined) {
-      const [row] = await this.ds.query(`INSERT INTO tax_rates (code, name, rate)
-        VALUES ($1, $2, $3) RETURNING id, code, name, rate`, values);
+      const [row] = await this.ds.query(`INSERT INTO tax_rates (code, name, rate, description)
+        VALUES ($1, $2, $3, $4) RETURNING id, code, name, description, rate`, values);
       return row;
     }
-    const [[row]] = await this.ds.query(`UPDATE tax_rates SET code = $1, name = $2, rate = $3
-      WHERE id = $4 RETURNING id, code, name, rate`, [...values, id]);
+    const [[row]] = await this.ds.query(`UPDATE tax_rates SET code = $1, name = $2, rate = $3,
+      description = CASE WHEN $6 THEN $4 ELSE description END
+      WHERE id = $5 RETURNING id, code, name, description, rate`, [...values, id, dto.description !== undefined]);
     if (!row) throw new NotFoundException();
     return row;
-  }
-
-  @Delete('brands/:id')
-  @HttpCode(204)
-  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
-  async deleteBrands(@Param('id', ParseIntPipe) id: number) {
-    const [[item]] = await this.ds.query('DELETE FROM brands WHERE id = $1 RETURNING id', [id]);
-    if (!item) throw new NotFoundException();
-  }
-
-  @Delete('temporary-products/:id')
-  @HttpCode(204)
-  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
-  async deleteTemporaryProducts(@Param('id', ParseIntPipe) id: number) {
-    const [[item]] = await this.ds.query('DELETE FROM temporary_products WHERE id = $1 RETURNING id', [id]);
-    if (!item) throw new NotFoundException();
-  }
-
-  @Delete('currencies/:id')
-  @HttpCode(204)
-  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
-  async deleteCurrencies(@Param('id', ParseIntPipe) id: number) {
-    const [[item]] = await this.ds.query('DELETE FROM currencies WHERE id = $1 AND code <> \'VND\' RETURNING id', [id]);
-    if (!item) throw new NotFoundException();
-  }
-
-  @Delete('tax-rates/:id')
-  @HttpCode(204)
-  @RequirePermissions('PROCUREMENT_CATALOG.MANAGE')
-  async deleteTaxRates(@Param('id', ParseIntPipe) id: number) {
-    const [[item]] = await this.ds.query('DELETE FROM tax_rates WHERE id = $1 RETURNING id', [id]);
-    if (!item) throw new NotFoundException();
   }
 
   @Get('brands/:id/suppliers')
   @RequirePermissions('SUPPLIER.VIEW')
   listBrandSuppliers(@Param('id', ParseIntPipe) id: number) {
-    return this.ds.query(`SELECT s.id, s.code, s.name FROM suppliers s
+    return this.ds.query(`SELECT s.id, s.code, s.name, s.is_active AS "isActive" FROM suppliers s
       JOIN brand_suppliers bs ON bs.supplier_id = s.id WHERE bs.brand_id = $1 ORDER BY s.code`, [id]);
   }
 

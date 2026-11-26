@@ -1,15 +1,14 @@
 import { Fragment, ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
-import Add from '@mui/icons-material/Add';
-import Check from '@mui/icons-material/Check';
-import Close from '@mui/icons-material/Close';
+import { Box, Checkbox, Chip, Dialog, DialogActions, DialogContent, IconButton, MenuItem, Stack, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import Delete from '@mui/icons-material/DeleteOutlined';
 import Edit from '@mui/icons-material/EditOutlined';
 import Warning from '@mui/icons-material/WarningAmberRounded';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../services/api-client';
-import { ErrorAlert, GridText, ScrollTable } from '../../shared/components';
+import { ErrorAlert, FormDialog, GridText, ScrollTable } from '../../shared/components';
+import { ActionButton } from '../../shared/components/ActionButton';
+import { DialogHeading } from '../../shared/components/DialogHeading';
 import { DocumentTotals } from '../../shared/components/DocumentTotals';
 import { DocumentNumericInput, displayDocumentNumber } from '../../shared/components/DocumentNumericInput';
 import { ValidationMessage, ValidationTooltip } from '../../shared/components/DocumentValidation';
@@ -215,15 +214,13 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
   }
   const fetchError = brands.error ?? units.error ?? taxes.error ?? suppliers.find(q => q.error)?.error;
   return <Fragment>
-    <Dialog open onClose={onClose} maxWidth={false} slotProps={{ paper: { sx: { width: '98vw', maxWidth: '98vw', m: 1 } } }}>
-      <DialogTitle sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {t('prPhase.editor')}<IconButton color="inherit" onClick={onClose} aria-label={t('common.cancel')}><Close /></IconButton>
-      </DialogTitle>
-      <DialogContent dividers ref={grid} sx={{ p: 1.5, overflow: 'hidden' }}>
+    <Dialog open onClose={onClose} aria-labelledby="pr-line-editor-heading" maxWidth={false} slotProps={{ paper: { sx: { width: '98vw', maxWidth: '98vw', m: 1 } } }}>
+      <DialogHeading id="pr-line-editor-heading" onClose={onClose}>{t('prPhase.editor')}</DialogHeading>
+      <DialogContent data-compact="" ref={grid}>
         <Stack spacing={1}>
           <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography sx={{ fontWeight: 700 }}>{t('prPhase.lines')}</Typography>
-            <Button variant="contained" startIcon={<Add />} onClick={() => setPicker(true)}>{t('pr.addGoods')}</Button>
+            <ActionButton action="add" onClick={() => setPicker(true)}>{t('pr.addGoods')}</ActionButton>
           </Stack>
           <ValidationMessage warning={Boolean(count || backendMessage)}>
             {count ? <GridText value={t('prPhase.errorCount', { count })} /> : backendMessage && <GridText value={backendMessage} />}
@@ -233,15 +230,14 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
             onDelete={index => setRemove(lines[index].key)} />
         </Stack>
       </DialogContent>
-      <DialogActions><Button startIcon={<Close />} variant="outlined" onClick={onClose}>{t('common.cancel')}</Button>
-        <Button startIcon={<Check />} variant="contained" disabled={!lines.length} onClick={confirm}>{t('prPhase.confirm')}</Button></DialogActions>
+      <DialogActions><ActionButton action="cancel" onClick={onClose}>{t('common.cancel')}</ActionButton>
+        <ActionButton action="confirm" disabled={!lines.length} onClick={confirm}>{t('prPhase.confirm')}</ActionButton></DialogActions>
     </Dialog>
-    {remove && <Dialog open onClose={() => setRemove(undefined)}>
-      <DialogTitle>{t('pr.deleteGoods')}</DialogTitle>
-      <DialogContent>{lines.find(line => line.key === remove)?.partNumber}</DialogContent>
-      <DialogActions><Button onClick={() => setRemove(undefined)} startIcon={<Close />}>{t('common.cancel')}</Button>
-        <Button color="error" startIcon={<Delete />} onClick={() => { setLines(previous => previous.filter(l => l.key !== remove)); if (serverLine?.key === remove) setServerIssue(undefined); setRemove(undefined); }}>{t('pr.deleteGoods')}</Button></DialogActions>
-    </Dialog>}
+    {remove && <FormDialog title={t('pr.deleteGoods')} submitLabel={t('pr.deleteGoods')} submitAction="delete" canSubmit
+      pending={false} error={null} onClose={() => setRemove(undefined)}
+      onSubmit={() => { setLines(previous => previous.filter(l => l.key !== remove)); if (serverLine?.key === remove) setServerIssue(undefined); setRemove(undefined); }}>
+      {lines.find(line => line.key === remove)?.partNumber}
+    </FormDialog>}
     {picker && <ProductPicker onClose={() => setPicker(false)} onConfirm={items => {
       setLines(previous => [...previous, ...items.map(item => fromPickedProduct(item, contractLines))]); setPicker(false);
     }} />}

@@ -57,7 +57,7 @@ describe('Sales contract lines (integration)', () => {
     const product = (await post(admin, '/products', { partNumber: 'B19-P', name: 'Branded', unitOfMeasureId: pcs, brandId: brand.id }).expect(201)).body;
     await patch(admin, `/products/${product.id}`, { brandId: null }).expect(400);
     await patch(admin, `/products/${product.id}`, { brandId: secondBrand.id }).expect(200);
-    await del(admin, `/brands/${secondBrand.id}`).expect(409);
+    await del(admin, `/brands/${secondBrand.id}`).expect(404);
 
     const currencies = (await get(sales, '/currencies').expect(200)).body;
     expect(currencies[0]).toMatchObject({ code: 'VND', exchangeRate: '1.00000000', decimalPlaces: 0 });
@@ -72,8 +72,48 @@ describe('Sales contract lines (integration)', () => {
     await post(admin, '/tax-rates', { code: 'OVER', name: 'Invalid', rate: '100.0001' }).expect(422);
     const tax = (await post(admin, '/tax-rates', { code: 'ZERO', name: 'Zero tax', rate: '0' }).expect(201)).body;
     expect(tax.rate).toBe('0.0000');
-    await del(admin, `/tax-rates/${tax.id}`).expect(204);
     await del(admin, `/tax-rates/${tax.id}`).expect(404);
+  });
+
+  it('persists optional descriptions and exposes no physical delete for all ten catalogs', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const basic = { code: 'F02', name: 'Description fixture' };
+    const catalogs = [
+      ['/brands', basic, 200], ['/temporary-products', basic, 200], ['/units-of-measure', basic, 204],
+      ['/warehouses', basic, 200], ['/customers', basic, 204], ['/suppliers', basic, 204],
+      ['/currencies', { ...basic, code: 'CAD', exchangeRate: '17000', decimalPlaces: 2 }, 200],
+      ['/tax-rates', { ...basic, rate: '8' }, 200], ['/dossier-types', basic, 200],
+      ['/products', { name: basic.name, partNumber: basic.code, brandId: 1, unitOfMeasureId: pcs }, 200],
+    ] as const;
+    for (const [route, body, updateStatus] of catalogs) {
+      const { id } = (await post(admin, route, body).expect(201)).body;
+      const find = async () => (await get(admin, route).expect(200)).body.find((item: { id: number }) => item.id === id);
+      expect((await find()).description).toBeNull();
+      await patch(admin, route + '/' + id, { ...body, description: 'Mô tả thử nghiệm' }).expect(updateStatus);
+      await post(admin, route, { ...body, description: 'Copy using original code' }).expect(409);
+      await del(admin, route + '/' + id).expect(404);
+      expect(await find()).toMatchObject({ description: 'Mô tả thử nghiệm', isActive: true });
+    }
+  });
+
+  it('creates a brand and multiple supplier links atomically and retains saved inactive suppliers', async () => {
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const first = (await post(admin, '/suppliers', { code: 'LINK-A', name: 'A' }).expect(201)).body.id;
+    const second = (await post(admin, '/suppliers', { code: 'LINK-B', name: 'B' }).expect(201)).body.id;
+    const body = { code: 'F06', name: 'Links fixture', description: 'Initial' };
+    await post(admin, '/brands', { ...body, supplierIds: [first, first] }).expect(400);
+    await post(admin, '/brands', { ...body, supplierIds: [first, 999999] }).expect(422);
+    expect((await get(admin, '/brands').expect(200)).body).not.toContainEqual(expect.objectContaining({ code: body.code }));
+    const { id } = (await post(admin, '/brands', { ...body, supplierIds: [first, second] }).expect(201)).body;
+    const links = async () => (await get(admin, `/brands/${id}/suppliers`).expect(200)).body;
+    expect(await links()).toHaveLength(2);
+    await patch(admin, `/suppliers/${second}/status`, { isActive: false }).expect(204);
+    await patch(admin, `/brands/${id}`, { ...body, supplierIds: [first, second] }).expect(200);
+    expect(await links()).toContainEqual(expect.objectContaining({ id: second, isActive: false }));
+    await post(admin, '/brands', { ...body, code: 'F06-COPY', supplierIds: [second] }).expect(422);
+    await patch(admin, `/brands/${id}`, { ...body, description: 'Rejected', supplierIds: [999999] }).expect(422);
+    expect(await links()).toHaveLength(2);
+    expect((await get(admin, '/brands').expect(200)).body).toContainEqual(expect.objectContaining({ id, description: 'Initial' }));
   });
 
   it('PR19: saves three line sources, duplicate codes and historical snapshots without creating delivery approvals', async () => {
@@ -122,11 +162,11 @@ describe('Sales contract lines (integration)', () => {
     await patch(admin, `/suppliers/${supplier.id}`, { code: 'S11', name: 'Supplier edited' }).expect(204);
     await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [supplier.id] }).expect(200);
     await patch(admin, '/brands/1', { code: 'TEST', name: 'Rolled back', supplierIds: [999999] }).expect(422);
-    expect((await get(admin, '/brands').expect(200)).body).toContainEqual({ id: 1, code: 'TEST', name: 'Renamed', isActive: true });
-    expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([{ id: supplier.id, code: 'S11', name: 'Supplier edited' }]);
+    expect((await get(admin, '/brands').expect(200)).body).toContainEqual(expect.objectContaining({ id: 1, code: 'TEST', name: 'Renamed', isActive: true }));
+    expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([expect.objectContaining({ id: supplier.id, code: 'S11', name: 'Supplier edited' })]);
     await patch(admin, '/brands/1', { code: 'TEST', name: 'Renamed', supplierIds: [] }).expect(200);
     expect((await get(admin, '/brands/1/suppliers').expect(200)).body).toEqual([]);
-    expect((await get(admin, '/suppliers').expect(200)).body).toContainEqual({ id: supplier.id, code: 'S11', name: 'Supplier edited', isActive: true });
+    expect((await get(admin, '/suppliers').expect(200)).body).toContainEqual(expect.objectContaining({ id: supplier.id, code: 'S11', name: 'Supplier edited', isActive: true }));
 
     const product = (await post(admin, '/products', {
       partNumber: 'P11', name: 'Product 11', unitOfMeasureId: uom.id, brandId: 1,

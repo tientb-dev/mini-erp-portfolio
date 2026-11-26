@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Box, CircularProgress, Paper, Stack, Typography, useMediaQuery } from '@mui/material';
-import { fillMedia } from '../../config/theme';
+import { fillMedia, tokens } from '../../config/theme';
 import { GridText } from './GridText';
 import { DataGrid, GridColDef, DataGridProps, GridValidRowModel } from '@mui/x-data-grid';
 
@@ -66,7 +66,7 @@ export function DataTable<R extends GridValidRowModel>({ emptyHint, fill, error,
           {
             '& .MuiDataGrid-cell--textRight, & .MuiDataGrid-columnHeader--alignRight': { fontVariantNumeric: 'tabular-nums' },
             '& .common-grid-actions': { position: 'sticky', right: 0, zIndex: 2, bgcolor: 'background.paper', borderLeft: 1, borderColor: 'divider' },
-            '& .MuiDataGrid-columnHeader.common-grid-actions': { zIndex: 4, bgcolor: 'background.default' },
+            '& .MuiDataGrid-columnHeader.common-grid-actions': { zIndex: 4, bgcolor: tokens.gridHeader },
           },
           loading && { '& .MuiTablePagination-root': { pointerEvents: 'none', opacity: 0.6 } },
           ...(Array.isArray(props.sx) ? props.sx : [props.sx]),

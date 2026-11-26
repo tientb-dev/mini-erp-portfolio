@@ -11,6 +11,7 @@ import { assertWarehouseCanDeactivate, CatalogSelectionDto, selectionFilter, sel
 import { ProductUsage } from './product-usage';
 
 class UomDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() description?: string | null;
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(20) code!: string;
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(100) name!: string;
 }
@@ -27,12 +28,16 @@ class CreateProductDto {
 class UpdateProductDto extends PartialType(CreateProductDto, { skipNullProperties: false }) {}
 
 class CreateWarehouseDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() description?: string | null;
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(50) code!: string;
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(200) name!: string;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() allowAvailableStockIssue?: boolean;
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() isActive?: boolean;
 }
 class UpdateWarehouseDto extends PartialType(CreateWarehouseDto) {}
+class PartyDto extends CodeNameDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() description?: string | null;
+}
 
 function selectionWhere<T extends { id: number; isActive: boolean }>(query: CatalogSelectionDto) {
   if (!query.activeOnly) return undefined;
@@ -59,14 +64,14 @@ export class MasterDataController {
   @Post('units-of-measure')
   @RequirePermissions('UOM.MANAGE')
   createUom(@Body() dto: UomDto) {
-    return this.uoms.save(this.uoms.create({ code: dto.code.trim(), name: dto.name.trim() }));
+    return this.uoms.save(this.uoms.create({ code: dto.code.trim(), name: dto.name.trim(), description: dto.description }));
   }
 
   @Patch('units-of-measure/:id')
   @HttpCode(204)
   @RequirePermissions('UOM.MANAGE')
   async updateUom(@Param('id', ParseIntPipe) id: number, @Body() dto: UomDto) {
-    const result = await this.uoms.update(id, { code: dto.code.trim(), name: dto.name.trim() });
+    const result = await this.uoms.update(id, { code: dto.code.trim(), name: dto.name.trim(), description: dto.description });
     if (!result.affected) throw new NotFoundException();
   }
 
@@ -121,7 +126,7 @@ export class MasterDataController {
   @Get('customers')
   @RequirePermissions('CUSTOMER.VIEW')
   listCustomers(@Query() query: CatalogSelectionDto) {
-    return this.products.manager.query(`SELECT id, code, name, is_active AS "isActive" FROM customers
+    return this.products.manager.query(`SELECT id, code, name, description, is_active AS "isActive" FROM customers
       WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
   }
 
@@ -135,7 +140,7 @@ export class MasterDataController {
   @Get('suppliers')
   @RequirePermissions('SUPPLIER.VIEW')
   listSuppliers(@Query() query: CatalogSelectionDto) {
-    return this.products.manager.query(`SELECT id, code, name, is_active AS "isActive" FROM suppliers
+    return this.products.manager.query(`SELECT id, code, name, description, is_active AS "isActive" FROM suppliers
       WHERE ${selectionFilter} ORDER BY code`, selectionParams(query));
   }
 
@@ -148,24 +153,25 @@ export class MasterDataController {
 
   @Post("customers")
   @RequirePermissions("CUSTOMER.CREATE")
-  async createCustomer(@Body() dto: CodeNameDto) {
-    const [row] = await this.products.manager.query(`INSERT INTO customers (code, name) VALUES ($1, $2) RETURNING id`, [dto.code.trim(), dto.name.trim()]);
+  async createCustomer(@Body() dto: PartyDto) {
+    const [row] = await this.products.manager.query(`INSERT INTO customers (code, name, description) VALUES ($1, $2, $3) RETURNING id`, [dto.code.trim(), dto.name.trim(), dto.description]);
     return row;
   }
 
   @Post("suppliers")
   @RequirePermissions("SUPPLIER.CREATE")
-  async createSupplier(@Body() dto: CodeNameDto) {
-    const [row] = await this.products.manager.query(`INSERT INTO suppliers (code, name) VALUES ($1, $2) RETURNING id`, [dto.code.trim(), dto.name.trim()]);
+  async createSupplier(@Body() dto: PartyDto) {
+    const [row] = await this.products.manager.query(`INSERT INTO suppliers (code, name, description) VALUES ($1, $2, $3) RETURNING id`, [dto.code.trim(), dto.name.trim(), dto.description]);
     return row;
   }
 
   @Patch('customers/:id')
   @HttpCode(204)
   @RequirePermissions('CUSTOMER.UPDATE')
-  async updateCustomer(@Param('id', ParseIntPipe) id: number, @Body() dto: CodeNameDto) {
+  async updateCustomer(@Param('id', ParseIntPipe) id: number, @Body() dto: PartyDto) {
     const [, count] = await this.products.manager.query(
-      'UPDATE customers SET code = $2, name = $3 WHERE id = $1', [id, dto.code.trim(), dto.name.trim()],
+      'UPDATE customers SET code = $2, name = $3, description = CASE WHEN $4 THEN $5 ELSE description END WHERE id = $1',
+      [id, dto.code.trim(), dto.name.trim(), dto.description !== undefined, dto.description],
     );
     if (!count) throw new NotFoundException();
   }
@@ -173,9 +179,10 @@ export class MasterDataController {
   @Patch('suppliers/:id')
   @HttpCode(204)
   @RequirePermissions('SUPPLIER.UPDATE')
-  async updateSupplier(@Param('id', ParseIntPipe) id: number, @Body() dto: CodeNameDto) {
+  async updateSupplier(@Param('id', ParseIntPipe) id: number, @Body() dto: PartyDto) {
     const [, count] = await this.products.manager.query(
-      'UPDATE suppliers SET code = $2, name = $3 WHERE id = $1', [id, dto.code.trim(), dto.name.trim()],
+      'UPDATE suppliers SET code = $2, name = $3, description = CASE WHEN $4 THEN $5 ELSE description END WHERE id = $1',
+      [id, dto.code.trim(), dto.name.trim(), dto.description !== undefined, dto.description],
     );
     if (!count) throw new NotFoundException();
   }

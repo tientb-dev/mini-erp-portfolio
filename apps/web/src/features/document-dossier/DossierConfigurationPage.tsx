@@ -174,7 +174,7 @@ function DossierTypePicker({ exclude, onClose, onConfirm }: {
     { field: 'code', headerName: t('dossier.typeCode'), width: 150 },
     { field: 'name', headerName: t('dossier.typeName'), minWidth: 200, flex: 1 },
   ];
-  return <FormDialog title={t('dossier.choose')} submitLabel={t('dossier.confirm', { count: selected.size })} submitAction="confirm"
+  return <FormDialog compact title={t('dossier.choose')} submitLabel={t('dossier.confirm', { count: selected.size })} submitAction="confirm"
     pending={false} canSubmit={selected.size > 0 && !query.isError} error={query.error} onClose={onClose}
     footerAside={t('dossier.selected', { count: selected.size })} onSubmit={() => onConfirm([...selected.values()])}>
     <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-end' }}>

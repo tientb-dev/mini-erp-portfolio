@@ -195,10 +195,10 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 ## COMMON-MASTER-DATA-001 — Danh mục
 
-- Mỗi danh mục có mục điều hướng riêng. List dùng ListPageLayout, FilterToolbar và DataTable với tìm kiếm theo mã/tên không phân biệt hoa thường, bộ lọc phù hợp, phân trang và các trạng thái tải/rỗng/lỗi. Giữ bộ lọc và phân trang trong URL. Mã là liên kết tới View, thao tác xóa nếu có đặt tại chi tiết.
+- Mỗi danh mục có mục điều hướng riêng. List dùng ListPageLayout, FilterToolbar, SearchInput và DataTable. Mã mở View; cột Thao tác sticky cuối bảng dùng Pencil mở Edit và Copy mở Create theo quyền. URL giữ từ khóa, bộ lọc, sort, trang và cỡ trang qua các mode. Làm mới luôn khả dụng ngoài lúc đang xử lý, cao 36px, outlined và căn phải. Thao tác này đặt lại toàn bộ trạng thái danh sách về mặc định trước khi tải lại. Picker giữ quy tắc refresh và selection riêng.
 - Dùng cùng form cho Create, View và Edit. Create chưa có ID, View/Edit dùng cùng ID. Lưu Create về List, lưu hoặc hủy Edit về View, đóng View hoặc hủy Create về List. View chỉ đọc, hiện Chỉnh sửa theo quyền. Create/Edit dùng cùng validation, chỉ rõ lỗi tại trường tương ứng và xác nhận bỏ thay đổi chưa lưu.
-- Mã chính, Hãng, Khách hàng, NCC dùng full page với DetailPageLayout, lưới 12 cột và card chiều cao tự nhiên. Mã tạm, ĐVT, Kho, Tiền tệ và Thuế suất dùng FormDialog. View chuyển sang Edit trong cùng popup. Nút chính nằm bên phải nút phụ.
-- Hiển thị tỷ giá, thuế suất theo locale và bỏ số 0 cuối phần thập phân. Giá trị lưu giữ nguyên precision. Áp dụng COMMON-DOC-GRID-001. Kết quả tạo, sửa, xóa dùng Action Result Dialog theo UI-15. Lỗi của trường tiếp tục hiển thị cạnh trường.
+- Mã chính và Hãng dùng DetailPageLayout với footer dùng chung. Mã tạm, ĐVT, Kho, Khách hàng, NCC, Tiền tệ, Thuế suất và Loại hồ sơ dùng FormDialog. Mỗi danh mục dùng chung form, lưới 12 cột ưu tiên mã/tên 4:8. Mô tả tùy chọn mặc định 2 dòng, cột đứng sau Tên. View chuyển Edit tại chỗ. Trạng thái dùng StatusChip và chỉnh ở danh sách. Nút chính ở bên phải.
+- Hiển thị tỷ giá, thuế suất theo locale và bỏ số 0 cuối phần thập phân. Kết quả tạo và sửa dùng Action Result Dialog theo UI-15; lỗi trường tiếp tục hiển thị inline. Hãng hiển thị grid NCC trong cả ba mode. Picker giữ lựa chọn qua lọc, phân trang và refresh, chỉ cập nhật form cục bộ khi xác nhận.
 
 ## COMMON-MASTER-DATA-STATUS-001 — Trạng thái danh mục
 
@@ -240,6 +240,12 @@ Danh mục Loại hồ sơ dùng Common Master Data với Search Input, filter t
 ## COMMON-BUTTON-001
 
 Nút thao tác nghiệp vụ dùng `ActionButton` và mapping icon theo ngữ nghĩa, bên trái chữ và giữ icon khi disabled. Thêm dùng Add, Lưu dùng Save, Hủy bỏ dùng Close, Chỉnh sửa dùng Edit, Xác nhận dùng Check, Làm mới và Thay thế dùng Refresh, Xóa dùng Delete, Gửi duyệt dùng Send, Tải lên/xuống dùng Upload/Download, Hủy chứng từ dùng Block và Từ chối dùng CancelOutlined. Nút chính nền xanh. Nút phụ nền trắng viền xanh. Nút phá hủy nền trắng viền đỏ. `FormDialog` nhận `submitAction` và dùng mapping chung với footer thao tác và xác nhận workflow. Nút chỉ có icon dùng cho phần tử compact trong grid, file và điều khiển giao diện, kèm tooltip và tên truy cập. Tab, link điều hướng và control giao diện theo quy chuẩn riêng.
+
+### Header grid, trường View và dialog
+
+- DataTable và ScrollTable dùng token header nền #E8EEF5, chữ #334155, weight 600 và viền dưới #CBD5E1. Vùng sticky giữ nền đặc và label nằm một dòng.
+- ReadOnlyField dùng nền #F8FAFC, chữ #1E293B, viền #E2E8F0. Dữ liệu chọn và sao chép được; giá trị trống dùng dấu —. View hiển thị nhãn lựa chọn dạng văn bản và bỏ required, dropdown, clear.
+- Header dialog nền trắng cao tối thiểu 56px, padding ngang 24px và flex căn giữa title 18px weight 600 cùng icon Đóng. Content cuộn riêng, padding 24px hoặc 12px ở biến thể compact. Footer có divider, thông tin selection ở trái khi có và nhóm nút ở phải. Dialog bo 12px. ActionResultDialog giữ trình bày riêng.
 
 ## COMMON-FILE-CELL-001
 

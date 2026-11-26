@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseEnumPipe, ParseIntPipe, Patch, Post, Put, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Module, Param, ParseEnumPipe, ParseIntPipe, Patch, Post, Put, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ArrayUnique, IsArray, IsBoolean, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { DOCUMENT_TARGETS, DocumentTarget } from '../document-records/document-records';
@@ -44,9 +44,6 @@ class DossierController {
   status(@Param('id', ParseIntPipe) id: number, @Body() body: StatusInput, @Req() req: AuthedRequest) {
     return this.dossiers.status(id, body.isActive, req.user.id);
   }
-
-  @Delete('dossier-types/:id') @HttpCode(204) @RequirePermissions('DOSSIER_TYPE.MANAGE')
-  remove(@Param('id', ParseIntPipe) id: number) { return this.dossiers.removeType(id); }
 
   @Get('dossier-configurations') @RequirePermissions('DOSSIER_CONFIG.MANAGE')
   configurations() { return this.dossiers.configurations(); }

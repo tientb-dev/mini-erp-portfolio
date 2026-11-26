@@ -41,15 +41,6 @@ export class DossierService {
     if (!row) throw new NotFoundException();
   }
 
-  removeType(id: number) {
-    return this.db.transaction(async m => {
-      const [row] = await m.query('SELECT first_used_at FROM document_dossier_types WHERE id=$1 FOR UPDATE', [id]);
-      if (!row) throw new NotFoundException();
-      if (row.first_used_at) throw new BusinessError('RECORD_IN_USE', 'This dossier type has been used', HttpStatus.CONFLICT);
-      await m.query('DELETE FROM document_dossier_types WHERE id=$1', [id]);
-    });
-  }
-
   async configurations() {
     const rows: { document_type: DocumentTarget; count: number }[] = await this.db.query(
       'SELECT document_type, count(*)::int AS count FROM document_dossier_type_mappings GROUP BY document_type');

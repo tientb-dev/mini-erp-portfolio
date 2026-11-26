@@ -15,6 +15,7 @@ import { ScrollTable } from '../../shared/components/ScrollTable';
 import { parseDocumentDate } from '../../shared/utils/document-date';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import type { PrDossierModel, PrDossierRow } from './pr-dossier';
+import { tokens } from '../../config/theme';
 
 const fields = ['position', 'type', 'hasPaper', 'date', 'issuer', 'note', 'file'] as const;
 const widths = [48, 190, 64, 160, 150, undefined, '24%'];
@@ -61,7 +62,7 @@ export function PrDossierPanel({ model, saving, onSave, onResult, templateConfli
           </ActionButton>
         </Stack>}
         <ScrollTable label={t('prDossier.title')} columnWidths={widths} minWidth={980} maxHeight="min(46vh, 450px)">
-          <TableHead sx={{ position: 'sticky', top: 0, zIndex: 2, '& th': { position: 'static', bgcolor: 'background.default', py: 0.75 } }}>
+          <TableHead sx={{ position: 'sticky', top: 0, zIndex: 2, '& th': { position: 'static', bgcolor: tokens.gridHeader, py: 0.75 } }}>
             <TableRow>
               <TableCell colSpan={2} />
               <TableCell align="center" scope="colgroup" colSpan={4}>{t('prDossier.paper')}</TableCell>

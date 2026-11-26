@@ -20,6 +20,7 @@ import { ContractLine, PrLine, decimalInput, fromPickedProduct, fromSavedPrLine,
 import type { DocDetail } from './types';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { ActionButton } from '../../shared/components/ActionButton';
+import { ReadOnlyField } from '../../shared/components/ReadOnlyField';
 import type { PrDossierModel } from './pr-dossier';
 
 interface ContractOption {
@@ -40,8 +41,7 @@ export interface PrEditorModel {
 }
 
 export function PrReadonlyField({ label, value, multiline }: { label: string; value: string; multiline?: boolean }) {
-  return <TextField label={label} value={value || '—'} multiline={multiline} minRows={multiline ? 2 : undefined}
-    slotProps={{ input: { readOnly: true } }} sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'action.hover' } }} />;
+  return <ReadOnlyField label={label} value={value} multiline={multiline} minRows={multiline ? 2 : undefined} />;
 }
 
 export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier, children }: {

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Box, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, Checkbox, Dialog, DialogActions, DialogContent, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
 import { GridColDef, GridPaginationModel, GridSortModel } from '@mui/x-data-grid';
-import Close from '@mui/icons-material/Close';
 import { ActionButton } from './ActionButton';
+import { DialogHeading } from './DialogHeading';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api-client';
 import { SearchInput } from './SearchInput';
@@ -56,12 +56,9 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
     ...(source === 'main' ? [{ field: 'brand', headerName: t('prPhase.brand'), minWidth: 150, flex: 1 }, { field: 'uom', headerName: t('product.uom'), width: 140 }]
       : [{ field: 'description', headerName: t('prPhase.description'), minWidth: 215, flex: 2 }]),
   ];
-  return <Dialog open onClose={onClose} maxWidth={false} slotProps={{ paper: { sx: { width: 1100, maxWidth: '95vw', m: 1 } } }}>
-    <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: 'primary.main', color: 'primary.contrastText' }}>
-      {t('prPhase.picker')}<Tooltip title={t('common.close')}><IconButton color="inherit" onClick={onClose}
-        aria-label={t('common.cancel')}><Close /></IconButton></Tooltip>
-    </DialogTitle>
-    <DialogContent dividers sx={{ overflow: 'hidden', p: 1.5 }}>
+  return <Dialog open onClose={onClose} aria-labelledby="product-picker-heading" maxWidth={false} slotProps={{ paper: { sx: { width: 1100, maxWidth: '95vw', m: 1 } } }}>
+    <DialogHeading id="product-picker-heading" onClose={onClose}>{t('prPhase.picker')}</DialogHeading>
+    <DialogContent data-compact="">
       <Tabs value={source} onChange={(_, value: Source) => setSource(value)} sx={{ mb: 1 }}>
         <Tab value="main" label={t('prPhase.main')} /><Tab value="temporary" label={t('prPhase.temporary')} />
       </Tabs>
@@ -83,7 +80,7 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
           onSortModelChange={sort => change({ sort, page: { ...f.page, page: 0 } })} />
       </Box>
     </DialogContent>
-    <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', px: 2 }}>
+    <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
       <Stack direction="row" spacing={2}><Typography sx={{ fontWeight: 700 }}>{t('prPhase.selected', { count: picked.size })}</Typography>
         <Typography color="text.secondary">{mainCount} {t('prPhase.main')} · {picked.size - mainCount} {t('prPhase.temporary')}</Typography></Stack>
       <Stack direction="row" spacing={1}><ActionButton action="cancel" onClick={onClose}>{t('common.cancel')}</ActionButton>

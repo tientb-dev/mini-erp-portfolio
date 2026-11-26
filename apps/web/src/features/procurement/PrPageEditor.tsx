@@ -95,8 +95,9 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
   const currencyOptions = useQuery({ queryKey: ['pr-currencies', detail?.currencyId], queryFn: () =>
     api<Currency[]>('/currencies?activeOnly=true' + (detail?.currencyId ? '&includeId=' + detail.currencyId : '')) });
   const currency = currencyOptions.data?.find(option => currencyId ? String(option.id) === currencyId : option.code === 'VND');
-  const currencyCode = currencyTouched ? currency?.code ?? 'VND' : String(detail?.currencyCode ?? currency?.code ?? 'VND');
-  const scale = Number(detail?.currencyDecimalPlaces != null && String(detail.currencyId ?? '') === currencyId ? detail.currencyDecimalPlaces : currency?.decimalPlaces ?? 0);
+  const sameSavedCurrency = detail?.currencyId != null && String(detail.currencyId) === currencyId;
+  const currencyCode = String((sameSavedCurrency ? detail.currencyCode : null) ?? currency?.code ?? 'VND');
+  const scale = Number((sameSavedCurrency ? detail.currencyDecimalPlaces : null) ?? currency?.decimalPlaces ?? 0);
   const contractLines = useQuery({ queryKey: ['pr-contract-lines', contract], queryFn: () =>
     api<ContractLine[]>(`/sales-contracts/${contract}/lines`), enabled: Boolean(contract) });
   const dual = selected?.responsibleSalesUserId === user.id && selected.responsiblePmUserId === user.id;
@@ -254,7 +255,9 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
         setCurrencyId(e.target.value); setManual(false); setRate(trimDecimal(chosen?.exchangeRate ?? '1')); setCurrencyTouched(true); setRefreshRate(false);
       })}>
       {!currencyOptions.data?.length && <MenuItem value="">{currencyCode}</MenuItem>}
-      {currencyOptions.data?.map(item => <MenuItem value={item.id} key={item.id}>{item.code}</MenuItem>)}
+      {currencyOptions.data?.map(item => <MenuItem value={item.id} key={item.id}>
+        {sameSavedCurrency && item.id === detail.currencyId ? currencyCode : item.code}
+      </MenuItem>)}
     </TextField></span></Tooltip>
     <FormControlLabel sx={{ m: 0, height: 36 }} control={<Checkbox checked={manual} disabled={currencyCode === 'VND'}
       onChange={e => change(() => { setManual(e.target.checked); setCurrencyTouched(true); setRefreshRate(!e.target.checked);

@@ -101,7 +101,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     expect((await get(admin, '/product-picker/main?page=1&q=pn-p1&brandId=999999').expect(200)).body).toEqual({ total: 0, items: [] });
   });
 
-  it('refreshes the catalog exchange rate only on explicit request and retains currency precision', async () => {
+  it('refreshes the catalog exchange rate only on explicit request and retains currency code and precision', async () => {
     const { sc, lineId } = await activeContract();
     const [{ id: currencyId }] = await ds.query(
       "INSERT INTO currencies (code, name, exchange_rate, decimal_places) VALUES ('EUR', 'Euro fixture', 27000, 2) RETURNING id");
@@ -110,14 +110,14 @@ describe('Sales contracts and procurement documents (integration)', () => {
     const path = '/purchase-requisitions/' + id;
     const draft = (await get(admin, path).expect(200)).body;
     expect(draft.lines[0].quantity).toBe(row.quantity);
-    await ds.query('UPDATE currencies SET exchange_rate = 28000, decimal_places = 3 WHERE id = $1', [currencyId]);
+    await ds.query("UPDATE currencies SET code = 'GBP', exchange_rate = 28000, decimal_places = 3 WHERE id = $1", [currencyId]);
     const update = (version: number, refreshCatalogExchangeRate?: boolean) => http().patch(path).set(as(admin))
       .send({ version, refreshCatalogExchangeRate, lines: [{ ...row, id: draft.lines[0].id }] }).expect(204);
     await update(draft.version);
     const unchanged = (await get(admin, path).expect(200)).body;
-    expect(unchanged).toMatchObject({ exchangeRate: '27000', currencyDecimalPlaces: 2 });
+    expect(unchanged).toMatchObject({ currencyCode: 'EUR', exchangeRate: '27000', currencyDecimalPlaces: 2 });
     await update(unchanged.version, true);
-    expect((await get(admin, path).expect(200)).body).toMatchObject({ exchangeRate: '28000', currencyDecimalPlaces: 2 });
+    expect((await get(admin, path).expect(200)).body).toMatchObject({ currencyCode: 'EUR', exchangeRate: '28000', currencyDecimalPlaces: 2 });
   });
 
   it('upgrades a legacy PR without inventing financial data or replacing source IDs', async () => {

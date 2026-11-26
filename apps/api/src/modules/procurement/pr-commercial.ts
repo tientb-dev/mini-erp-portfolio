@@ -47,7 +47,8 @@ export async function savePrCommercialHeader(m: EntityManager, id: number, field
     if (source === 'MANUAL' && (currency.code === 'VND' || !rate || !/[1-9]/.test(rate))) {
       throw new BusinessError('PR_INVALID_EXCHANGE_RATE', 'Manual entry requires a positive foreign exchange rate');
     }
-    await m.query(`UPDATE purchase_requisitions SET currency_id = $2, currency_code = $3,
+    await m.query(`UPDATE purchase_requisitions SET currency_id = $2,
+      currency_code = CASE WHEN currency_id = $2 THEN currency_code ELSE $3 END,
       currency_decimal_places = CASE WHEN currency_id = $2 THEN currency_decimal_places ELSE $4 END,
       exchange_rate = $5, exchange_rate_source = $6 WHERE id = $1`,
       [id, currency.id, currency.code, currency.decimal_places, rate, source]);

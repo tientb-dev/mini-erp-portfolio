@@ -2,6 +2,8 @@
 **Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
 
 ## 1. Nguyên tắc
+> Organization & Authorization (OA) thay đổi nguyên tắc VIEW toàn cục và phân quyền theo đơn vị: xem [ADR-0018](architecture/decisions/ADR-0018-organization-authorization.md) và [đặc tả](architecture/ORGANIZATION-AUTHORIZATION.md). Bảng dưới đây mô tả baseline; cập nhật theo từng phase OA khi triển khai. Theo Common Authorization Standard, các ngoại lệ "người tạo luôn xem", đọc PR của Sales phụ trách (ADR-0014) và đọc ngầm theo quyền thao tác sẽ bị bỏ.
+
 - Ưu tiên workflow thông suốt; không phân quyền chi nhánh/phòng ban phức tạp.
 - **User → Role → Permission** kết hợp danh sách kho được phép (`user_warehouses`). Không có role khác nhau theo từng kho.
 - **Một cấp phê duyệt** là mặc định. **Ngoại lệ:** PR có bước phê duyệt và tiếp nhận (ADR-0015). GIR `AVAILABLE_STOCK` có hai bước duyệt tuần tự (người phụ trách nguồn hàng → Quản lý kho). PR dùng phân công theo luồng Sales/PM và theo vòng.

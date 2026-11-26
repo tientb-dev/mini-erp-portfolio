@@ -178,6 +178,8 @@ Ngoại lệ đã có giữ nguyên: `GR.DECLARE_DETAILS` cho phép sửa chi ti
 
 ---
 
+Organization & Authorization (đã duyệt OA0, chưa triển khai): Common Authorization Standard (đọc cần VIEW + Data Scope, không đọc ngầm), Data Scope theo Role–Permission, Organization, nhóm ứng viên Role + User, `AuthorizationService` tập trung và chỉ ADMIN quản trị. Ngoại lệ "người tạo luôn xem" ở đoạn trên sẽ bị bỏ theo lộ trình OA3 và phase kho. Xem [ADR-0018](decisions/ADR-0018-organization-authorization.md) và [đặc tả](ORGANIZATION-AUTHORIZATION.md).
+
 ## 7. Workflow — [ADR-0007](decisions/ADR-0007-workflow.md), [ADR-0010](decisions/ADR-0010-gir-limits-approval-completion.md), [ADR-0011](decisions/ADR-0011-document-numbering-and-no-delete.md)
 
 Module document records cung cấp Notes và Activity History dùng chung. Module sở hữu chứng từ kiểm tra đích và quyền. Activity append-only kể cả khi workflow có state, assignment và snapshot riêng. Xem [ADR-0016](decisions/ADR-0016-common-document-records.md) và [roadmap Dossier/Organization](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).

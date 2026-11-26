@@ -173,7 +173,7 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 
 **COMMON-DOC-FORM-001.** DocumentFormGrid có 12 cột, khoảng cách ngang 16px và dọc 12px. Trường ngắn dùng 2–3 cột, trung bình 4–6 cột, dài 6–12 cột. Màn hình hẹp xếp một trường mỗi hàng. Label semibold nằm trên input cao khoảng 36–40px. Textarea mặc định hai dòng và tự giãn. Đặt trường bắt buộc lên trước và dùng cùng bố cục cho Tạo, Sửa, Xem.
 
-**COMMON-DOC-TABS-001.** Tạo chỉ hiện ba tab đầu. Hồ sơ dùng DocumentEmptyState với icon và nhãn Chưa có hồ sơ. ScrollTable giữ header khi cuộn dọc, hỗ trợ cuộn ngang, giới hạn chiều cao theo viewport và giữ toolbar cùng tổng số dòng ngoài vùng cuộn. Chế độ Tạo/Sửa luôn hiển thị nút Thêm hàng hóa và nêu lý do khi nút bị khóa. Popup thêm, sửa, xóa cập nhật state cục bộ. Dòng hàng lấy tên và ĐVT từ hàng hóa; PR #18 chưa có đơn giá hoặc tiền tệ để tính tổng.
+**COMMON-DOC-TABS-001.** Tạo chỉ hiện ba tab đầu. Hồ sơ dùng DocumentEmptyState với icon và nhãn Chưa có hồ sơ khi danh sách trống. ScrollTable giữ header khi cuộn dọc, hỗ trợ cuộn ngang, giới hạn chiều cao theo viewport và giữ toolbar cùng tổng số dòng ngoài vùng cuộn. Chế độ Tạo/Sửa luôn hiển thị nút Thêm hàng hóa và nêu lý do khi nút bị khóa. Popup thêm, sửa, xóa cập nhật state cục bộ.
 
 **COMMON-WORKFLOW-CARD-001.** Stepper dùng vòng 38px, đường nối 2px, nhãn 14px. Tạo mới và Nháp đều hiển thị ba chấm trắng trên nền #1F5FC4 ở bước Khởi tạo. Gửi duyệt thành công chuyển bước Khởi tạo sang dấu check trên nền #2E7D32. Bước tương lai có viền xám và bước từ chối dùng dấu X trên nền #D32F2F. Card chia đều chiều rộng, xếp label semibold trên value và đặt dropdown vào đúng card khi có quyền sửa. Vai trò lấy từ ứng viên hoặc snapshot của bước xử lý. Chuỗi dài hiển thị một dòng với tooltip chỉ khi bị cắt. Action footer căn phải, nút 32px và chỉ chiếm chỗ khi hàng card có thao tác.
 
@@ -237,4 +237,12 @@ Giữa toolbar, vùng validation và grid header dùng khoảng cách 8px. Giữ
 
 Danh mục Loại hồ sơ dùng Common Master Data với Search Input, filter trạng thái, Làm mới và popup Create/View/Edit. Hệ thống có trang Cấu hình hồ sơ chứng từ lấy loại chứng từ từ API. Mã loại chứng từ mở Detail Page với ScrollTable, các nút di chuyển và xóa, và picker nhiều lựa chọn dùng Search Input, DataTable và FormDialog. Picker giữ lựa chọn qua tìm kiếm và phân trang, hiển thị loại Active chưa áp dụng. Thay đổi chỉ áp dụng khi Lưu cấu hình. Dirty Guard bảo vệ dữ liệu chưa lưu. Action Result Dialog hiển thị kết quả và giữ danh sách đang sửa nếu API thất bại.
 
-Common File Attachment Cell thuộc Phase 4.2. Xem [đặc tả](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42).
+## COMMON-BUTTON-001
+
+Nút thao tác nghiệp vụ dùng `ActionButton` và mapping icon theo ngữ nghĩa, bên trái chữ và giữ icon khi disabled. Thêm dùng Add, Lưu dùng Save, Hủy bỏ dùng Close, Chỉnh sửa dùng Edit, Xác nhận dùng Check, Làm mới và Thay thế dùng Refresh, Xóa dùng Delete, Gửi duyệt dùng Send, Tải lên/xuống dùng Upload/Download, Hủy chứng từ dùng Block và Từ chối dùng CancelOutlined. Nút chính nền xanh. Nút phụ nền trắng viền xanh. Nút phá hủy nền trắng viền đỏ. `FormDialog` nhận `submitAction` và dùng mapping chung với footer thao tác và xác nhận workflow. Nút chỉ có icon dùng cho phần tử compact trong grid, file và điều khiển giao diện, kèm tooltip và tên truy cập. Tab, link điều hướng và control giao diện theo quy chuẩn riêng.
+
+## COMMON-FILE-CELL-001
+
+`FileAttachmentCell` hiển thị nút Tải lên có icon khi trống và có quyền quản lý. Khi có file, icon file, tên tải xuống, icon thay thế và icon xóa nằm cạnh nhau trong một dòng. `GridText` bổ sung ellipsis và tooltip truy cập bàn phím khi tên bị cắt. Cell chỉ đọc hiện tên tải xuống hoặc dấu —. Xác nhận dùng Common FormDialog. Lỗi dùng Action Result Dialog. Loading giới hạn tại cell đang xử lý.
+
+Tab Hồ sơ PR dùng `ScrollTable` với hai tầng header sticky, 7 cột và footer đếm hồ sơ. Các trường giấy khóa khi bỏ chọn Đã có và giữ giá trị. Document Grid hàng hóa tiếp tục nằm dưới tab. Create/Edit lưu cùng PR. View có nút Lưu hồ sơ dạng phụ khi có quyền quản lý và có dòng hồ sơ. Dirty Guard giữ dữ liệu qua các lần chuyển tab và bảo vệ khi rời trang. Xem [vòng đời và lưu trữ](DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md#phase-42).

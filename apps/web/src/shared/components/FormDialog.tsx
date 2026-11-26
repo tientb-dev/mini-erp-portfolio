@@ -1,9 +1,10 @@
 import { FormEvent, ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { UNSAFE_DataRouterContext, useBlocker } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Stack, Typography } from '@mui/material';
+import { Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { ErrorAlert } from './ErrorAlert';
+import { ActionButton, actionIcons } from './ActionButton';
 
 /**
  * Standard create/edit/confirm dialog: title + X, fields, footer Cancel + primary action (right-aligned); Enter submits.
@@ -13,9 +14,8 @@ import { ErrorAlert } from './ErrorAlert';
 export function FormDialog(props: {
   title: string; submitLabel?: string; closeLabel?: string; error: unknown; pending: boolean; canSubmit: boolean; onSubmit: () => void; onClose: () => void; children: ReactNode;
   /** Unsaved input: closing asks for confirmation. */ dirty?: boolean;
-  /** `error` for destructive actions (delete, cancel). */ submitColor?: 'primary' | 'error';
   /** One short line under the title (what to enter, what happens). */ description?: ReactNode;
-  submitIcon?: ReactNode;
+  submitAction?: keyof typeof actionIcons;
   footerAside?: ReactNode;
   pageGuardsNavigation?: boolean;
 }) {
@@ -45,9 +45,9 @@ export function FormDialog(props: {
       <Dialog open onClose={requestClose} fullWidth maxWidth="sm" slotProps={{ paper: { component: 'form', onSubmit: submit } }}>
         <DialogTitle variant="h2" sx={{ pr: 7 }}>{props.title}</DialogTitle>
         {props.description && <Typography variant="body2" color="text.secondary" sx={{ px: 3, pt: 0.75, pr: 7 }}>{props.description}</Typography>}
-        <IconButton aria-label={t('common.close')} onClick={requestClose} disabled={props.pending} sx={{ position: 'absolute', right: 12, top: 14 }}>
-          <CloseIcon />
-        </IconButton>
+        <Tooltip title={t('common.close')}><span style={{ position: 'absolute', right: 12, top: 14 }}>
+          <IconButton aria-label={t('common.close')} onClick={requestClose} disabled={props.pending}><CloseIcon /></IconButton>
+        </span></Tooltip>
         <DialogContent>
           <Stack spacing={2}>
             <ErrorAlert error={props.error} />
@@ -56,9 +56,9 @@ export function FormDialog(props: {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           {props.footerAside && <Typography variant="body2" sx={{ mr: 'auto' }}>{props.footerAside}</Typography>}
-          <Button variant="outlined" onClick={requestClose} disabled={props.pending}>{props.closeLabel ?? t('common.cancel')}</Button>
-          {props.submitLabel && <Button type="submit" variant={props.submitColor === 'error' ? 'outlined' : 'contained'} startIcon={props.submitIcon}
-            color={props.submitColor ?? 'primary'} disabled={!props.canSubmit || props.pending}>{props.submitLabel}</Button>}
+          <ActionButton action="cancel" onClick={requestClose} disabled={props.pending}>{props.closeLabel ?? t('common.cancel')}</ActionButton>
+          {props.submitLabel && <ActionButton action={props.submitAction ?? 'confirm'}
+            type="submit" disabled={!props.canSubmit || props.pending}>{props.submitLabel}</ActionButton>}
         </DialogActions>
       </Dialog>
       {router && !props.pageGuardsNavigation && (props.dirty || props.pending)
@@ -84,8 +84,8 @@ export function DiscardDialog({ onKeep, onDiscard }: { onKeep: () => void; onDis
           <DialogTitle id="discard-title" variant="h2">{t('common.discardTitle')}</DialogTitle>
           <DialogContent><DialogContentText>{t('common.discardHint')}</DialogContentText></DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button variant="outlined" onClick={onKeep} autoFocus>{t('common.keepEditing')}</Button>
-            <Button color="error" variant="outlined" onClick={onDiscard}>{t('common.discard')}</Button>
+            <ActionButton action="edit" variant="outlined" onClick={onKeep} autoFocus>{t('common.keepEditing')}</ActionButton>
+            <ActionButton action="delete" onClick={onDiscard}>{t('common.discard')}</ActionButton>
           </DialogActions>
         </Dialog>
   );

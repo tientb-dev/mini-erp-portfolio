@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Button } from '@mui/material';
-import Delete from '@mui/icons-material/DeleteOutlined';
 import { useTranslation } from 'react-i18next';
 import { FormDialog } from './FormDialog';
+import { ActionButton } from './ActionButton';
 
 export function BulkDeleteRows<Key extends string | number>({ selected, disabled, onDelete }: {
   selected: ReadonlySet<Key>;
@@ -12,12 +11,12 @@ export function BulkDeleteRows<Key extends string | number>({ selected, disabled
   const { t } = useTranslation();
   const [requested, setRequested] = useState<ReadonlySet<Key>>();
   return <>
-    <Button variant="outlined" color="error" startIcon={<Delete />} disabled={disabled || !selected.size}
+    <ActionButton action="delete" disabled={disabled || !selected.size}
       onClick={() => setRequested(new Set(selected))}>
       {t('documentRows.bulkDelete', { count: selected.size })}
-    </Button>
+    </ActionButton>
     {requested && <FormDialog title={t('documentRows.deleteItems')} submitLabel={t('documentRows.deleteItems')}
-      submitColor="error" submitIcon={<Delete />} canSubmit={!disabled} pending={false} error={null}
+      submitAction="delete" canSubmit={!disabled} pending={false} error={null}
       onClose={() => setRequested(undefined)} onSubmit={() => { onDelete(requested); setRequested(undefined); }}>
       {t('documentRows.confirmBulkDelete', { count: requested.size })}
     </FormDialog>}

@@ -68,7 +68,7 @@ function CreateGrDialog({ onClose, onCreated }: { onClose: () => void; onCreated
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['grs'] }); onCreated(r.id); },
   });
   return (
-    <FormDialog title={t('gr.create')} submitLabel={t('gr.create')} error={create.error ?? grrs.error} pending={create.isPending}
+    <FormDialog title={t('gr.create')} submitLabel={t('gr.create')} submitAction="add" error={create.error ?? grrs.error} pending={create.isPending}
       canSubmit={Boolean(grrId)} onSubmit={() => create.mutate()} onClose={onClose}>
       <Typography variant="body2" color="text.secondary">{t('gr.createHint')}</Typography>
       <TextField select label={t('gr.grr')} value={grrId} onChange={(e) => setGrrId(e.target.value)} required
@@ -239,7 +239,7 @@ function ActionDialog({ grId, action, onClose, onDone }: { grId: number; action:
     onSuccess: onDone,
   });
   return (
-    <FormDialog title={t(`gr.confirm.${action}`)} submitLabel={t(`gr.${action}`)} error={run.error ?? approvers.error} pending={run.isPending}
+    <FormDialog title={t(`gr.confirm.${action}`)} submitLabel={t(`gr.${action}`)} submitAction={action === 'cancel' ? 'void' : action === 'reject' ? 'reject' : action === 'submit' ? 'submit' : action === 'recall' ? 'refresh' : 'confirm'} error={run.error ?? approvers.error} pending={run.isPending}
       canSubmit={action === 'submit' ? Boolean(chosen) : needsReason ? Boolean(reason.trim()) : true}
       onSubmit={() => run.mutate()} onClose={onClose}>
       {action === 'submit' && (

@@ -44,6 +44,7 @@ it('keeps the submit context and selected candidates from the open dialog when d
   const posts = mockApi({
     '/auth/me': me(['PR.CREATE']), '/purchase-requisitions/5': pr,
     '/purchase-requisitions/5/candidates': { approvers: [candidate], receivers: [candidate] },
+    '/purchase-requisitions/5/dossier': { rows: [], canManage: false },
   });
   function TestPage() {
     const client = useQueryClient();
@@ -55,7 +56,7 @@ it('keeps the submit context and selected candidates from the open dialog when d
   wrap(<TestPage />);
   const refresh = screen.getByRole('button', { name: 'Refresh fixture' });
   fireEvent.click(await screen.findByRole('tab', { name: 'Hồ sơ' }));
-  expect(within(screen.getByRole('tabpanel')).getByText('Chưa có hồ sơ')).toBeTruthy();
+  expect(await within(screen.getByRole('tabpanel')).findByText('Chưa có hồ sơ')).toBeTruthy();
   fireEvent.click(await screen.findByRole('tab', { name: 'Người phê duyệt' }));
   await waitFor(() => expect(screen.getByRole('combobox', { name: 'Người duyệt' }).textContent).toContain('Candidate'));
   expect(screen.getAllByText('Configured workflow role')).toHaveLength(2);

@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
 import { GridColDef, GridPaginationModel, GridSortModel } from '@mui/x-data-grid';
-import Check from '@mui/icons-material/Check';
 import Close from '@mui/icons-material/Close';
-import Refresh from '@mui/icons-material/Refresh';
+import { ActionButton } from './ActionButton';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api-client';
 import { SearchInput } from './SearchInput';
@@ -59,7 +58,8 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
   ];
   return <Dialog open onClose={onClose} maxWidth={false} slotProps={{ paper: { sx: { width: 1100, maxWidth: '95vw', m: 1 } } }}>
     <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: 'primary.main', color: 'primary.contrastText' }}>
-      {t('prPhase.picker')}<IconButton color="inherit" onClick={onClose} aria-label={t('common.cancel')}><Close /></IconButton>
+      {t('prPhase.picker')}<Tooltip title={t('common.close')}><IconButton color="inherit" onClick={onClose}
+        aria-label={t('common.cancel')}><Close /></IconButton></Tooltip>
     </DialogTitle>
     <DialogContent dividers sx={{ overflow: 'hidden', p: 1.5 }}>
       <Tabs value={source} onChange={(_, value: Source) => setSource(value)} sx={{ mb: 1 }}>
@@ -73,8 +73,8 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
           <MenuItem value="">{t('common.all')}</MenuItem>
           {brands.data?.map(b => <MenuItem key={b.id} value={String(b.id)}>{b.name}</MenuItem>)}
         </TextField>}
-        <Tooltip title={t('prPhase.refreshHint')}><Button startIcon={<Refresh />} variant="outlined" sx={{ ml: 'auto', flexShrink: 0, height: 40 }}
-          onClick={() => { if (JSON.stringify(f) === JSON.stringify(defaults())) void rows.refetch(); change(defaults()); }}>{t('prPhase.refresh')}</Button></Tooltip>
+        <Tooltip title={t('prPhase.refreshHint')}><ActionButton action="refresh" sx={{ ml: 'auto', flexShrink: 0, height: 40 }}
+          onClick={() => { if (JSON.stringify(f) === JSON.stringify(defaults())) void rows.refetch(); change(defaults()); }}>{t('prPhase.refresh')}</ActionButton></Tooltip>
       </Stack>
       <Box sx={{ mt: 1.5, '& .MuiDataGrid-root': { height: 'min(48vh, 510px)' } }}>
         <DataTable columns={columns} rows={items} rowCount={rows.data?.total ?? 0} loading={rows.isFetching || q !== f.q}
@@ -86,10 +86,10 @@ export function ProductPicker({ onClose, onConfirm }: { onClose: () => void; onC
     <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', px: 2 }}>
       <Stack direction="row" spacing={2}><Typography sx={{ fontWeight: 700 }}>{t('prPhase.selected', { count: picked.size })}</Typography>
         <Typography color="text.secondary">{mainCount} {t('prPhase.main')} · {picked.size - mainCount} {t('prPhase.temporary')}</Typography></Stack>
-      <Stack direction="row" spacing={1}><Button variant="outlined" startIcon={<Close />} onClick={onClose}>{t('common.cancel')}</Button>
-        <Button variant="contained" startIcon={<Check />} disabled={!picked.size} onClick={() => onConfirm([...picked.values()])}>
+      <Stack direction="row" spacing={1}><ActionButton action="cancel" onClick={onClose}>{t('common.cancel')}</ActionButton>
+        <ActionButton action="confirm" disabled={!picked.size} onClick={() => onConfirm([...picked.values()])}>
           {t('prPhase.confirm')} ({picked.size})
-        </Button></Stack>
+        </ActionButton></Stack>
     </DialogActions>
   </Dialog>;
 }

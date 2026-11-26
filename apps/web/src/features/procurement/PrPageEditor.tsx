@@ -1,11 +1,7 @@
 import { ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { UNSAFE_DataRouterContext } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Autocomplete, Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
-import Add from '@mui/icons-material/Add';
-import Edit from '@mui/icons-material/EditOutlined';
-import Send from '@mui/icons-material/Send';
-import Save from '@mui/icons-material/Save';
+import { Autocomplete, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
@@ -23,6 +19,8 @@ import { useDebouncedText } from '../../shared/utils/server-list';
 import { ContractLine, PrLine, decimalInput, fromPickedProduct, fromSavedPrLine, positiveDecimal, prLineErrors } from './pr-lines';
 import type { DocDetail } from './types';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
+import { ActionButton } from '../../shared/components/ActionButton';
+import type { PrDossierModel } from './pr-dossier';
 
 interface ContractOption {
   id: number; documentNumber: string; status: string; customerName: string; responsibleSalesUserId?: number; responsiblePmUserId?: number;
@@ -38,6 +36,7 @@ export interface PrEditorModel {
   general: ReactNode; assignmentNotice: ReactNode; grid: ReactNode; footer: ReactNode;
   approver: { control: ReactNode; role?: string }; receiver: { control: ReactNode; role?: string };
   tab: string; setTab: (tab: string) => void; invalidTab: string; onBack: () => void;
+  saving: boolean; templateConflict: boolean; onTemplateResolved: () => void;
 }
 
 export function PrReadonlyField({ label, value, multiline }: { label: string; value: string; multiline?: boolean }) {
@@ -45,10 +44,11 @@ export function PrReadonlyField({ label, value, multiline }: { label: string; va
     slotProps={{ input: { readOnly: true } }} sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'action.hover' } }} />;
 }
 
-export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children }: {
+export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier, children }: {
   detail?: DocDetail; user: { id: number; fullName?: string }; onBack: () => void;
   onSaved: (id: number, number: string, submit: boolean) => void;
   onResult: (result: ActionResult) => void; children: (model: PrEditorModel) => ReactNode;
+  dossier: PrDossierModel;
 }) {
   const { t } = useTranslation();
   const router = useContext(UNSAFE_DataRouterContext);
@@ -78,13 +78,14 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
   const [deletingLine, setDeletingLine] = useState<{ key: string; position: number; code: string; name: string } | null>(null);
   const [discard, setDiscard] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
+  const [templateConflict, setTemplateConflict] = useState(false);
   const state = JSON.stringify([validDates, contract, route, category, purpose, approver, receiver, lines, name, requisitionDate, requiredDate, description, currencyId, rate, manual, currencyTouched, refreshRate]);
   const initial = useRef(state);
   const allowNavigation = useRef(false);
   const requestKey = useRef<{ payload: string; key: string } | undefined>(undefined);
   const submittedVersion = useRef(detail?.version);
   const submittedRound = useRef(detail?.approvalRound ?? 0);
-  const dirty = state !== initial.current;
+  const dirty = state !== initial.current || dossier.dirty;
   const [selected, setSelected] = useState<ContractOption | null>(null);
   const [contractText, setContractText] = useState('');
   const [contractInput, setContractInput] = useState('');
@@ -119,6 +120,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
           salesContractLineId: line.salesContractLineId ?? null, requirementDescription: line.requirementDescription,
           brandId: line.brandId, supplierId: line.supplierId, unitOfMeasureId: line.unitOfMeasureId,
           quantity: line.quantity, unitPrice: line.unitPrice, taxRateId: line.taxRateId })),
+        ...(dossier.payload && { dossier: dossier.payload }),
       };
       if (!detail) {
         const create = { ...payload, category, salesContractId: Number(contract), route: route || undefined, submit };
@@ -136,6 +138,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
     },
     onSuccess: (data, submit) => {
       initial.current = state;
+      dossier.revert();
       allowNavigation.current = true;
       setConfirmation(false);
       onSaved(data.id, data.documentNumber, submit);
@@ -143,6 +146,11 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
     onError: (error, submit) => {
       setConfirmation(false);
       if (error instanceof ApiError) {
+        if (error.code === 'PR_DOSSIER_TEMPLATE_CHANGED') {
+          setTemplateConflict(true);
+          setTab('dossier');
+          return;
+        }
         const candidateError = error.code === 'PR_CANDIDATE_NOT_ELIGIBLE';
         const lineError = Boolean(error.fieldIssue) || ['PR_LINE_INCOMPLETE','PR_INVALID_LINE','PR_INVALID_UNIT_PRICE','PR_INVALID_TAX_RATE','PR_SUPPLIER_NOT_LINKED',
           'SALES_CONTRACT_LINE_MISMATCH','SALES_CONTRACT_LINE_REQUIRED','PR_PRODUCT_DETAILS_MISMATCH','PR_TEMPORARY_PRODUCT_NOT_FOUND',
@@ -163,15 +171,21 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
         : t(submit ? 'pr.createSubmitFailed' : 'pr.saveFailed') });
     },
   });
+  const busy = save.isPending || dossier.pending;
   useEffect(() => {
-    if (!dirty && !save.isPending) return;
+    if (!dirty && !busy) return;
     const warn = (event: BeforeUnloadEvent) => {
       if (!allowNavigation.current) { event.preventDefault(); event.returnValue = ''; }
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty, save.isPending]);
+  }, [dirty, busy]);
   function validate(submit: boolean) {
+    if (dossier.invalid || (!detail && !dossier.payload) || templateConflict) {
+      setTab('dossier');
+      setInvalid('dossier');
+      return false;
+    }
     setNameRequired(submit);
     const headerInvalid = !contract || !category || (dual && !route) || (submit && !name.trim())
       || validDates.includes(false) || (manual && (!decimalInput(rate, 8) || !positiveDecimal(rate)));
@@ -274,10 +288,11 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
         </TextField> };
   }
   return <>
-    {children({ general, assignmentNotice, tab, setTab, invalidTab: invalid,
+    {children({ general, assignmentNotice, tab, setTab, invalidTab: invalid, saving: save.isPending,
+      templateConflict, onTemplateResolved: () => { setTemplateConflict(false); setInvalid(''); },
       approver: assignment('pr-approver', t('gr.approver'), validApprover, setApprover, candidates.data?.approvers),
       receiver: assignment('pr-receiver', t('pr.receiver'), validReceiver, setReceiver, candidates.data?.receivers),
-      onBack: () => { if (save.isPending) return; dirty ? setDiscard(true) : onBack(); },
+      onBack: () => { if (busy) return; dirty ? setDiscard(true) : onBack(); },
       grid: <><PrLineTable lines={lines} scale={scale} currency={currencyCode}
         official={detail && !dirty ? [detail.subtotal, detail.taxTotal, detail.total].map(value =>
           value == null ? null : String(value)) as [string | null, string | null, string | null] : undefined}
@@ -290,22 +305,22 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
         toolbar={<Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end', py: 0.5 }}>
           <Typography sx={{ flexGrow: 1, fontWeight: 700 }} color={invalid === 'lines' ? 'error' : undefined}>{t('prPhase.lines')}</Typography>
           <BulkDeleteRows selected={selectedLines} disabled={save.isPending} onDelete={deleteRows} />
-          <Button variant="outlined" startIcon={<Edit />} disabled={!selectedLines.size || save.isPending}
+          <ActionButton action="edit" variant="outlined" disabled={!selectedLines.size || save.isPending}
             onClick={() => setEditing({ lines: lines.filter(line => selectedLines.has(line.key)), strict: false })}>
             {t('pr.editGoods')} ({selectedLines.size})
-          </Button>
-          <Tooltip title={!contract || !category ? t('prPhase.chooseHeader') : ''}><span><Button variant="contained" startIcon={<Add />}
-            disabled={!contract || !category || (dual && !route) || save.isPending || contractLines.isFetching} onClick={() => setPicker(true)}>{t('pr.addGoods')}</Button></span></Tooltip>
+          </ActionButton>
+          <Tooltip title={!contract || !category ? t('prPhase.chooseHeader') : ''}><span><ActionButton action="add"
+            disabled={!contract || !category || (dual && !route) || save.isPending || contractLines.isFetching} onClick={() => setPicker(true)}>{t('pr.addGoods')}</ActionButton></span></Tooltip>
         </Stack>} />{invalid === 'lines' && <Typography role="alert" color="error">{t('prPhase.needsLine')}</Typography>}</>,
       footer: <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-        <Button startIcon={<Save />} variant="outlined" disabled={save.isPending} onClick={() => { if (validate(false)) save.mutate(false); }}>{t('pr.saveDraft')}</Button>
-        <Button startIcon={<Send />} variant="contained" disabled={save.isPending} onClick={() => { if (validate(true)) setConfirmation(true); }}>{t('doc.submit')}</Button>
+        <ActionButton action="save" variant="outlined" disabled={busy} onClick={() => { if (validate(false)) save.mutate(false); }}>{t('pr.saveDraft')}</ActionButton>
+        <ActionButton action="submit" disabled={busy} onClick={() => { if (validate(true)) setConfirmation(true); }}>{t('doc.submit')}</ActionButton>
       </Stack>,
     })}
-    {router && <RouteDiscardGuard dirty={dirty} pending={save.isPending} allowNavigation={() => allowNavigation.current} />}
+    {router && <RouteDiscardGuard dirty={dirty} pending={busy} allowNavigation={() => allowNavigation.current} />}
     {discard && <DiscardDialog onKeep={() => setDiscard(false)} onDiscard={() => { allowNavigation.current = true; onBack(); }} />}
     {confirmation && <FormDialog title={t('doc.confirmAction', { action: t('doc.submit') })} submitLabel={t('doc.submit')}
-      submitIcon={<Send />} pageGuardsNavigation canSubmit pending={save.isPending} error={null} onClose={() => setConfirmation(false)} onSubmit={() => save.mutate(true)}>
+      submitAction="submit" pageGuardsNavigation canSubmit={!dossier.pending} pending={save.isPending} error={null} onClose={() => setConfirmation(false)} onSubmit={() => save.mutate(true)}>
       {t('pr.title')} {detail?.documentNumber} · {t('pr.confirmEffect.submit')}
     </FormDialog>}
     {picker && <ProductPicker onClose={() => setPicker(false)} onConfirm={items => {
@@ -326,7 +341,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, children
         setInvalid('');
         setEditing(undefined);
       })} />}
-    {deletingLine !== null && <FormDialog title={t('pr.deleteGoods')} submitLabel={t('pr.deleteGoods')} submitColor="error"
+    {deletingLine !== null && <FormDialog title={t('pr.deleteGoods')} submitLabel={t('pr.deleteGoods')} submitAction="delete"
       canSubmit pending={false} error={null} onClose={() => setDeletingLine(null)}
       onSubmit={() => { deleteRows(new Set([deletingLine.key])); setDeletingLine(null); }}>
       {t('pr.deleteGoodsConfirm', { row: deletingLine.position, code: deletingLine.code, name: deletingLine.name })}

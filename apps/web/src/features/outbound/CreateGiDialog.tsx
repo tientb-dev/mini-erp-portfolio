@@ -26,7 +26,7 @@ export function CreateGiDialog({ gir, onClose, onCreated }: { gir: GirDetail; on
     onSuccess: (r) => onCreated(r.id),
   });
   return (
-    <FormDialog title={t('gi.create')} submitLabel={t('gi.create')} error={create.error} pending={create.isPending}
+    <FormDialog title={t('gi.create')} submitLabel={t('gi.create')} submitAction="add" error={create.error} pending={create.isPending}
       canSubmit={lines.some((l) => num(qty[l.id] ?? 0) > 0)} onSubmit={() => create.mutate()} onClose={onClose}>
       <Typography variant="body2" color="text.secondary">{t('gi.createHint')}</Typography>
       {lines.map((l) => (

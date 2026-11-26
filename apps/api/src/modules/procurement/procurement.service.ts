@@ -13,6 +13,10 @@ import { ActionContext, assertActionContext } from '../workflow/action-context';
 import { documentPage, insertNote, latestRoundActivity } from '../document-records/document-records';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
+import { DossierDocuments } from '../document-dossier/dossier-documents';
+import { dossierTemplate, snapshotDocumentDossier } from '../document-dossier/dossier-snapshot';
+import type { IncomingDossierFile } from '../document-dossier/dossier-storage';
+import { DossierUpdate, NewDossierUpdate } from '../document-dossier/dossier-update.dto';
 
 export interface PrLineInput {
   id?: number;
@@ -178,14 +182,16 @@ export class ProcurementFacade {
 /** Owns PR snapshots and validates PO source lines and quantity limits. */
 @Injectable()
 export class ProcurementService {
-  constructor(private readonly ds: DataSource) {}
+  constructor(private readonly ds: DataSource, private readonly dossiers: DossierDocuments) {}
 
   /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
   createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute, selection: prWorkflow.PrSelection & PrCommercialHeader = {}) {
     return this.ds.transaction(m => this.createPr(m, user, salesContractId, lines, category, purpose, route, selection));
   }
 
-  private async createPr(m: EntityManager, user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory, purpose: string | undefined, route: prWorkflow.PrRoute | undefined, selection: prWorkflow.PrSelection & PrCommercialHeader) {
+  private async createPr(m: EntityManager, user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory,
+    purpose: string | undefined, route: prWorkflow.PrRoute | undefined, selection: prWorkflow.PrSelection & PrCommercialHeader,
+    dossier?: NewDossierUpdate & { requestKey: string }) {
     if (!Number.isInteger(salesContractId) || salesContractId <= 0) {
       throw new BusinessError('PR_SALES_CONTRACT_REQUIRED', 'Select a sales contract before saving a purchase requisition');
     }
@@ -201,6 +207,16 @@ export class ProcurementService {
     );
     await savePrCommercialHeader(m, pr.id, selection);
     await this.writePrLines(m, pr.id, lines);
+    const template = await dossierTemplate(m, 'PR');
+    if (dossier && dossier.revision !== template.revision) {
+      throw new BusinessError('PR_DOSSIER_TEMPLATE_CHANGED', 'Cấu hình hồ sơ đã thay đổi. Dữ liệu đang nhập được giữ lại.', HttpStatus.CONFLICT);
+    }
+    await snapshotDocumentDossier(m, 'PR', pr.id, user.id, template.rows);
+    if (dossier?.rows.length) {
+      this.assertDossierManage(user);
+      await this.dossiers.save(m, 'PR', pr.id, user.id,
+        this.newDossierContext(dossier.sessionKey ?? dossier.requestKey), dossier.rows, true);
+    }
     return { id: pr.id as number, documentNumber: number };
   }
 
@@ -295,11 +311,11 @@ export class ProcurementService {
   }
 
   /** Edit a DRAFT/REJECTED PR by its creator: lines (HĐ line, product → UoM, quantity); the HĐ stays the same. */
-  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & PrCommercialHeader & { purpose?: string } = {}) {
+  updatePurchaseRequisition(user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & PrCommercialHeader & { purpose?: string; dossier?: DossierUpdate } = {}) {
     return this.ds.transaction(m => this.updatePr(m, user, id, version, lines, selection));
   }
 
-  private async updatePr(m: EntityManager, user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & PrCommercialHeader & { purpose?: string }, context?: ActionContext) {
+  private async updatePr(m: EntityManager, user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & PrCommercialHeader & { purpose?: string; dossier?: DossierUpdate }, context?: ActionContext) {
     const [head] = await m.query(`SELECT created_by, sales_contract_id, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
     if (!head) throw new NotFoundException();
     wf.assertCreator(head, user);
@@ -315,6 +331,11 @@ export class ProcurementService {
     await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
     await savePrCommercialHeader(m, id, selection);
     await this.writePrLines(m, id, lines);
+    if (selection.dossier?.rows.length) {
+      this.assertDossierManage(user);
+      await this.readablePr(m, user, id);
+      await this.dossiers.save(m, 'PR', id, user.id, this.existingDossierContext(id, selection.dossier.sessionKey), selection.dossier.rows);
+    }
     await wf.setStatus(m, 'PR', doc, doc.approval_status,
       ', draft_approver_id = CASE WHEN $3 THEN $4 ELSE draft_approver_id END, draft_receiver_id = CASE WHEN $5 THEN $6 ELSE draft_receiver_id END, purpose = CASE WHEN $7 THEN $8 ELSE purpose END',
       [selection.approverId !== undefined, selection.approverId ?? null, selection.receiverId !== undefined, selection.receiverId ?? null,
@@ -325,7 +346,7 @@ export class ProcurementService {
   }
 
   saveNewPr(user: CurrentUser, dto: prWorkflow.PrSelection & PrCommercialHeader & { salesContractId: number; lines: PrLineInput[];
-    category?: LineCategory; purpose?: string; route?: prWorkflow.PrRoute; requestKey: string; submit: boolean }) {
+    category?: LineCategory; purpose?: string; route?: prWorkflow.PrRoute; requestKey: string; submit: boolean; dossier?: NewDossierUpdate }) {
     // PostgreSQL UUID equality ignores case. Use the same representation for the advisory lock and the row.
     const requestKey = dto.requestKey.toLowerCase();
     const commercialHeader = [dto.name, dto.description, dto.requisitionDate, dto.requiredDate, dto.currencyId, dto.exchangeRateSource, dto.exchangeRate];
@@ -337,6 +358,8 @@ export class ProcurementService {
       dto.salesContractId, dto.category, dto.purpose, dto.route, dto.approverId, dto.receiverId, dto.submit,
       dto.lines.map(line => [line.id, line.productId, line.salesContractLineId, line.quantity]),
       ...(hasCommercialFields ? [[commercialHeader, commercialLines]] : []),
+      ...(dto.dossier ? [[dto.dossier.revision, dto.dossier.sessionKey, dto.dossier.rows.map(row => [row.dossierTypeId, row.version, row.hasPaper,
+        row.issuedOn ?? null, row.issuer ?? null, row.note ?? null, row.fileId ?? null])]] : []),
     ])).digest('hex');
     return this.ds.transaction(async m => {
       await m.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [user.id, 'PR:create:' + requestKey]);
@@ -346,7 +369,8 @@ export class ProcurementService {
         if (existing.fingerprint !== fingerprint) throw new BusinessError('PR_REQUEST_REUSED', 'The request key was already used for different data', HttpStatus.CONFLICT);
         return { id: existing.id as number, documentNumber: existing.documentNumber as string };
       }
-      const pr = await this.createPr(m, user, dto.salesContractId, dto.lines, dto.category ?? 'SALES_GOODS', dto.purpose, dto.route, dto);
+      const pr = await this.createPr(m, user, dto.salesContractId, dto.lines, dto.category ?? 'SALES_GOODS', dto.purpose, dto.route, dto,
+        dto.dossier ? { ...dto.dossier, requestKey } : undefined);
       if (dto.submit) await this.submitSavedPr(m, user, pr.id, dto);
       await m.query('UPDATE purchase_requisitions SET create_request_key = $2, create_request_fingerprint = $3 WHERE id = $1',
         [pr.id, requestKey, fingerprint]);
@@ -354,7 +378,7 @@ export class ProcurementService {
     });
   }
 
-  submitEditedPr(user: CurrentUser, id: number, dto: ActionContext & prWorkflow.PrSelection & PrCommercialHeader & { lines: PrLineInput[]; purpose?: string }) {
+  submitEditedPr(user: CurrentUser, id: number, dto: ActionContext & prWorkflow.PrSelection & PrCommercialHeader & { lines: PrLineInput[]; purpose?: string; dossier?: DossierUpdate }) {
     return this.ds.transaction(async m => {
       await this.updatePr(m, user, id, dto.version, dto.lines, dto, dto);
       await this.submitSavedPr(m, user, id, dto);
@@ -585,7 +609,7 @@ export class ProcurementService {
     return CatalogFacade.productPicker(this.ds, source, query);
   }
 
-  private async readablePr(m: EntityManager, user: CurrentUser, id: number, lock = false) {
+  private async readablePr(m: EntityManager, user: CurrentUser, id: number, lock: boolean | 'update' = false) {
     const [pr] = await m.query(
       `SELECT ${wf.DOC_COLUMNS}, d.approval_round AS "approvalRound", d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
         d.creator_route AS "creatorRoute", d.draft_approver_id AS "draftApproverId", d.draft_receiver_id AS "draftReceiverId",
@@ -595,7 +619,7 @@ export class ProcurementService {
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
          JOIN users requester ON requester.id = d.created_by
          ${PR_TOTALS}
-        WHERE d.id = $1 ${lock ? 'FOR SHARE OF d, s' : ''}`,
+        WHERE d.id = $1 ${lock === 'update' ? 'FOR UPDATE OF d' : lock ? 'FOR SHARE OF d, s' : ''}`,
       [id, user.id],
     );
     const fullView = user.permissions.includes('PR.VIEW');
@@ -609,6 +633,59 @@ export class ProcurementService {
     const canEdit = header.createdBy === user.id && user.permissions.includes('PR.CREATE')
       && contractStatus === 'ACTIVE' && routeOwner === user.id && ['DRAFT', 'REJECTED'].includes(header.approvalStatus);
     return { header, fullView, canEdit };
+  }
+
+  prDossierTemplate() { return dossierTemplate(this.ds.manager, 'PR'); }
+
+  private newDossierContext(key: string) { return 'PR:new:' + key.toLowerCase(); }
+  private existingDossierContext(id: number, session?: string) { return 'PR:' + id + ':' + (session?.toLowerCase() ?? ''); }
+
+  private assertDossierManage(user: CurrentUser, status?: string) {
+    if (!user.permissions.includes('PR.DOSSIER_MANAGE')) throw new ForbiddenException('Missing permission: PR.DOSSIER_MANAGE');
+    if (status === 'CANCELED') throw new BusinessError('PR_DOSSIER_CANCELED', 'Không thể cập nhật hồ sơ của PR đã hủy.', HttpStatus.CONFLICT);
+  }
+
+  async prDossier(user: CurrentUser, id: number) {
+    return this.ds.transaction(async m => {
+      const { header } = await this.readablePr(m, user, id);
+      return { rows: await this.dossiers.list(m, 'PR', id),
+        canManage: user.permissions.includes('PR.DOSSIER_MANAGE') && header.approvalStatus !== 'CANCELED' };
+    });
+  }
+
+  savePrDossier(user: CurrentUser, id: number, body: DossierUpdate) {
+    return this.ds.transaction(async m => {
+      const { header } = await this.readablePr(m, user, id, 'update');
+      this.assertDossierManage(user, header.approvalStatus);
+      await this.dossiers.save(m, 'PR', id, user.id, this.existingDossierContext(id, body.sessionKey), body.rows);
+      return { rows: await this.dossiers.list(m, 'PR', id), canManage: true };
+    });
+  }
+
+  async stagePrDossier(user: CurrentUser, key: string | number, typeId: number, file: IncomingDossierFile, session?: string) {
+    this.assertDossierManage(user);
+    if (typeof key === 'string') {
+      const template = await this.prDossierTemplate();
+      if (!template.rows.some(row => row.dossierTypeId === typeId)) throw new NotFoundException('Dossier type not in current configuration');
+      return this.dossiers.stage(user.id, this.newDossierContext(key), typeId, file);
+    }
+    const { rows, canManage } = await this.prDossier(user, key);
+    if (!canManage) this.assertDossierManage(user, 'CANCELED');
+    if (!rows.some(row => row.dossierTypeId === typeId)) throw new NotFoundException('Dossier type not in snapshot');
+    return this.dossiers.stage(user.id, this.existingDossierContext(key, session), typeId, file);
+  }
+
+  downloadPrDossier(user: CurrentUser, key: string | number, fileId: number, session?: string) {
+    return this.ds.transaction(async m => {
+      if (typeof key === 'string') {
+        this.assertDossierManage(user);
+        return this.dossiers.download(m, 'PR', null, fileId, { actor: user.id, context: this.newDossierContext(key) });
+      }
+      const { header } = await this.readablePr(m, user, key);
+      const temporary = session && user.permissions.includes('PR.DOSSIER_MANAGE') && header.approvalStatus !== 'CANCELED'
+        ? { actor: user.id, context: this.existingDossierContext(key, session) } : undefined;
+      return this.dossiers.download(m, 'PR', key, fileId, temporary);
+    });
   }
 
   async getPr(user: CurrentUser, id: number) {

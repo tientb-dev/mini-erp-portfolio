@@ -4,6 +4,8 @@ import { ArrayUnique, IsArray, IsBoolean, IsInt, IsOptional, IsString, Matches, 
 import { DOCUMENT_TARGETS, DocumentTarget } from '../document-records/document-records';
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { DossierService } from './dossier.service';
+import { DossierStorage } from './dossier-storage';
+import { DossierDocuments } from './dossier-documents';
 
 class DossierTypeInput {
   @IsString() @Matches(/\S/) @MaxLength(50) code!: string;
@@ -61,5 +63,6 @@ class DossierController {
   }
 }
 
-@Module({ controllers: [DossierController], providers: [DossierService] })
+@Module({ controllers: [DossierController], providers: [DossierService, DossierStorage, DossierDocuments],
+  exports: [DossierDocuments] })
 export class DossierModule {}

@@ -1,16 +1,11 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { UNSAFE_DataRouterContext, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Checkbox, IconButton, Paper, Stack, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import { Checkbox, IconButton, Paper, Stack, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
-import Add from '@mui/icons-material/Add';
 import Up from '@mui/icons-material/ArrowUpward';
 import Down from '@mui/icons-material/ArrowDownward';
 import Delete from '@mui/icons-material/DeleteOutlined';
-import Save from '@mui/icons-material/Save';
-import Close from '@mui/icons-material/Close';
-import Check from '@mui/icons-material/Check';
-import Refresh from '@mui/icons-material/Refresh';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../../services/api-client';
@@ -18,6 +13,7 @@ import { ActionResultDialog, DataTable, DetailPageLayout, FormDialog, GridText, 
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { DiscardDialog, RouteDiscardGuard } from '../../shared/components/FormDialog';
 import { SearchInput } from '../../shared/components/SearchInput';
+import { ActionButton } from '../../shared/components/ActionButton';
 
 const path = '/dossier-configurations';
 const labels: Record<string, string> = {
@@ -116,13 +112,13 @@ function ConfigurationEditor({ documentType, title, initial }: { documentType: s
   return <>
     <DetailPageLayout title={title} onBack={back} backLabel={t('dossier.back')} naturalFlow
       footer={<Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-        <Button variant="outlined" startIcon={<Close />} disabled={controlsDisabled} onClick={back}>{t('common.cancel')}</Button>
-        <Button variant="contained" startIcon={<Save />} disabled={!dirty || controlsDisabled}
-          onClick={() => save.mutate()}>{t('dossier.save')}</Button>
+        <ActionButton action="cancel" disabled={controlsDisabled} onClick={back}>{t('common.cancel')}</ActionButton>
+        <ActionButton action="save" disabled={!dirty || controlsDisabled}
+          onClick={() => save.mutate()}>{t('dossier.save')}</ActionButton>
       </Stack>}>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography component="h2" variant="h2">{t('dossier.applied')}</Typography>
-        <Button variant="contained" startIcon={<Add />} disabled={controlsDisabled} onClick={() => setPicker(true)}>{t('dossier.addType')}</Button>
+        <ActionButton action="add" disabled={controlsDisabled} onClick={() => setPicker(true)}>{t('dossier.addType')}</ActionButton>
       </Stack>
       <Paper variant="outlined" sx={{ overflow: 'hidden' }}><ScrollTable label={t('dossier.applied')} columnWidths={[68, 180, 440, 145]} maxHeight="min(51dvh, 530px)">
         <TableHead><TableRow><TableCell>{t('prPhase.row')}</TableCell><TableCell>{t('dossier.typeCode')}</TableCell>
@@ -178,14 +174,14 @@ function DossierTypePicker({ exclude, onClose, onConfirm }: {
     { field: 'code', headerName: t('dossier.typeCode'), width: 150 },
     { field: 'name', headerName: t('dossier.typeName'), minWidth: 200, flex: 1 },
   ];
-  return <FormDialog title={t('dossier.choose')} submitLabel={t('dossier.confirm', { count: selected.size })} submitIcon={<Check />}
+  return <FormDialog title={t('dossier.choose')} submitLabel={t('dossier.confirm', { count: selected.size })} submitAction="confirm"
     pending={false} canSubmit={selected.size > 0 && !query.isError} error={query.error} onClose={onClose}
     footerAside={t('dossier.selected', { count: selected.size })} onSubmit={() => onConfirm([...selected.values()])}>
     <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-end' }}>
       <SearchInput label={t('common.search')} value={search} placeholder={t('searchFields.catalog.dossierTypes')}
         onChange={value => { setSearch(value); setPage(previous => ({ ...previous, page: 0 })); }} />
-      <Button variant="outlined" startIcon={<Refresh />} sx={{ flexShrink: 0, height: 40 }}
-        onClick={() => { setSearch(''); setPage({ page: 0, pageSize: 25 }); void query.refetch(); }}>{t('prPhase.refresh')}</Button>
+      <ActionButton action="refresh" sx={{ flexShrink: 0, height: 40 }}
+        onClick={() => { setSearch(''); setPage({ page: 0, pageSize: 25 }); void query.refetch(); }}>{t('prPhase.refresh')}</ActionButton>
     </Stack>
     <DataTable rows={rows} columns={columns} loading={query.isFetching} maxHeight="min(48dvh, 470px)"
       paginationModel={page} onPaginationModelChange={setPage}

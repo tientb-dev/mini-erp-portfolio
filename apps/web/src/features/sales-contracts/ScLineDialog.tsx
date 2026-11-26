@@ -65,7 +65,7 @@ export function ScLineDialog({ contractId, version, line, lines, onClose, onSave
   const dirty = (Object.keys(initial) as (keyof typeof initial)[]).some((k) => f[k] !== initial[k]);
   if (failure) return <ActionResultDialog result={failure} onClose={() => { setFailure(undefined); save.reset(); }} />;
   return (
-    <FormDialog title={t(line ? 'sc.editItem' : 'sc.addItem')} submitLabel={t(line ? 'doc.saveEdit' : 'sc.saveItem')} error={save.error ?? uoms.error ?? (f.source === 'main' ? products.error : f.source === 'temporary' ? temporary.error : null)} pending={save.isPending}
+    <FormDialog title={t(line ? 'sc.editItem' : 'sc.addItem')} submitLabel={t(line ? 'doc.saveEdit' : 'sc.saveItem')} submitAction="save" error={save.error ?? uoms.error ?? (f.source === 'main' ? products.error : f.source === 'temporary' ? temporary.error : null)} pending={save.isPending}
       canSubmit={Boolean(valid)} onSubmit={() => save.mutate()} onClose={onClose} dirty={dirty} description={t('sc.lineDialogHint')}>
       <FormControl>
         <FormLabel id="sc-line-source">{t('prCatalog.source')}</FormLabel>

@@ -15,16 +15,25 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiResponse(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  const accessToken = token.get();
+  if (accessToken && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${accessToken}`);
+  if (!(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(token.get() ? { Authorization: `Bearer ${token.get()}` } : {}), ...init.headers },
+    headers,
   });
   if (!res.ok) {
     const problem = await res.json().catch(() => ({}));
     if (res.status === 401) token.clear();
     throw new ApiError(res.status, problem.code ?? 'HTTP_ERROR', String(problem.detail ?? res.statusText), problem.fieldIssue);
   }
+  return res;
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await apiResponse(path, init);
   return (res.status === 204 ? undefined : res.json()) as Promise<T>;
 }
 

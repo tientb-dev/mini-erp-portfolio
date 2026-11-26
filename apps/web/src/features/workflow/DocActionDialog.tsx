@@ -5,7 +5,6 @@ import { Button, MenuItem, TextField, Typography } from '@mui/material';
 import { api, ApiError } from '../../services/api-client';
 import { FormDialog } from '../../shared/components';
 import { DocAction, Person, WorkflowActionContext } from './types';
-import Check from '@mui/icons-material/Check';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 
 /**
@@ -77,8 +76,8 @@ export function DocActionDialog({ basePath, action, onClose, onDone, approversPa
   return (
     <FormDialog title={document ? t('doc.confirmAction', { action: label }) : sourceConfirm ? t('gir.confirmTitle') : receive ? t('pr.receive') : t(`doc.confirm.${action}`)}
       description={document && <>{document.type} {document.number}</>}
-      submitLabel={label} submitIcon={document ? <Check /> : undefined}
-      submitColor={document && (action === 'reject' || action === 'cancel') ? 'error' : undefined}
+      submitLabel={label} submitAction={action === 'cancel' ? 'void' : action === 'reject' ? 'reject'
+        : action === 'submit' ? 'submit' : action === 'recall' ? 'refresh' : 'confirm'}
       error={run.error ?? approvers.error ?? candidates.error ?? replacements.error} pending={run.isPending}
       canSubmit={!stale && (!needsReason || Boolean(reason.trim())) && (!reassign || Boolean(validReplacement))
         && (!selectPrCandidates || Boolean(validCandidates)) && (!selectApprover || Boolean(chosen))} onSubmit={() => run.mutate()} onClose={onClose}>

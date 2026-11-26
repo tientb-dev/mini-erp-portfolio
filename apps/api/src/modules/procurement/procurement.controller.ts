@@ -1,6 +1,6 @@
-import { Body, Controller, Get, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, ParseFilePipe, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, Max, IsDateString, Matches, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { DataSource } from 'typeorm';
@@ -9,6 +9,13 @@ import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { ProcurementService, PR_SORT } from './procurement.service';
 import { PR_POOLS, PrPool, PrRoute } from './pr-eligibility';
 import { WORKFLOW_STEPS, WorkflowStep } from '../workflow/action-context';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { dossierMaxFileBytes } from '../document-dossier/dossier-file-policy';
+import { IncomingDossierFile } from '../document-dossier/dossier-storage';
+import { DossierUpdate, NewDossierUpdate } from '../document-dossier/dossier-update.dto';
+
+const dossierUpload = FileInterceptor('file', { limits: { fileSize: dossierMaxFileBytes() + 1, files: 1, parts: 2 } });
+const dossierUploadBody = { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } };
 
 class PrListQuery {
   @IsOptional() @IsString() @MaxLength(200) q?: string;
@@ -105,12 +112,14 @@ class CreatePoDto {
 class SaveNewPrDto extends CreatePrDto {
   @ApiProperty() @IsUUID('4') requestKey!: string;
   @ApiProperty() @IsBoolean() submit!: boolean;
+  @ApiPropertyOptional({ type: NewDossierUpdate }) @IsOptional() @ValidateNested() @Type(() => NewDossierUpdate) dossier?: NewDossierUpdate;
 }
 
 class UpdatePrDto extends PrDraftSelection {
   @ApiProperty() @IsInt() version!: number;
   @ApiPropertyOptional() @IsOptional() @IsString() purpose?: string;
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
+  @ApiPropertyOptional({ type: DossierUpdate }) @IsOptional() @ValidateNested() @Type(() => DossierUpdate) dossier?: DossierUpdate;
 }
 class UpdatePoDto extends CreatePoDto {
   @ApiProperty() @IsInt() version!: number;
@@ -141,6 +150,63 @@ export class ProcurementController {
   @Get('purchase-requisitions/:id')
   getPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.svc.getPr(req.user, id);
+  }
+
+  @Get('purchase-requisitions/catalog/dossier')
+  @RequirePermissions('PR.CREATE')
+  prDossierTemplate() { return this.svc.prDossierTemplate(); }
+
+  @Get('purchase-requisitions/:id/dossier')
+  prDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.prDossier(req.user, id);
+  }
+
+  @Put('purchase-requisitions/:id/dossier')
+  @RequirePermissions('PR.DOSSIER_MANAGE')
+  savePrDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() body: DossierUpdate) {
+    return this.svc.savePrDossier(req.user, id, body);
+  }
+
+  @Post('purchase-requisitions/dossier-staging/:key/:typeId')
+  @RequirePermissions('PR.CREATE', 'PR.DOSSIER_MANAGE')
+  @ApiConsumes('multipart/form-data') @ApiBody(dossierUploadBody)
+  @UseInterceptors(dossierUpload)
+  stageNewDossier(@Req() req: AuthedRequest, @Param('key', new ParseUUIDPipe({ version: '4' })) key: string,
+    @Param('typeId', ParseIntPipe) typeId: number, @UploadedFile(new ParseFilePipe()) file: IncomingDossierFile) {
+    return this.svc.stagePrDossier(req.user, key, typeId, file);
+  }
+
+  @Post('purchase-requisitions/:id/dossier/files/:typeId')
+  @RequirePermissions('PR.DOSSIER_MANAGE')
+  @ApiConsumes('multipart/form-data') @ApiBody(dossierUploadBody)
+  @UseInterceptors(dossierUpload)
+  stageExistingDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
+    @Param('typeId', ParseIntPipe) typeId: number, @Query('session', new ParseUUIDPipe({ version: '4' })) session: string,
+    @UploadedFile(new ParseFilePipe()) file: IncomingDossierFile) {
+    return this.svc.stagePrDossier(req.user, id, typeId, file, session);
+  }
+
+  @Get('purchase-requisitions/dossier-staging/:key/:fileId')
+  @RequirePermissions('PR.CREATE', 'PR.DOSSIER_MANAGE')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async downloadStagedDossier(@Req() req: AuthedRequest, @Param('key', new ParseUUIDPipe({ version: '4' })) key: string,
+    @Param('fileId', ParseIntPipe) fileId: number) {
+    return this.dossierDownload(await this.svc.downloadPrDossier(req.user, key, fileId));
+  }
+
+  @Get('purchase-requisitions/:id/dossier/files/:fileId')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async downloadDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
+    @Param('fileId', ParseIntPipe) fileId: number, @Query('session', new ParseUUIDPipe({ version: '4', optional: true })) session?: string) {
+    return this.dossierDownload(await this.svc.downloadPrDossier(req.user, id, fileId, session));
+  }
+
+  private dossierDownload(file: Awaited<ReturnType<ProcurementService['downloadPrDossier']>>) {
+    const name = encodeURIComponent(file.name).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16));
+    return new StreamableFile(file.stream, { type: file.mediaType, length: file.size,
+      disposition: "attachment; filename*=UTF-8''" + name });
   }
 
   @Get('purchase-requisition-lines/available-for-po')

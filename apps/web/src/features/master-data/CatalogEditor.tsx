@@ -202,9 +202,10 @@ export function CatalogEditor({ catalog, entry, close, report, showingResult, pe
   if (!catalog.fullPage) return (
     <>
     {!showingResult && <FormDialog pageGuardsNavigation title={deleting ? deleteHint : editorTitle} submitLabel={action}
+      submitAction={deleting ? 'delete' : editing ? 'save' : 'edit'}
       closeLabel={!editing && !deleting ? t('common.close') : undefined}
       error={error} pending={pending} canSubmit={!editing || submitReady} onSubmit={submit} onClose={cancel}
-      dirty={dirty} submitColor={deleting ? 'error' : 'primary'}>
+      dirty={dirty}>
       {!deleting && fieldsContent}
       {deleteAction}
     </FormDialog>}

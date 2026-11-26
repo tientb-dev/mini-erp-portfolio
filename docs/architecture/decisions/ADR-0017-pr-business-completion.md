@@ -34,6 +34,8 @@ PO hiện có số lượng, NCC và ĐVT. Để khóa hạn mức cần bổ su
 
 Áp dụng DOSSIER-001 đến DOSSIER-009 trong [Business Rules](../../03-BUSINESS-RULES.md#hồ-sơ-chứng-từ). Phase 4.1 cung cấp nền tảng dữ liệu, snapshot và màn hình quản trị. Phạm vi PR và Common File Attachment Cell được mô tả trong [roadmap](../DOCUMENT-DOSSIER-ORGANIZATION-ROADMAP.md).
 
+Phase 4.2 tích hợp snapshot trong lần lưu PR mới đầu tiên. BA chốt PR cũ giữ danh sách trống; luồng đọc hoặc sửa PR cũ không tạo snapshot. Cập nhật Hồ sơ trong View dùng phiên bản dòng độc lập và không đổi workflow PR.
+
 ## DEC-19-07 · Tính tiền chứng từ ERP
 
 Giới hạn phân số và thứ tự làm tròn theo [Business Rules §1d](../../03-BUSINESS-RULES.md#1d-tính-tiền-chứng-từ-erp). Backend dùng Decimal chính xác với `ROUND_HALF_UP` và snapshot cấu hình tiền tệ. Phase 2 dùng cách tính chung cho PR.

@@ -163,7 +163,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
       {missing && !catalogQuery.isPending && <FormDialog title={title} pending={false} canSubmit={false}
         closeLabel={t('common.close')} error={catalogQuery.error} onSubmit={() => {}} onClose={() => close()}>{t('common.notFound')}</FormDialog>}
       {confirmation && <FormDialog title={t('master.disableTitle', { code: entryCode(confirmation) })}
-        submitLabel={t('master.disable')} pending={pending.includes(confirmation.id)}
+        submitLabel={t('master.disable')} submitAction="confirm" pending={pending.includes(confirmation.id)}
         canSubmit error={null} onClose={() => setConfirmation(undefined)}
         onSubmit={() => updateStatus.mutate({ row: confirmation, isActive: false })}>
         {t('master.disableHint')}

@@ -2,6 +2,22 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 const vi = {
+  prDossier: {
+    title: 'Hồ sơ chứng từ', position: 'STT', type: 'Loại hồ sơ', paper: 'Hồ sơ giấy', electronic: 'Hồ sơ điện tử',
+    hasPaper: 'Đã có', date: 'Ngày phát hành', issuer: 'Người phát hành', note: 'Ghi chú', file: 'File đính kèm',
+    save: 'Lưu hồ sơ', saved: 'Đã lưu hồ sơ chứng từ', saveFailed: 'Lưu hồ sơ thất bại',
+    upload: 'Tải lên', uploadFailed: 'Tải file lên thất bại', downloadFailed: 'Tải file xuống thất bại',
+    replace: 'Thay thế file đính kèm', remove: 'Xóa file đính kèm', replaceAction: 'Thay thế', removeAction: 'Xóa file',
+    replaceHint: 'Hồ sơ {{type}}: thay {{current}} bằng {{replacement}}?', removeHint: 'Xóa file {{current}} khỏi hồ sơ {{type}}?',
+    replaceRetention: 'File cũ được giữ để truy vết. Thay đổi có hiệu lực sau khi lưu.', onSave: 'Thay đổi có hiệu lực sau khi lưu.',
+    totals: '{{types}} loại hồ sơ · {{papers}} hồ sơ giấy · {{files}} file điện tử', dirty: 'Có thay đổi chưa lưu',
+    workflowWarning: 'Hãy lưu hoặc bỏ thay đổi hồ sơ trước khi thực hiện thao tác workflow.',
+    continueEditing: 'Tiếp tục chỉnh sửa', templateChanged: 'Cấu hình đã thay đổi. Làm mới cấu hình để đối chiếu các dòng đang nhập.',
+    typesRemoved: 'Một số loại đã ngừng áp dụng. Xác nhận bỏ phần dữ liệu của các loại này để dùng cấu hình mới.',
+    refresh: 'Làm mới cấu hình', discardRemoved: 'Bỏ dữ liệu loại đã ngừng áp dụng', refreshFailed: 'Làm mới cấu hình hồ sơ thất bại',
+    before: 'Trước thay đổi', after: 'Sau thay đổi', yes: 'Có', no: 'Chưa có',
+    activity: { UPLOAD: 'Tải lên file', REPLACE: 'Thay thế file', REMOVE: 'Xóa file' },
+  },
   dossier: {
     configurations: 'Cấu hình hồ sơ chứng từ', documentCode: 'Mã loại CT', documentName: 'Tên loại chứng từ',
     configuredCount: 'Số loại hồ sơ', detail: 'Hồ sơ — {{name}} ({{code}})', back: 'Danh sách loại chứng từ',
@@ -184,7 +200,7 @@ const vi = {
     approveHint: 'Kiểm tra lại hạn mức và tồn kho trước khi duyệt.', cancelHint: 'Chứng từ đã hủy không thể sửa hay gửi duyệt lại.',
     completeHint: 'Bắt buộc nhập lý do nếu số lượng đã xuất ít hơn số lượng đề nghị.',
     confirm: { submit: 'Gửi duyệt chứng từ', approve: 'Duyệt chứng từ', reject: 'Từ chối chứng từ', recall: 'Thu hồi chứng từ', cancel: 'Hủy chứng từ', complete: 'Xác nhận hoàn thành xuất', reassign: 'Xác nhận phân công lại' },
-    history: { EDIT: 'Sửa', SUBMIT: 'Gửi duyệt', RESUBMIT: 'Gửi duyệt lại', RECEIVE: 'Tiếp nhận', CONFIRM: 'Sales xác nhận', APPROVE: 'Duyệt', REJECT: 'Từ chối', RECALL: 'Thu hồi', CANCEL: 'Hủy', COMPLETE: 'Hoàn thành xuất', REASSIGN: 'Phân công lại' },
+    history: { DOSSIER_UPDATE: 'Cập nhật hồ sơ', EDIT: 'Sửa', SUBMIT: 'Gửi duyệt', RESUBMIT: 'Gửi duyệt lại', RECEIVE: 'Tiếp nhận', CONFIRM: 'Sales xác nhận', APPROVE: 'Duyệt', REJECT: 'Từ chối', RECALL: 'Thu hồi', CANCEL: 'Hủy', COMPLETE: 'Hoàn thành xuất', REASSIGN: 'Phân công lại' },
   },
   execution: { NOT_STARTED: 'Chưa xuất', IN_PROGRESS: 'Đang xuất', COMPLETED: 'Hoàn thành' },
   category: { SALES_GOODS: 'Hàng bán', MATERIAL: 'Vật tư' },
@@ -386,6 +402,22 @@ const vi = {
 };
 
 const en: typeof vi = {
+  prDossier: {
+    title: 'Document dossier', position: 'No.', type: 'Dossier type', paper: 'Paper records', electronic: 'Electronic record',
+    hasPaper: 'Available', date: 'Issue date', issuer: 'Issued by', note: 'Note', file: 'Attachment',
+    save: 'Save dossier', saved: 'Document dossier saved', saveFailed: 'Could not save the dossier',
+    upload: 'Upload', uploadFailed: 'Upload failed', downloadFailed: 'Download failed',
+    replace: 'Replace attachment', remove: 'Remove attachment', replaceAction: 'Replace', removeAction: 'Remove file',
+    replaceHint: 'Replace {{current}} with {{replacement}} in {{type}}?', removeHint: 'Remove {{current}} from {{type}}?',
+    replaceRetention: 'The previous file is retained for traceability. Changes apply after saving.', onSave: 'Changes apply after saving.',
+    totals: '{{types}} dossier types · {{papers}} paper records · {{files}} electronic files', dirty: 'Unsaved changes',
+    workflowWarning: 'Save or discard dossier changes before running a workflow action.',
+    continueEditing: 'Keep editing', templateChanged: 'The configuration has changed. Refresh it to review the rows you have edited.',
+    typesRemoved: 'Some types no longer apply. Confirm discarding entries for those types before applying the new configuration.',
+    refresh: 'Refresh configuration', discardRemoved: 'Discard entries for removed types', refreshFailed: 'Could not refresh dossier configuration',
+    before: 'Before', after: 'After', yes: 'Yes', no: 'No',
+    activity: { UPLOAD: 'File uploaded', REPLACE: 'File replaced', REMOVE: 'File removed' },
+  },
   dossier: {
     configurations: 'Document dossier configuration', documentCode: 'Document type code', documentName: 'Document type',
     configuredCount: 'Dossier types', detail: 'Dossier — {{name}} ({{code}})', back: 'Document type list',
@@ -568,7 +600,7 @@ const en: typeof vi = {
     approveHint: 'Quota and stock are re-checked before approval.', cancelHint: 'A canceled document cannot be edited or resubmitted.',
     completeHint: 'A reason is required when less than the requested quantity was issued.',
     confirm: { submit: 'Submit document', approve: 'Approve document', reject: 'Reject document', recall: 'Recall document', cancel: 'Cancel document', complete: 'Confirm issue completed', reassign: 'Confirm reassignment' },
-    history: { EDIT: 'Edited', SUBMIT: 'Submitted', RESUBMIT: 'Resubmitted', RECEIVE: 'Received', CONFIRM: 'Confirmed by Sales', APPROVE: 'Approved', REJECT: 'Rejected', RECALL: 'Recalled', CANCEL: 'Canceled', COMPLETE: 'Issue completed', REASSIGN: 'Reassigned' },
+    history: { DOSSIER_UPDATE: 'Dossier updated', EDIT: 'Edited', SUBMIT: 'Submitted', RESUBMIT: 'Resubmitted', RECEIVE: 'Received', CONFIRM: 'Confirmed by Sales', APPROVE: 'Approved', REJECT: 'Rejected', RECALL: 'Recalled', CANCEL: 'Canceled', COMPLETE: 'Issue completed', REASSIGN: 'Reassigned' },
   },
   execution: { NOT_STARTED: 'Not started', IN_PROGRESS: 'In progress', COMPLETED: 'Completed' },
   category: { SALES_GOODS: 'Sales goods', MATERIAL: 'Materials' },

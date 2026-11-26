@@ -26,7 +26,7 @@ export function ScHeaderDialog({ edit, onClose, onSaved }: { edit?: Header; onCl
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['scs'] }); void qc.invalidateQueries({ queryKey: ['sc', r.id] }); onSaved(r.id); },
   });
   return (
-    <FormDialog title={edit ? t('sc.editHeaderTitle', { number: edit.documentNumber }) : t('sc.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'sc.create')}
+    <FormDialog title={edit ? t('sc.editHeaderTitle', { number: edit.documentNumber }) : t('sc.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'sc.create')} submitAction={edit ? 'save' : 'add'}
       error={save.error} pending={save.isPending} canSubmit={Boolean(customerId)} onSubmit={() => save.mutate()} onClose={onClose}
       dirty={customerId !== initial.customerId || sales !== initial.sales} description={edit ? undefined : t('sc.createHint')}>
       <TextField select label={t('sc.customer')} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required autoFocus

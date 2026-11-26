@@ -26,7 +26,7 @@ export function CreateGrrDialog({ onClose, onCreated, edit }: CreateProps) {
   });
   const approvedPos = (pos.data ?? []).filter((p) => p.approvalStatus === 'APPROVED');
   return (
-    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('grr.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'grr.create')} error={create.error ?? lines.error} pending={create.isPending}
+    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('grr.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'grr.create')} submitAction={edit ? 'save' : 'add'} error={create.error ?? lines.error} pending={create.isPending}
       canSubmit={Boolean(poId && warehouseId && picked.length && withinRemaining(lines.data, qty))} onSubmit={() => create.mutate()} onClose={onClose}>
       <EditHint edit={edit} hint={t('grr.createHint')} />
       <TextField select disabled={Boolean(edit)} label={t('gr.po')} value={poId} onChange={(e) => { setPoId(e.target.value); setQty({}); }} required

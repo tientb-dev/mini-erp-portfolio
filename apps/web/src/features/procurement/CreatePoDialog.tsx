@@ -21,7 +21,7 @@ export function CreatePoDialog({ onClose, onCreated, edit }: CreateProps) {
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['po'] }); void qc.invalidateQueries({ queryKey: ['pr-lines-for-po'] }); onCreated(r.id); },
   });
   return (
-    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('po.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'po.create')} error={create.error ?? lines.error} pending={create.isPending}
+    <FormDialog title={edit ? t('doc.editTitle', { number: edit.documentNumber }) : t('po.create')} submitLabel={t(edit ? 'doc.saveEdit' : 'po.create')} submitAction={edit ? 'save' : 'add'} error={create.error ?? lines.error} pending={create.isPending}
       canSubmit={Boolean(supplierId && picked.length && withinRemaining(lines.data, qty))} onSubmit={() => create.mutate()} onClose={onClose}>
       <EditHint edit={edit} hint={t('po.createHint')} />
       <TextField select label={t('po.supplier')} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required

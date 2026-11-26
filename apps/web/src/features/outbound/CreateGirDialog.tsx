@@ -57,7 +57,7 @@ export function CreateGirDialog({ onClose, onCreated }: { onClose: () => void; o
   });
   const allowedWarehouses = (warehouses.data ?? []).filter((w) => me.data?.warehouseIds.includes(w.id) && w.isActive !== false && (issueType !== 'AVAILABLE_STOCK' || w.allowAvailableStockIssue));
   return (
-    <FormDialog title={t('gir.create')} submitLabel={t('gir.create')} error={create.error} pending={create.isPending}
+    <FormDialog title={t('gir.create')} submitLabel={t('gir.create')} submitAction="add" error={create.error} pending={create.isPending}
       canSubmit={Boolean(scId && warehouseId && (isPr ? prChosen.length : source && (isD ? dChosen.length && purpose.trim() : chosen.length)))}
       onSubmit={() => create.mutate()} onClose={onClose}>
       <TextField select label={t('gir.type')} value={issueType} onChange={(e) => { setIssueType(e.target.value); setWarehouseId(''); }}>

@@ -2,7 +2,11 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { env } from '../../database/env';
-import { AuthController, IdentityService } from './auth';
+import { AccountSecurityService } from './account-security';
+import { AttemptLimiter } from './attempt-limiter';
+import { RoleAdminController, RoleAdminService } from './role-admin';
+import { MeController, MembershipAdminController, UserAdminController, UserAdminService } from './user-admin';
+import { AccountAdminController, AuthController, IdentityService } from './auth';
 import { Permission, Role, User } from './identity.entities';
 
 @Module({
@@ -10,8 +14,8 @@ import { Permission, Role, User } from './identity.entities';
     TypeOrmModule.forFeature([User, Role, Permission]),
     JwtModule.register({ secret: env('JWT_ACCESS_SECRET'), signOptions: { expiresIn: (process.env.JWT_ACCESS_TTL ?? '8h') as '8h' } }),
   ],
-  controllers: [AuthController],
-  providers: [IdentityService],
+  controllers: [AuthController, AccountAdminController, RoleAdminController, UserAdminController, MembershipAdminController, MeController],
+  providers: [IdentityService, AccountSecurityService, AttemptLimiter, RoleAdminService, UserAdminService],
   exports: [IdentityService, JwtModule],
 })
 export class IdentityModule {}

@@ -15,6 +15,8 @@ export const tokens = {
   surface: '#FFFFFF',
   surfaceAlt: '#F8FAFC',
   readOnlyInk: '#1E293B',
+  /** Text of read-only values (COMMON-READONLY-001); readonly is not disabled. */
+  readOnlyText: '#334155',
   readOnlyBorder: '#E2E8F0',
   gridHeader: '#E8EEF5',
   gridHeaderInk: '#334155',

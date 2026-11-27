@@ -1,3 +1,4 @@
+import { usersWithPermission } from '../identity/authorization';
 import { ForbiddenException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
@@ -117,26 +118,14 @@ export async function setStatus(m: EntityManager, type: DocType, doc: DocHeader,
   );
 }
 
+export { usersWithPermission };
+
 /** Users who may approve this document: permission + warehouse scope, never the creator (04 §3). */
 export function eligibleApprovers(m: EntityManager, type: DocType, creatorId: number, warehouseId?: number) {
   const { approvePermission, warehouseScoped } = DOC_TYPES[type];
   return usersWithPermission(m, approvePermission, creatorId, warehouseScoped ? warehouseId : undefined);
 }
 
-/** Active users holding `permission` (and the warehouse when given), excluding `excludeUserId`. */
-export function usersWithPermission(m: EntityManager, permission: string, excludeUserId: number, warehouseId?: number) {
-  return m.query(
-    `SELECT DISTINCT u.id, u.username, u.full_name AS "fullName"
-       FROM users u
-       JOIN user_roles ur ON ur.user_id = u.id
-       JOIN role_permissions rp ON rp.role_id = ur.role_id
-       JOIN permissions p ON p.id = rp.permission_id AND p.code = $1
-      WHERE u.is_active AND u.id <> $2
-        AND ($3::int IS NULL OR EXISTS (SELECT 1 FROM user_warehouses uw WHERE uw.user_id = u.id AND uw.warehouse_id = $3))
-      ORDER BY u.username`,
-    [permission, excludeUserId, warehouseId ?? null],
-  ) as Promise<{ id: number; username: string; fullName: string }[]>;
-}
 
 /** DRAFT/REJECTED → WAITING_FOR_APPROVE with an assigned approver (P3: data-level authorization). */
 export async function submit(m: EntityManager, type: DocType, doc: DocHeader, user: CurrentUser, approverId: number) {

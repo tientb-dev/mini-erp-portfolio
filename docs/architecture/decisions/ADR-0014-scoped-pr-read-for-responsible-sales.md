@@ -1,6 +1,6 @@
 # ADR-0014: Sales phụ trách xem PR của HĐ mình phụ trách (chỉ xem)
 
-- **Trạng thái:** Đã chốt (người dùng duyệt 2026-11-15, PR #17).
+- **Trạng thái:** Đã chốt (người dùng duyệt 2026-11-15, PR #17). **Sẽ bị thay thế bởi [ADR-0018](ADR-0018-organization-authorization.md) tại OA3:** đọc PR cần `PR.VIEW` scope `RESPONSIBLE`, không đọc ngầm qua `SALES_CONTRACT.VIEW`.
 - **Sửa đổi:** 04-PERMISSIONS §2 (dòng Sales). Không đổi ADR-0006 (permission `FUNCTION.ACTION` + business rule riêng).
 
 ## Bối cảnh

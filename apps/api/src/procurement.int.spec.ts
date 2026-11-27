@@ -275,6 +275,10 @@ describe('Sales contracts and procurement documents (integration)', () => {
     const runner = ds.createQueryRunner();
     await runner.startTransaction();
     try {
+      // Replaying this older migration predates the USER activity target (OA1.2): hide those rows inside the rolled-back transaction.
+      await runner.query(`ALTER TABLE approval_histories DISABLE TRIGGER protect_document_activity_rows;
+        DELETE FROM approval_histories WHERE document_type = 'USER';
+        ALTER TABLE approval_histories ENABLE TRIGGER protect_document_activity_rows`);
       const migration = new CommonDocumentRecords1732492800000();
       await migration.down(runner);
       await runner.query(`INSERT INTO pr_notes (id, pr_id, author_id, body, created_at)
@@ -594,14 +598,15 @@ describe('Sales contracts and procurement documents (integration)', () => {
       await http().patch(`/pr-notifications/${oldTask.id}/read`).set(as(head)).expect(204);
       await get(head, path).expect(403);
 
-      // PR.CONFIGURE alone does not grant reassignment. The same actor with PR.REASSIGN and PR.VIEW can reassign.
-      await ds.query(`DELETE FROM role_permissions rp USING roles r, permissions p
-        WHERE rp.role_id = r.id AND rp.permission_id = p.id AND r.code = 'ADMIN' AND p.code = 'PR.REASSIGN'`);
+      // Reading the PR does not grant reassignment. The same actor with PR.REASSIGN can reassign.
+      // ADMIN grants are protected (ADR-0018), so the actor temporarily holds a PR.VIEW-only role instead of ADMIN.
+      const [{ id: viewerRole }] = await ds.query(`INSERT INTO roles (code, name) VALUES ('PR_VIEW_ONLY', 'PR view only') RETURNING id`);
+      await ds.query(`INSERT INTO role_permissions (role_id, permission_id) SELECT $1, id FROM permissions WHERE code = 'PR.VIEW'`, [viewerRole]);
+      await ds.query(`UPDATE user_roles SET role_id = $2 WHERE user_id = $1 AND role_id = (SELECT id FROM roles WHERE code = 'ADMIN')`, [approverId, viewerRole]);
       try {
         expect((await reassign(approver, headId)).status).toBe(403);
       } finally {
-        await ds.query(`INSERT INTO role_permissions (role_id, permission_id)
-          SELECT r.id, p.id FROM roles r CROSS JOIN permissions p WHERE r.code = 'ADMIN' AND p.code = 'PR.REASSIGN'`);
+        await ds.query(`UPDATE user_roles SET role_id = (SELECT id FROM roles WHERE code = 'ADMIN') WHERE user_id = $1 AND role_id = $2`, [approverId, viewerRole]);
       }
       expect((await reassign(approver, headId)).status).toBe(204);
       await post(head, `${path}/approve`, await prContext(ds, id)).expect(204);
@@ -740,5 +745,127 @@ describe('Sales contracts and procurement documents (integration)', () => {
     expect((await get(warehouse, '/goods-receipt-requests').expect(200)).body.some((r: { id: number }) => r.id === grr)).toBe(true);
     await post(approver, `/goods-receipt-requests/${grr}/reject`, { reason: 'Thiếu chứng từ' }).expect(204);
     expect((await get(admin, `/goods-receipt-requests/${grr}`)).body.approvalStatus).toBe('REJECTED');
+  });
+  it('OA1.1: an HTTP PR approval racing a role deactivation or grant revoke follows the committed grant', async () => {
+    const head = await login(app, 'sales-head', 'role-users-test');
+    const submitted = async () => {
+      const { sc, lineId } = await activeContract();
+      const { id } = (await post(admin, '/purchase-requisitions', {
+        salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }],
+      }).expect(201)).body;
+      await post(admin, `/purchase-requisitions/${id}/submit`, await prSubmission(ds, id)).expect(204);
+      return id as number;
+    };
+    const state = async (id: number) => (await ds.query(`SELECT p.approval_status AS status, p.version,
+        (SELECT count(*)::int FROM approval_histories h WHERE h.document_type = 'PR' AND h.document_id = p.id AND h.action = 'APPROVE') AS approvals,
+        (SELECT count(*)::int FROM pr_notifications n WHERE n.pr_id = p.id AND n.action = 'REQUEST_RECEIPT') AS "receiptTasks"
+      FROM purchase_requisitions p WHERE p.id = $1`, [id]))[0];
+    const cases: [string, string, boolean][] = [
+      [`UPDATE roles SET is_active = false WHERE code = 'SALES_HEAD'`, `UPDATE roles SET is_active = true WHERE code = 'SALES_HEAD'`, true],
+      [`DELETE FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE code = 'SALES_HEAD')
+          AND permission_id = (SELECT id FROM permissions WHERE code = 'PR.APPROVE')`,
+       `INSERT INTO role_permissions (role_id, permission_id) SELECT r.id, p.id FROM roles r, permissions p
+          WHERE r.code = 'SALES_HEAD' AND p.code = 'PR.APPROVE' ON CONFLICT DO NOTHING`, true],
+      [`UPDATE roles SET is_active = false WHERE code = 'SALES_HEAD'`, `UPDATE roles SET is_active = true WHERE code = 'SALES_HEAD'`, false],
+    ];
+    for (const [revoke, restore, commit] of cases) {
+      const id = await submitted();
+      const before = await state(id);
+      const revoker = ds.createQueryRunner();
+      await revoker.connect();
+      await revoker.startTransaction();
+      try {
+        await revoker.query(revoke);
+        // The guard still sees the committed grant; the live check inside the action transaction must wait on the lock.
+        const approve = post(head, `/purchase-requisitions/${id}/approve`, await prContext(ds, id)).then(res => res.status);
+        let waiting = 0;
+        for (let i = 0; i < 50 && !waiting; i++) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+          [{ waiting }] = await ds.query(`SELECT count(*)::int AS waiting FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event_type = 'Lock'`);
+        }
+        expect(waiting).toBeGreaterThan(0);
+        await (commit ? revoker.commitTransaction() : revoker.rollbackTransaction());
+        if (commit) {
+          expect(await approve).toBe(403);
+          expect(await state(id)).toEqual(before);
+        } else {
+          expect(await approve).toBe(204);
+          expect(await state(id)).toMatchObject({ status: 'WAITING_FOR_RECEIPT', approvals: before.approvals + 1, receiptTasks: before.receiptTasks + 1 });
+        }
+      } finally {
+        if (revoker.isTransactionActive) await revoker.rollbackTransaction();
+        await revoker.release();
+        await ds.query(restore);
+      }
+    }
+  });
+  it('OA1.3: role administration racing PR approval and account security never deadlocks or commits a revoked action', async () => {
+    const head = await login(app, 'sales-head', 'role-users-test');
+    const roleOf = async (code: string) => {
+      const [{ id }] = await ds.query('SELECT id FROM roles WHERE code = $1', [code]);
+      return (await get(admin, `/admin/roles/${id}`).expect(200)).body;
+    };
+    const editable = (r: { name: string; description: string | null; permissions: string[]; users: { id: number }[]; version: number }) =>
+      ({ name: r.name, description: r.description, permissions: r.permissions, userIds: r.users.map(u => u.id), version: r.version });
+    const submitted = async () => {
+      const { sc, lineId } = await activeContract();
+      const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body;
+      await post(admin, `/purchase-requisitions/${id}/submit`, await prSubmission(ds, id)).expect(204);
+      return id as number;
+    };
+    const state = async (id: number) => (await ds.query(`SELECT p.approval_status AS status,
+        (SELECT count(*)::int FROM approval_histories h WHERE h.document_type = 'PR' AND h.document_id = p.id AND h.action = 'APPROVE') AS approvals
+      FROM purchase_requisitions p WHERE p.id = $1`, [id]))[0];
+    const restore = async () => {
+      const role = await roleOf('SALES_HEAD');
+      if (!role.isActive) await http().patch(`/admin/roles/${role.id}/status`).set(as(admin)).send({ isActive: true, version: role.version }).expect(204);
+      const fresh = await roleOf('SALES_HEAD');
+      if (!fresh.permissions.includes('PR.APPROVE')) await http().put(`/admin/roles/${fresh.id}`).set(as(admin)).send({ ...editable(fresh), permissions: [...fresh.permissions, 'PR.APPROVE'] }).expect(204);
+    };
+    try {
+      for (const revoke of ['status', 'permission'] as const) for (let round = 0; round < 3; round++) {
+        const id = await submitted();
+        const role = await roleOf('SALES_HEAD');
+        const change = revoke === 'status'
+          ? http().patch(`/admin/roles/${role.id}/status`).set(as(admin)).send({ isActive: false, version: role.version })
+          : http().put(`/admin/roles/${role.id}`).set(as(admin)).send({ ...editable(role), permissions: role.permissions.filter((p: string) => p !== 'PR.APPROVE') });
+        const [approve, admin_] = await Promise.all([post(head, `/purchase-requisitions/${id}/approve`, await prContext(ds, id)), change]);
+        expect(admin_.status).toBe(204);
+        const after = await state(id);
+        // Either the approval committed before the revoke, or it was refused after it; never a 500 (deadlock) or a half state.
+        if (approve.status === 204) expect(after).toMatchObject({ status: 'WAITING_FOR_RECEIPT', approvals: 1 });
+        else expect([approve.status, after]).toEqual([403, { status: 'WAITING_FOR_APPROVE', approvals: 0 }]);
+        await restore();
+      }
+
+      // Membership change racing disable and reset of the same account.
+      const managedRole = await roleOf('PM_HEAD');
+      const [{ id: target }] = await ds.query(`SELECT id FROM users WHERE username = 'pm-head'`);
+      for (const op of ['disable', 'reset'] as const) {
+        const role = await roleOf('PM_HEAD');
+        const [{ version }] = await ds.query('SELECT version FROM users WHERE id = $1', [target]);
+        const [membership, account] = await Promise.all([
+          http().put(`/admin/roles/${role.id}`).set(as(admin)).send({ ...editable(role), userIds: role.users.map((u: { id: number }) => u.id).filter((u: number) => u !== target) }),
+          op === 'disable'
+            ? http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: false, version })
+            : http().post(`/admin/users/${target}/reset-password`).set(as(admin)).send({ temporaryPassword: 'role-users-test', version }),
+        ]);
+        // Both serialize without deadlock; the role save moves the user version (OA2.3b), so the account call may lose with 409.
+        expect(membership.status).toBe(204);
+        expect([204, 409]).toContain(account.status);
+        const back = await roleOf('PM_HEAD');
+        await http().put(`/admin/roles/${back.id}`).set(as(admin)).send({ ...editable(back), userIds: [...back.users.map((u: { id: number }) => u.id), target] }).expect(204);
+        if (op === 'disable') {
+          const [{ version: now }] = await ds.query('SELECT version FROM users WHERE id = $1', [target]);
+          await http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: true, version: now }).expect(204);
+        }
+      }
+      await ds.query(`UPDATE users SET must_change_password = false WHERE username = 'pm-head'`);
+      expect((await roleOf('PM_HEAD')).users.map((u: { id: number }) => u.id)).toContain(target);
+      expect(managedRole.code).toBe('PM_HEAD');
+    } finally {
+      await restore();
+    }
   });
 });

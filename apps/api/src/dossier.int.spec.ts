@@ -46,9 +46,15 @@ describe('Common dossier foundation (PostgreSQL)', () => {
     const list = (await http().get(configurations).auth(admin, { type: 'bearer' }).expect(200)).body;
     expect(list).toHaveLength(7);
     expect(list.every((entry: {count: number}) => entry.count === 0)).toBe(true);
-    await db.query(`INSERT INTO role_permissions (role_id, permission_id)
-      SELECT r.id, p.id FROM roles r CROSS JOIN permissions p WHERE r.code = 'SALES' AND p.code = 'DOSSIER_CONFIG.MANAGE'`);
-    await http().get(configurations + '/catalog').auth(sales, { type: 'bearer' }).expect(200);
+    // DOSSIER_CONFIG.MANAGE is admin-only (BA-N-02): a business role cannot receive it.
+    await expect(db.query(`INSERT INTO role_permissions (role_id, permission_id)
+      SELECT r.id, p.id FROM roles r CROSS JOIN permissions p WHERE r.code = 'SALES' AND p.code = 'DOSSIER_CONFIG.MANAGE'`))
+      .rejects.toThrow('Admin-only permission requires the system role');
+    // HTTP authorization stays covered: ADMIN holds the key, a business role without it gets 403 on every endpoint.
+    await http().get(configurations + '/catalog').auth(admin, { type: 'bearer' }).expect(200);
+    await http().get(configurations + '/catalog').auth(sales, { type: 'bearer' }).expect(403);
+    await http().get(configurations).auth(sales, { type: 'bearer' }).expect(403);
+    await http().put(configurations + '/PO').auth(sales, { type: 'bearer' }).send({ version: 0, dossierTypeIds: [] }).expect(403);
     await http().get(types).auth(sales, { type: 'bearer' }).expect(403);
   });
 

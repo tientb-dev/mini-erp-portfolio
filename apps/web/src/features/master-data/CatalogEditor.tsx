@@ -207,10 +207,11 @@ export function CatalogEditor({ catalog, entry, copySource, initiallyEditing, cl
     { label: entry ? entryCode(entry) : editorTitle }]} />;
   return <>
     <DetailPageLayout title={editorTitle} breadcrumbs={crumbs} onBack={maybeCancel} backLabel={t('common.back')} naturalFlow error={error}
-      actions={!editing && canEdit && <ActionButton action="edit" onClick={submit}>{t('master.editAction')}</ActionButton>}
-      footer={editing && <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+      footer={editing ? <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
         <ActionButton action="cancel" disabled={pending} onClick={maybeCancel}>{t('common.cancel')}</ActionButton>
         <ActionButton action="save" type="submit" form={formId} disabled={pending || !submitReady}>{action}</ActionButton>
+      </Stack> : canEdit && <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+        <ActionButton action="edit" onClick={submit}>{t('master.editAction')}</ActionButton>
       </Stack>}>
       <Stack id={formId} component="form" spacing={2} onSubmit={event => { event.preventDefault(); if (submitReady && !pending) submit(); }}>
         <Paper variant="outlined" sx={{ p: 2 }}>

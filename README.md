@@ -45,6 +45,8 @@ pnpm dev:web                  # http://localhost:5180 — sign in with SEED_ADMI
 pnpm test                     # API: Jest (unit + integration on mini_erp_test), Web: Vitest
 ```
 
+`pnpm seed:demo` needs the PR candidate pools configured first: with an account holding `PR.CONFIGURE`, set the `SALES` route to a user with `PR.APPROVE` and the `RECEIPT` route to a user with `PR.RECEIVE` (`PUT /pr-workflow/routes/SALES` and `/RECEIPT`, body `{ "userIds": [id] }`). Without them the script stops with "Configure the SALES and RECEIPT candidate pools". It never relaxes data rules or creates the pools itself.
+
 ## Repository layout
 ```
 apps/api             NestJS API (TypeORM, migrations in src/database/migrations)

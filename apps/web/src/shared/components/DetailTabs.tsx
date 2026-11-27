@@ -30,7 +30,8 @@ export function DetailTabs({ tabs, value, onChange, below }: {
           id={`${id}-tab-${x.key}`} aria-controls={`${id}-panel-${x.key}`} />)}
       </Tabs>
       <Stack role="tabpanel" id={`${id}-panel-${active.key}`} aria-labelledby={`${id}-tab-${active.key}`} spacing={1.5}
-        sx={{ p: 2, [fillMedia]: { flex: '0 1 auto', minHeight: 0, '& > :not([data-fill-grow])': { flexShrink: 0 } } }}>
+        // On fill pages the panel is the content scroller: header, tabs and footer stay reachable however long the content.
+        sx={{ p: 2, [fillMedia]: { flex: '0 1 auto', minHeight: 0, overflowY: 'auto', '& > :not([data-fill-grow])': { flexShrink: 0 } } }}>
         {active.content}
       </Stack>
       {below}

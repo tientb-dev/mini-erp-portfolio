@@ -10,6 +10,7 @@ import { InboundModule } from './modules/inbound/inbound.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { MasterDataModule } from './modules/master-data/master-data.module';
 import { OutboundModule } from './modules/outbound/outbound.module';
+import { OrganizationModule } from './modules/organization/organization.module';
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { SalesContractsModule } from './modules/sales-contracts/sales-contracts.module';
 
@@ -19,6 +20,7 @@ import { SalesContractsModule } from './modules/sales-contracts/sales-contracts.
   imports: [
     TypeOrmModule.forRoot(dataSourceOptions()),
     IdentityModule,
+    OrganizationModule,
     DossierModule,
     MasterDataModule,
     InventoryModule,

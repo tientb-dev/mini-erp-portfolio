@@ -227,33 +227,39 @@ describe('Sales contract design rules (PR #17)', () => {
     }
   });
 
-  it('the footer holds Hủy (outlined, red) and Chốt (contained) side by side for a draft', async () => {
+  it('the footer holds Hủy (outlined, red), Sửa thông tin and Chốt (contained, last) for a draft; the header has no actions', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('DRAFT'), ...common });
     renderAt('/sales-contracts/4');
     const bar = await screen.findByRole('region', { name: 'Thao tác quyết định' });
-    expect(within(bar).getAllByRole('button').map((b) => b.textContent)).toEqual(['Hủy hợp đồng', 'Chốt hợp đồng']);
+    const names = within(bar).getAllByRole('button').map((b) => b.textContent);
+    expect(names[0]).toBe('Hủy hợp đồng');
+    expect(names.at(-1)).toBe('Chốt hợp đồng');
+    expect(names).toHaveLength(3);
     expect(within(bar).getByRole('button', { name: 'Hủy hợp đồng' }).className).toMatch(/MuiButton-outlined .*MuiButton-colorError/);
     expect(screen.getAllByRole('button', { name: 'Hủy hợp đồng' })).toHaveLength(1); // not repeated in the header
   });
 
-  it('"Xóa bộ lọc" is always shown, disabled without filters; clearing keeps sort and page size, goes to page 1; Back re-enables it', async () => {
+  it('"Làm mới" resets keyword, filters, sort and page, keeps the page size and queries again; Back restores the filters', async () => {
     mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [row(4, 'DRAFT')], total: 1 }, ...common });
     function Back() { const nav = useNavigate(); return <button onClick={() => nav(-1)}>history-back</button>; }
     wrap(<><Routes><Route path="/sales-contracts" element={<SalesContractsPage />} /></Routes><Where /><Back /></>,
       '/sales-contracts?q=cust&status=DRAFT&customerId=8&sort=documentNumber&order=asc&pageSize=50&page=2');
-    const clear = await screen.findByRole('button', { name: 'Xóa bộ lọc' }) as HTMLButtonElement;
-    expect(clear.disabled).toBe(false);
+    const refresh = await screen.findByRole('button', { name: 'Làm mới' }) as HTMLButtonElement;
+    expect(screen.queryByRole('button', { name: 'Xóa bộ lọc' })).toBeNull();
     expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('cust');
-    fireEvent.click(clear);
-    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?sort=documentNumber&order=asc&pageSize=50'));
-    expect(clear.disabled).toBe(true);
+    // Disabled only while a refresh (or the first load) runs.
+    await waitFor(() => expect(refresh.disabled).toBe(false));
+    const before = fetched().length;
+    fireEvent.click(refresh);
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?pageSize=50'));
     expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('');
-    await waitFor(() => expect(fetched().at(-1)).toContain('sort=documentNumber&order=asc&pageSize=50&page=1'));
+    await waitFor(() => expect(fetched().length).toBeGreaterThan(before));
+    await waitFor(() => expect(fetched().at(-1)).toContain('pageSize=50&page=1'));
     await new Promise((r) => setTimeout(r, 500)); // past the search debounce: it must not bring the cleared filters back
-    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?sort=documentNumber&order=asc&pageSize=50');
+    expect(screen.getByTestId('where').textContent).toBe('/sales-contracts?pageSize=50');
+    expect((screen.getByRole('button', { name: 'Làm mới' }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByText('history-back'));
-    await waitFor(() => expect(clear.disabled).toBe(false));
-    expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('cust');
+    await waitFor(() => expect((screen.getByRole('textbox', { name: 'Tìm kiếm' }) as HTMLInputElement).value).toBe('cust'));
     expect(screen.getByTestId('where').textContent).toContain('q=cust&status=DRAFT');
   });
 

@@ -27,4 +27,4 @@ Phase 4.1 cung cấp catalog, cấu hình, hàm snapshot cho transaction của m
 
 - Cơ cấu tổ chức theo cây. Employee và User dùng chung hồ sơ người dùng. Một User có thể thuộc nhiều bộ phận.
 - Quản lý chức danh và quản lý trực tiếp qua cấu hình.
-- Organization và Authorization độc lập. Cây tổ chức không cấp hoặc kế thừa quyền. Quyền và phân công được cấu hình trong cơ chế Authorization hiện có.
+- Organization và Authorization độc lập. Cây tổ chức không cấp hoặc kế thừa quyền. Quyền và phân công được cấu hình trong cơ chế Authorization hiện có. Đơn vị chỉ có hiệu lực khi Admin gán scope theo đơn vị cho một cặp Role–Permission. Đặc tả chi tiết: [ORGANIZATION-AUTHORIZATION.md](ORGANIZATION-AUTHORIZATION.md), [ADR-0018](decisions/ADR-0018-organization-authorization.md).

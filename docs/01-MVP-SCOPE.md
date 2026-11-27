@@ -31,7 +31,7 @@ Quản lý hợp đồng bán hàng (HĐ) ở mức danh mục đơn giản; yê
 9. Chống vượt số lượng, xuất âm kho, nhập trùng SN và tranh chấp đồng thời.
 
 ## 4. Ngoài phạm vi MVP
-Quy trình duyệt HĐ; phụ lục/điều chỉnh/versioning HĐ; điều chỉnh PO; quy đổi UoM; đánh số lại chứng từ; hệ thống quản lý tài liệu; phân quyền chi nhánh/phòng ban; kế toán, công nợ, thanh toán; chuyển kho; tồn theo vị trí; quy trình bảo hành/đổi trả; báo cáo phân tích/dashboard riêng; tích hợp hệ thống ngoài.
+Quy trình duyệt HĐ; phụ lục/điều chỉnh/versioning HĐ; điều chỉnh PO; quy đổi UoM; đánh số lại chứng từ; hệ thống quản lý tài liệu; phân quyền theo chi nhánh như một chiều riêng (phạm vi theo đơn vị tổ chức là Data Scope cấu hình được, xem [ADR-0018](architecture/decisions/ADR-0018-organization-authorization.md)); kế toán, công nợ, thanh toán; chuyển kho; tồn theo vị trí; quy trình bảo hành/đổi trả; báo cáo phân tích/dashboard riêng; tích hợp hệ thống ngoài.
 
 ## 5. Quan hệ nền tảng
 - **Một HĐ có nhiều PR; một PR thuộc đúng một HĐ.**

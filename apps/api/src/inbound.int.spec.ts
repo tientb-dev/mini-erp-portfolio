@@ -215,7 +215,7 @@ describe('Inbound chain and GR (integration)', () => {
 
     // An approver without warehouse HCM is not eligible.
     const { hashPassword } = await import('./modules/identity/password');
-    const [{ id: outsiderId }] = await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ('outsider', $1, 'Outsider') RETURNING id`, [await hashPassword('pw-outsider')]);
+    const [{ id: outsiderId }] = await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ('outsider', 'outsider', $1, 'Outsider') RETURNING id`, [await hashPassword('pw-outsider')]);
     await ds.query(`INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = 'ADMIN'`, [outsiderId]);
     expect((await post(creator, `/goods-receipts/${gr}/submit`, { approverId: outsiderId })).body.code).toBe('APPROVER_NOT_ELIGIBLE');
 
@@ -376,7 +376,7 @@ describe('Inbound chain and GR (integration)', () => {
 
     // A user without INVENTORY.VIEW gets 403, not an empty list.
     const { hashPassword } = await import('./modules/identity/password');
-    await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ('noinv', $1, 'No inventory')`, [await hashPassword('pw-noinv')]);
+    await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ('noinv', 'noinv', $1, 'No inventory')`, [await hashPassword('pw-noinv')]);
     const noInv = await login(app, 'noinv', 'pw-noinv');
     await http().get('/inventories/lots').set(as(noInv)).expect(403);
   });

@@ -146,7 +146,6 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
     : null;
   const actions = (
     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1, justifyContent: 'flex-end' }}>
-      {!isPr && <Button onClick={onBack}>{t('gr.back')}</Button>}
       {cancel}
       {canManage && (waiting || (!isPr && completed)) && <ActionButton action="refresh" onClick={() => openAction('recall')}>{t('doc.recall')}</ActionButton>}
       {!isPr && canManage && editable && <ActionButton action="edit" variant="outlined" onClick={() => setEditing(true)}>{t('doc.edit')}</ActionButton>}
@@ -159,11 +158,11 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
       <DetailPageLayout
         title={t(creating ? 'pr.createTitle' : `${cfg.key}.title`)} documentNumber={d.documentNumber}
         subtitle={isPr ? String(d.purpose || d.customerName || '') : undefined}
-        onBack={isPr ? editor?.onBack ?? onBack : undefined} backLabel={t('pr.backToList')}
+        onBack={isPr ? editor?.onBack ?? onBack : onBack} backLabel={t(isPr ? 'pr.backToList' : 'gr.back')}
         naturalFlow={isPr}
-        status={isPr && !creating ? <ApprovalStatusChip status={status} prominent /> : undefined} actions={isPr ? undefined : actions}
+        status={isPr && !creating ? <ApprovalStatusChip status={status} prominent /> : undefined}
         footer={editor ? <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>{cancel}{editor.footer}</Stack>
-          : isPr && (isApprover || cancel || (canManage && waiting)) ? actions : undefined}
+          : (isApprover || cancel || (canManage && waiting) || (!isPr && canManage && (editable || completed))) ? actions : undefined}
         notice={!isPr && waiting && !isApprover && t('doc.waitingFor', { name: d.assignedApproverName })}
       >
         {isPr && <DocumentWorkflowStepper steps={steps} caption={latestRound ? t('pr.round', { round: latestRound }) : undefined} />}

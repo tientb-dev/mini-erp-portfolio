@@ -63,7 +63,7 @@ function ScListView() {
     return () => clearTimeout(h);
   }, [text]); // debounced on typing only
   const appliedQ = params.get('q') ?? '';
-  // Back/Forward (or "Xóa bộ lọc") change the URL: the search box follows it.
+  // Back/Forward (or "Làm mới") change the URL: the search box follows it.
   useEffect(() => { if (appliedQ !== text.trim()) setText(appliedQ); }, [appliedQ]);
 
   const query = new URLSearchParams(params);
@@ -120,7 +120,7 @@ function ScListView() {
   };
 
   const toolbar = (
-    <ScListFilters text={text} onText={setText} params={params} update={update}
+    <ScListFilters text={text} onText={setText} params={params} update={update} onRefresh={() => void list.refetch()} refreshing={list.isFetching}
       salesOptions={salesUsers.data?.map((u) => ({ value: String(u.id), label: u.fullName }))}
       customerOptions={customers.data?.map((c) => ({ value: String(c.id), label: `${c.code}: ${c.name}` }))} />
   );

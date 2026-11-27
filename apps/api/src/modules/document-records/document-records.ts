@@ -2,6 +2,8 @@ import { EntityManager } from 'typeorm';
 
 export const DOCUMENT_TARGETS = ['PR', 'PO', 'GRR', 'GIR', 'GR', 'GI', 'SALES_CONTRACT'] as const;
 export type DocumentTarget = typeof DOCUMENT_TARGETS[number];
+/** Activity History targets: documents plus administration targets (USER security events, ROLE changes). */
+export type ActivityTarget = DocumentTarget | 'USER' | 'ROLE' | 'JOB_TITLE' | 'ORG_UNIT';
 export const DOCUMENT_PAGE_SIZE = 25;
 
 export interface ActivityDetails {
@@ -17,7 +19,8 @@ export function insertNote(m: EntityManager, type: DocumentTarget, id: number, a
     [type, id, authorId, body]);
 }
 
-export function appendActivity(m: EntityManager, type: DocumentTarget, id: number, action: string, actorId: number,
+/** `USER` and `ROLE` are administration targets (OA1.2, OA1.3); they are not document targets for notes or dossiers. */
+export function appendActivity(m: EntityManager, type: ActivityTarget, id: number, action: string, actorId: number,
   reason?: string, details: ActivityDetails = {}) {
   return m.query(`INSERT INTO approval_histories
     (document_type, document_id, action, actor_id, reason, previous_status, next_status, approval_round, metadata)
@@ -42,7 +45,7 @@ export async function latestRoundActivity(m: EntityManager, type: DocumentTarget
   return entry ?? null;
 }
 
-export async function documentPage(m: EntityManager, type: DocumentTarget, id: number, kind: 'notes' | 'history', before?: number) {
+export async function documentPage(m: EntityManager, type: ActivityTarget, id: number, kind: 'notes' | 'history', before?: number) {
   const rows: { id: number }[] = await m.query(kind === 'notes'
     ? `SELECT n.id, n.body, n.created_at AS "createdAt", u.full_name AS "authorName"
        FROM document_notes n JOIN users u ON u.id = n.author_id

@@ -7,6 +7,7 @@ CM1–CM6 và CT1, CT2, CT9 (ADR-0012) đã chốt nghiệp vụ — xem §4 (k�
 
 | # | Loại | Câu hỏi | Hiện trạng code |
 |---|---|---|---|
+| OA | Nghiệp vụ/Kỹ thuật | Organization & Authorization: Q-01…Q-16 và N-01…N-15 đã đóng; kiến trúc Accepted (ADR-0018). Việc kiểm chứng chuyển phase: [đặc tả §14](ORGANIZATION-AUTHORIZATION.md#14-câu-hỏi-đã-đóng-và-việc-chuyển-phase) | Chưa triển khai (bắt đầu OA1) |
 | CT4 | Kỹ thuật | Mô hình tồn có nguồn gốc: **đề xuất** lô theo dòng GR (`inventory_lots`) + `inventories` làm tổng + phân bổ GI theo lô — ADR-0013 §3, **chờ review**. | Không có chiều nguồn |
 
 ## 2. Ghi chú (không phải mâu thuẫn)

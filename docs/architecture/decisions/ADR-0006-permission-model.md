@@ -2,6 +2,7 @@
 
 - **Trạng thái:** Đã chấp nhận — 2026-11-12
 - **Thay thế:** đề xuất grant (permission, document type, warehouse) trong bản ban đầu
+- **Một phần được thay thế bởi:** [ADR-0018](ADR-0018-organization-authorization.md) (chấp nhận 2026-11-27): Data Scope cấu hình theo Role–Permission thay cho VIEW toàn cục; phạm vi theo đơn vị tổ chức thay cho "không phân quyền phòng ban". Mô hình Function–Action, `user_warehouses` và việc không xây authorization engine vẫn giữ.
 
 ## Quyết định
 - **User → Role → Permission**, permission dạng `FUNCTION.ACTION` (vd. `PR.CREATE`, `PO.APPROVE`, `GR.DECLARE_DETAILS`, `GI.APPROVE`, `INVENTORY.VIEW`, `SN_HISTORY.VIEW`).

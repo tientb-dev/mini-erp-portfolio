@@ -24,12 +24,15 @@ export function pickerSelectionColumn<R extends GridValidRowModel>(
   onChange: (rows: R[], checked: boolean) => void,
   getLabel: (row: R) => string | undefined,
   disabled = false,
+  /** Rows that cannot be picked (e.g. already assigned): shown checked and locked, skipped by the page checkbox. */
+  isLocked?: (row: R) => boolean,
 ): GridColDef<R> {
   return {
     field: 'selection', headerName: '', width: 54, sortable: false, filterable: false, resizable: false,
     align: 'center', headerAlign: 'center', cellClassName: 'common-picker-check',
-    renderHeader: () => <PickerPageCheckbox isSelected={isSelected} onChange={onChange} disabled={disabled} />,
-    renderCell: ({ row, tabIndex }) => <Checkbox size="small" checked={isSelected(row)} disabled={disabled}
+    renderHeader: () => <PickerPageCheckbox<R> isSelected={row => isSelected(row) || Boolean(isLocked?.(row))}
+      onChange={(rows, checked) => onChange(rows.filter(row => !isLocked?.(row)), checked)} disabled={disabled} />,
+    renderCell: ({ row, tabIndex }) => <Checkbox size="small" checked={isSelected(row) || Boolean(isLocked?.(row))} disabled={disabled || Boolean(isLocked?.(row))}
       slotProps={{ input: { 'aria-label': getLabel(row), tabIndex } }}
       onChange={event => onChange([row], event.target.checked)} />,
   };

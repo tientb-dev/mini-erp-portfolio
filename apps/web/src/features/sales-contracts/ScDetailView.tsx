@@ -66,6 +66,7 @@ export function ScDetailView({ id }: { id: number }) {
       )}
       <Stack direction="row" spacing={1} sx={{ flexShrink: 0, justifyContent: 'flex-end', '& > *': { flex: { xs: 1, sm: 'none' } } }}>
         <Button variant="outlined" color="error" onClick={() => setDialog({ kind: 'cancel' })}>{t('sc.cancel')}</Button>
+        {actions}
         {draft && <Button variant="contained" disabled={Boolean(blocker)} onClick={() => setDialog({ kind: 'activate' })}>{t('sc.activate')}</Button>}
       </Stack>
     </Stack>
@@ -75,7 +76,7 @@ export function ScDetailView({ id }: { id: number }) {
   return (
     <DetailPageLayout title={d?.documentNumber ?? t('sc.title')} loading={!d || !me.data} error={sc.error ?? me.error}
       status={d && <ScStatusChip status={d.status} />} subtitle={t('sc.title')}
-      breadcrumbs={breadcrumbs} backTo={listUrl()} actions={actions} footer={footer}>
+      breadcrumbs={breadcrumbs} backTo={listUrl()} footer={footer}>
       {d && (
         <>
           <Paper sx={{ p: { xs: 2, md: 2.5 } }}>

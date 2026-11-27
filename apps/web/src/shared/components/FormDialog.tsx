@@ -19,6 +19,7 @@ export function FormDialog(props: {
   footerAside?: ReactNode;
   compact?: boolean;
   pageGuardsNavigation?: boolean;
+  /** Paper width in px for a compact form; still capped by the viewport on small screens. */ width?: number;
 }) {
   const { t } = useTranslation();
   const [asking, setAsking] = useState(false);
@@ -44,7 +45,7 @@ export function FormDialog(props: {
   };
   return (
     <>
-      <Dialog open onClose={requestClose} aria-labelledby={titleId} fullWidth maxWidth="sm" slotProps={{ paper: { component: 'form', onSubmit: submit } }}>
+      <Dialog open onClose={requestClose} aria-labelledby={titleId} fullWidth maxWidth="sm" slotProps={{ paper: { component: 'form', onSubmit: submit, ...(props.width ? { sx: { maxWidth: props.width } } : {}) } }}>
         <DialogHeading id={titleId} onClose={requestClose} disabled={props.pending}>{props.title}</DialogHeading>
         <DialogContent data-compact={props.compact ? '' : undefined}>
           <Stack spacing={2}>

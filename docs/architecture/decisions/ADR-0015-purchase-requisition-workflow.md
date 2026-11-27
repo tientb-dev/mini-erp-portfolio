@@ -1,5 +1,7 @@
 # ADR-0015 — Phê duyệt và tiếp nhận Đề nghị mua hàng
 
+> **Sửa đổi bởi [ADR-0018](ADR-0018-organization-authorization.md)** (đã chấp nhận): pool chuyển sang nhóm ứng viên Role + User (OA4); bỏ đọc PR ngầm theo `PR.CREATE/APPROVE/RECEIVE` (OA3). Quy tắc workflow và Reassign giữ nguyên.
+
 - **Trạng thái:** Đã chốt trong PR #18.
 - **Phạm vi:** PR hàng bán và PR vật tư. Thay thế workflow một cấp của PR trong ADR-0007 và bổ sung phạm vi xem của ADR-0014.
 

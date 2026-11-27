@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { IconButton, MenuItem, Stack, Switch, TextField, Tooltip } from '@mui/material';
 import Edit from '@mui/icons-material/EditOutlined';
 import Copy from '@mui/icons-material/ContentCopyOutlined';
-import type { GridColDef } from '@mui/x-data-grid';
+import type { GridColDef, GridSortModel } from '@mui/x-data-grid';
 import { api, ApiError, catalogSelectionPath } from '../../services/api-client';
 import { ActionResultDialog, DataTable, DetailPageLayout, FilterToolbar, FormDialog, GridText, ListPageLayout } from '../../shared/components';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
@@ -134,6 +134,10 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
   });
   const sort = params.get('sort');
   const direction = params.get('direction') === 'desc' ? 'desc' : 'asc';
+  const sortable = Boolean(sort && columns.some(column => column.field === sort && column.sortable !== false));
+  // Stable references (FRONTEND.md): a new model object each render reads as a sort change and sends the grid to page 1.
+  const sortModel = useMemo<GridSortModel>(() => (sortable ? [{ field: sort!, sort: direction }] : []), [sortable, sort, direction]);
+  const paginationModel = useMemo(() => ({ page, pageSize }), [page, pageSize]);
   const close = (catalogResult?: ActionResult) => {
     if (typeof state?.catalogListKey === 'string') {
       // Pop back to the original list entry and deliver its result once.
@@ -163,7 +167,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
           {t('master.create', { name: title.toLocaleLowerCase(i18n.language) })}
         </ActionButton>}
         toolbar={<FilterToolbar refreshing={catalogQuery.isFetching || updateStatus.isPending}
-          onRefresh={() => { setParams({}, { replace: true }); void catalogQuery.refetch(); }}>
+          onRefresh={() => { setParams(size ? { size: String(size) } : {}, { replace: true }); void catalogQuery.refetch(); }}>
           <SearchInput label={t('master.search')} placeholder={t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
             value={q} onChange={value => setFilter('q', value)} sx={{ flex: { xs: '1 1 100%', sm: '0 1 420px' }, minWidth: 0 }} />
           <TextField select size="small" label={t('common.status')} value={status || 'all'}
@@ -179,7 +183,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
           </TextField>}
         </FilterToolbar>}>
         <DataTable rows={filtered} columns={columns} maxHeight="clamp(310px, calc(100dvh - 235px), 680px)" loading={catalogQuery.isPending} error={catalogQuery.error}
-          sortModel={sort && columns.some(column => column.field === sort && column.sortable !== false) ? [{ field: sort, sort: direction }] : []}
+          sortModel={sortModel}
           onSortModelChange={model => setParams(previous => {
             const next = new URLSearchParams(previous);
             next.delete('page');
@@ -188,7 +192,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
             if (first?.sort) { next.set('sort', first.field); next.set('direction', first.sort); }
             return next;
           }, { replace: true })}
-          paginationModel={{ page, pageSize }}
+          paginationModel={paginationModel}
           onPaginationModelChange={model => {
             if (catalogQuery.isPending || (model.page === page && model.pageSize === pageSize)) return;
             setParams(previous => {

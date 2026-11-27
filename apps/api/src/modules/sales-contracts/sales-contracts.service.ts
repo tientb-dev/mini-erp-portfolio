@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
+import { grantRole } from '../identity/authorization';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -68,10 +69,7 @@ export class SalesContractFacade {
 
   /** Responsible sales of one contract (plain read, for read-only scope checks); undefined when the contract does not exist. */
   static async assignResponsiblePm(m: EntityManager, contractId: number, userId: number) {
-    const [pm] = await m.query(`SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
-      JOIN role_permissions rp ON rp.role_id = ur.role_id JOIN permissions p ON p.id = rp.permission_id
-      WHERE u.id = $1 AND u.is_active AND p.code = 'PR.CREATE'`, [userId]);
-    if (!pm) throw new BusinessError('PR_PM_NOT_ELIGIBLE', 'Select an active PM');
+    if (!(await grantRole(m, userId, 'PR.CREATE'))) throw new BusinessError('PR_PM_NOT_ELIGIBLE', 'Select an active PM');
     const [, updated] = await m.query(`UPDATE sales_contracts SET responsible_pm_user_id = $2,
       version = version + 1, updated_at = now() WHERE id = $1`, [contractId, userId]);
     if (!updated) throw new NotFoundException();

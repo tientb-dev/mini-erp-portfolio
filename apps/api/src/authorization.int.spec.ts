@@ -240,6 +240,62 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
     });
   });
 
+  describe('grant gate (F-OA1.3-21)', () => {
+    const runner = async () => {
+      const r = ds.createQueryRunner();
+      await r.connect();
+      await r.startTransaction();
+      await r.query(`SET LOCAL lock_timeout = '500ms'`);
+      return r;
+    };
+    const close = async (...runners: QueryRunner[]) => {
+      for (const r of runners) { if (r.isTransactionActive) await r.rollbackTransaction(); await r.release(); }
+    };
+    const shared = `SELECT pg_advisory_xact_lock_shared(hashtext('grants'))`;
+    const exclusive = `SELECT pg_advisory_xact_lock(hashtext('grants'))`;
+
+    it('lets live grant checks run side by side (shared/shared)', async () => {
+      const [a, b] = [await runner(), await runner()];
+      try {
+        const purchaser = (await ds.query(`SELECT id FROM users WHERE username = 'purchaser'`))[0].id;
+        expect(await grantRole(a.manager, purchaser, 'PR.RECEIVE', true)).toBeDefined();
+        expect(await grantRole(b.manager, purchaser, 'PR.RECEIVE', true)).toBeDefined();
+      } finally { await close(a, b); }
+    });
+
+    it('is transaction-scoped: commit and rollback both release it, and one transaction never blocks itself', async () => {
+      for (const end of ['commit', 'rollback'] as const) {
+        const holder = await runner();
+        const other = await runner();
+        try {
+          await holder.query(exclusive);
+          await holder.query(shared); // own exclusive + own shared: no self-conflict, no upgrade
+          await expect(other.query(shared)).rejects.toThrow(/lock timeout/);
+          await (end === 'commit' ? holder.commitTransaction() : holder.rollbackTransaction());
+          await other.rollbackTransaction();
+          await other.startTransaction();
+          await other.query(`SET LOCAL lock_timeout = '500ms'`);
+          await other.query(exclusive);
+        } finally { await close(holder, other); }
+      }
+    });
+
+    it('serializes a revoke against a live check in both orders', async () => {
+      const checker = await runner();
+      const revoker = await runner();
+      try {
+        await checker.query(shared);
+        await expect(revoker.query(exclusive)).rejects.toThrow(/lock timeout/);
+      } finally { await close(checker, revoker); }
+      const first = await runner();
+      const second = await runner();
+      try {
+        await first.query(exclusive);
+        await expect(second.query(shared)).rejects.toThrow(/lock timeout/);
+      } finally { await close(first, second); }
+    });
+  });
+
   describe('upgrade from the OA0 baseline', () => {
     const schema = 'oa_upgrade';
     let up: DataSource;

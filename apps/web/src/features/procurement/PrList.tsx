@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
 import Refresh from '@mui/icons-material/Refresh';
 import Add from '@mui/icons-material/Add';
 import { SearchInput } from '../../shared/components/SearchInput';
-import { GridColDef } from '@mui/x-data-grid';
+import { GridColDef, GridSortModel } from '@mui/x-data-grid';
 import { ApprovalStatusChip, DataTable, FilterToolbar, GridText, ListPageLayout } from '../../shared/components';
 import { DocumentDatePicker } from '../../shared/components/DocumentDatePicker';
 import { formatDocumentDate } from '../../shared/utils/document-date';
@@ -32,6 +32,9 @@ export function PrList() {
   const page = Math.max(0, Number(params.get('page') ?? 1) - 1) || 0;
   const size = Number(params.get('size'));
   const pageSize = [25,50,100].includes(size) ? size : 25;
+  // Stable references (FRONTEND.md): new model objects each render read as a sort change and reset the grid to page 1.
+  const paginationModel = useMemo(() => ({ page, pageSize }), [page, pageSize]);
+  const sortModel = useMemo<GridSortModel>(() => (sort ? [{ field: sort, sort: direction }] : []), [sort, direction]);
   const query = new URLSearchParams();
   for (const key of ['category','status','from','to','sort','direction']) {
     const value = params.get(key);
@@ -96,8 +99,8 @@ export function PrList() {
     </FilterToolbar>}>
     <DataTable rows={invalid ? [] : list.data?.items ?? []} columns={columns} loading={list.isFetching || q !== delayed}
       maxHeight="clamp(320px, calc(100dvh - 270px), 760px)" rowCount={invalid ? 0 : list.data?.total ?? 0}
-      paginationMode="server" sortingMode="server" sortingOrder={['asc', 'desc']} paginationModel={{ page, pageSize }}
-      sortModel={sort ? [{ field: sort, sort: direction }] : []}
+      paginationMode="server" sortingMode="server" sortingOrder={['asc', 'desc']} paginationModel={paginationModel}
+      sortModel={sortModel}
       onSortModelChange={model => update({ sort: model[0]?.field ?? '', direction: model[0]?.sort ?? '' })}
       onPaginationModelChange={model => {
         if (model.page !== page || model.pageSize !== pageSize) update({ page: String(model.page + 1), size: String(model.pageSize) }, false);

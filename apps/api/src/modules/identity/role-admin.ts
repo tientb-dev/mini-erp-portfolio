@@ -105,14 +105,18 @@ export class RoleAdminService {
   }
 
   /** Users for the Role screen's picker, paged server-side; account data only until OA2 adds employee and organization fields. */
-  async userOptions(query: UserOptionsQuery) {
+  /**
+   * The acting admin is excluded in SQL, before COUNT and paging (F-OA1.3-19): they may never change their own roles.
+   * Users already in the role stay listed and are locked by the picker (shown, not selectable).
+   */
+  async userOptions(actorId: number, query: UserOptionsQuery) {
     const size = query.size ?? 25;
     const order = `${query.sort === 'fullName' ? 'full_name' : query.sort === 'isActive' ? 'is_active' : 'username'} ${query.direction === 'desc' ? 'DESC' : 'ASC'}, id`;
-    const params = [query.q?.trim() ? `%${query.q.trim()}%` : null];
-    const where = 'WHERE username IS NOT NULL AND ($1::text IS NULL OR username ILIKE $1 OR full_name ILIKE $1)';
+    const params = [query.q?.trim() ? `%${query.q.trim()}%` : null, actorId];
+    const where = 'WHERE username IS NOT NULL AND id <> $2 AND ($1::text IS NULL OR username ILIKE $1 OR full_name ILIKE $1)';
     const [items, [{ total }]] = await Promise.all([
       this.ds.query(`SELECT id, username, full_name AS "fullName", is_active AS "isActive" FROM users ${where}
-        ORDER BY ${order} LIMIT $2 OFFSET $3`, [...params, size, (query.page ?? 0) * size]),
+        ORDER BY ${order} LIMIT $3 OFFSET $4`, [...params, size, (query.page ?? 0) * size]),
       this.ds.query(`SELECT count(*)::int AS total FROM users ${where}`, params),
     ]);
     return { items, total };
@@ -267,7 +271,7 @@ export class RoleAdminController {
   list(@Query() query: RoleListQuery) { return this.roles.list(query); }
 
   @Get('roles/user-options') @RequirePermissions('ROLE.MANAGE')
-  userOptions(@Query() query: UserOptionsQuery) { return this.roles.userOptions(query); }
+  userOptions(@Req() req: AuthedRequest, @Query() query: UserOptionsQuery) { return this.roles.userOptions(req.user.id, query); }
 
   @Get('roles/:id') @RequirePermissions('ROLE.VIEW')
   get(@Param('id', ParseIntPipe) id: number) { return this.roles.get(id); }

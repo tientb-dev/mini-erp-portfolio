@@ -6,11 +6,13 @@ import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, FormControlLabel, IconButton, Stack, Switch, TextField,
   Tooltip, Typography,
 } from '@mui/material';
+import ContentCopy from '@mui/icons-material/ContentCopyOutlined';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import PersonRemove from '@mui/icons-material/PersonRemoveOutlined';
 import type { GridColDef, GridPaginationModel } from '@mui/x-data-grid';
 import { api, ApiError } from '../../services/api-client';
 import { ActionResultDialog, ActiveChip, DataTable, DetailPageLayout, DetailTabs, FilterToolbar, FormDialog } from '../../shared/components';
+import { FilterToolbarItem } from '../../shared/components/FilterToolbar';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
 import { ActionButton } from '../../shared/components/ActionButton';
 import { ActivityHistoryTable } from '../../shared/components/ActivityHistoryTable';
@@ -144,7 +146,8 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
       queueMicrotask(() => fieldRefs[first].current?.focus());
       return;
     }
-    if (!creating && dirty && (!sameSet(value.permissions, initial!.permissions) || !sameSet(value.users.map(u => u.id), initial!.users.map(u => u.id)))) {
+    const change = saveImpact(initial!, value, loaded?.isActive ?? true);
+    if (!creating && (change.permissionsAdded || change.permissionsRemoved || change.usersAdded || change.usersRemoved)) {
       setConfirmSave(true);
     } else save.mutate();
   };
@@ -165,12 +168,12 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
         {!system && (loaded.isActive
           ? <ActionButton action="void" onClick={() => setConfirmStatus(true)}>{t('roles.deactivate')}</ActionButton>
           : <ActionButton action="confirm" variant="outlined" onClick={() => setConfirmStatus(true)}>{t('roles.activate')}</ActionButton>)}
+        {!system && <ActionButton action="edit" variant="outlined" startIcon={<ContentCopy />}
+          onClick={() => navigate(`/roles/new?copy=${id}`, { state: { listSearch: backTo.replace(/^\/roles/, '') } })}>{t('roles.copy')}</ActionButton>}
         <ActionButton action="edit" onClick={() => setEditing(true)}>{t('roles.edit')}</ActionButton>
       </Stack>;
   const affected = loaded?.users.length ?? 0;
-  const added = initial ? value.permissions.filter(p => !initial.permissions.includes(p)).length : 0;
-  const removed = initial ? initial.permissions.filter(p => !value.permissions.includes(p)).length : 0;
-  const usersChanged = initial ? !sameSet(value.users.map(u => u.id), initial.users.map(u => u.id)) : false;
+  const impact = initial ? saveImpact(initial, value, loaded?.isActive ?? true) : undefined;
 
   return (
     <>
@@ -179,7 +182,7 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
         subtitle={system ? t('roles.systemHint') : undefined} footer={footer || undefined}>
         <DetailTabs value={tab} onChange={setTab} tabs={[
           { key: 'general', label: t('roles.tabGeneral'), invalid: Boolean(errorOf('code') || errorOf('name')), content:
-            <GeneralTab value={value} editing={editing} creating={creating} isActive={loaded && !creating ? loaded.isActive : true}
+            <GeneralTab value={value} editing={editing} creating={creating}
               errorOf={errorOf} refs={fieldRefs} onTouch={field => setTouched(previous => ({ ...previous, [field]: true }))} onChange={update} /> },
           { key: 'permissions', label: t('roles.tabPermissions'), content:
             <PermissionsTab catalog={catalog.data ?? []} selected={value.permissions} readOnly={!editing || system} system={system}
@@ -197,11 +200,7 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
       {editing && router && <RouteDiscardGuard dirty={dirty} pending={save.isPending} />}
       {confirmSave && <FormDialog title={t('roles.confirmSaveTitle', { code: value.code })} submitLabel={t('roles.save')} submitAction="save"
         pending={save.isPending} canSubmit error={null} onClose={() => setConfirmSave(false)} onSubmit={() => save.mutate()}>
-        <Stack spacing={1}>
-          {(added > 0 || removed > 0) && <Typography>{t('roles.confirmPermissions', { added, removed })}</Typography>}
-          {usersChanged && <Typography>{t('roles.confirmUsers', { count: value.users.length })}</Typography>}
-          <Typography color="text.secondary">{t('roles.confirmAffected', { count: affected })}</Typography>
-        </Stack>
+        {impact && <SaveImpact impact={impact} />}
       </FormDialog>}
       {confirmStatus && loaded && <FormDialog title={t(loaded.isActive ? 'roles.deactivateTitle' : 'roles.activateTitle')}
         description={`${loaded.code} · ${loaded.name}`} submitLabel={t(loaded.isActive ? 'roles.deactivate' : 'roles.activate')}
@@ -214,8 +213,8 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
   );
 }
 
-function GeneralTab({ value, editing, creating, isActive, errorOf, refs, onTouch, onChange }: {
-  value: Draft; editing: boolean; creating: boolean; isActive: boolean; errorOf: (field: Field) => string | undefined;
+function GeneralTab({ value, editing, creating, errorOf, refs, onTouch, onChange }: {
+  value: Draft; editing: boolean; creating: boolean; errorOf: (field: Field) => string | undefined;
   refs: Record<Field, React.RefObject<HTMLInputElement | null>>; onTouch: (field: Field) => void; onChange: (changes: Partial<Draft>) => void;
 }) {
   const { t } = useTranslation();
@@ -238,10 +237,6 @@ function GeneralTab({ value, editing, creating, isActive, errorOf, refs, onTouch
               onChange={e => onChange({ description: e.target.value })} slotProps={{ htmlInput: { maxLength: 1000 } }} />
           : <ReadOnlyField label={t('roles.description')} value={value.description} multiline minRows={2} />}
       </Box>
-      <Stack spacing={0.5} sx={{ gridColumn: '1 / -1' }}>
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>{t('common.status')}</Typography>
-        <Box><ActiveChip active={isActive} /></Box>
-      </Stack>
     </Box>
   );
 }
@@ -260,13 +255,22 @@ function PermissionsTab({ catalog, selected, readOnly, system, onChange }: {
   const toggle = (code: string, checked: boolean) => onChange(checked ? [...selected, code] : selected.filter(c => c !== code));
   return (
     <Stack spacing={1.5}>
-      {system && <Alert severity="info">{t('roles.systemPermissions')}</Alert>}
-      <Stack direction="row" sx={{ flexWrap: 'wrap', alignItems: 'center', gap: 1.5 }}>
-        <SearchInput label={t('common.search')} placeholder={t('roles.permissionSearch')} value={q} onChange={setQ} sx={{ flex: '0 1 380px', minWidth: 220 }} />
-        <FormControlLabel control={<Switch checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />} label={t('roles.onlySelected')} />
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>{t('roles.totalSelected', { count: selected.length, total: catalog.length })}</Typography>
-        <Button size="small" onClick={() => setOpen(modules)}>{t('roles.expandAll')}</Button>
-        <Button size="small" onClick={() => setOpen([])}>{t('roles.collapseAll')}</Button>
+      {/* COMMON-LIST-TOOLBAR-001: the controls of a long list stay in view (sticky at the top of the one panel scroller). */}
+      {/* The panel's own padding (spacing 2) is covered too, so rows never show above the pinned toolbar. */}
+      <Stack spacing={1.5} data-permission-toolbar sx={{ position: 'sticky', top: theme => theme.spacing(-2), mt: -2, pt: 2, zIndex: 2, bgcolor: 'background.paper', pb: 1.5,
+        boxShadow: theme => `0 1px 0 ${theme.palette.divider}` }}>
+        {system && <Alert severity="info">{t('roles.systemPermissions')}</Alert>}
+        <FilterToolbar>
+          <SearchInput label={t('common.search')} placeholder={t('roles.permissionSearch')} value={q} onChange={setQ} sx={{ flex: '0 1 380px', minWidth: 220 }} />
+          <FilterToolbarItem>
+            <FormControlLabel sx={{ m: 0 }} control={<Switch checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />} label={t('roles.onlySelected')} />
+          </FilterToolbarItem>
+          <FilterToolbarItem><Typography variant="body2" sx={{ fontWeight: 600 }}>{t('roles.totalSelected', { count: selected.length, total: catalog.length })}</Typography></FilterToolbarItem>
+          <FilterToolbarItem>
+            <Button size="small" onClick={() => setOpen(modules)}>{t('roles.expandAll')}</Button>
+            <Button size="small" onClick={() => setOpen([])}>{t('roles.collapseAll')}</Button>
+          </FilterToolbarItem>
+        </FilterToolbar>
       </Stack>
       {modules.map(module => {
         const all = catalog.filter(p => p.module === module);
@@ -287,16 +291,16 @@ function PermissionsTab({ catalog, selected, readOnly, system, onChange }: {
                 const locked = p.adminOnly && !system;
                 const checked = selected.includes(p.code);
                 const control = <Checkbox checked={checked} disabled={readOnly || locked} onChange={e => toggle(p.code, e.target.checked)}
-                  slotProps={{ input: { 'aria-label': `${p.name} (${p.code})` } }}
+                  slotProps={{ input: { 'aria-label': `${p.name} (${p.code})`, ...(locked ? { 'aria-describedby': `admin-only-${p.code}` } : {}) } }}
                   // Read-only stays legible: the checked state keeps the primary color (not the disabled grey).
                   sx={readOnly && !locked ? { '&.Mui-disabled': { color: checked ? 'primary.main' : 'action.active' } } : undefined} />;
                 return (
                   <Stack key={p.code} direction="row" data-permission-row sx={{ alignItems: 'center', px: 1, py: 0.25, borderTop: 1, borderColor: 'divider' }}>
-                    {locked ? <Tooltip title={t('roles.adminOnlyHint')}><span>{control}</span></Tooltip> : control}
+                    {control}
                     <Box sx={{ minWidth: 0, flex: 1, py: 0.5 }}>
                       <Typography variant="body2">{p.name}</Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>{p.code}</Typography>
-                      {locked && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('roles.adminOnly')}</Typography>}
+                      {locked && <Typography id={`admin-only-${p.code}`} variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('roles.adminOnly')}</Typography>}
                     </Box>
                   </Stack>
                 );
@@ -352,8 +356,7 @@ function UserPicker({ assigned, selfId, onClose, onConfirm }: { assigned: number
   const params = new URLSearchParams({ sort: sort.field, direction: sort.sort, page: String(page.page), size: String(page.pageSize) });
   if (debounced.trim()) params.set('q', debounced.trim());
   const options = useServerList<RoleUser>('/admin/roles/user-options', params);
-  // The signed-in admin cannot add themself (SELF_CHANGE_DENIED), so the row is not offered.
-  const rows = (options.data?.items ?? []).filter(u => u.id !== selfId);
+  const rows = options.data?.items ?? [];
   const select = (changed: RoleUser[], checked: boolean) => setPicked(previous => {
     const next = new Map(previous);
     for (const user of changed) if (checked) next.set(user.id, user); else next.delete(user.id);
@@ -383,5 +386,48 @@ function UserPicker({ assigned, selfId, onClose, onConfirm }: { assigned: number
             ? <Typography variant="caption" color="text.secondary">{t('roles.alreadyAssigned')}</Typography> : null },
         ]} />
     </FormDialog>
+  );
+}
+
+interface Impact {
+  usersAdded: number; usersRemoved: number; usersKept: number; usersAfter: number;
+  permissionsAdded: number; permissionsRemoved: number; active: boolean;
+}
+
+/** F-OA1.3-18: who a save affects, from the loaded and the prepared role (no double counting). */
+export function saveImpact(initial: Draft, next: Draft, active: boolean): Impact {
+  const before = initial.users.map(u => u.id);
+  const after = next.users.map(u => u.id);
+  return {
+    usersAdded: after.filter(id => !before.includes(id)).length,
+    usersRemoved: before.filter(id => !after.includes(id)).length,
+    usersKept: after.filter(id => before.includes(id)).length,
+    usersAfter: after.length,
+    permissionsAdded: next.permissions.filter(p => !initial.permissions.includes(p)).length,
+    permissionsRemoved: initial.permissions.filter(p => !next.permissions.includes(p)).length,
+    active,
+  };
+}
+
+function SaveImpact({ impact: i }: { impact: Impact }) {
+  const { t } = useTranslation();
+  const permissionsChanged = i.permissionsAdded > 0 || i.permissionsRemoved > 0;
+  const lines = [
+    i.usersAdded > 0 && t('roles.impact.usersAdded', { count: i.usersAdded }),
+    i.usersRemoved > 0 && t('roles.impact.usersRemoved', { count: i.usersRemoved }),
+    permissionsChanged && t('roles.impact.permissions', { added: i.permissionsAdded, removed: i.permissionsRemoved }),
+    (i.usersAdded > 0 || i.usersRemoved > 0) && t('roles.impact.usersAfter', { count: i.usersAfter }),
+  ].filter(Boolean) as string[];
+  const effects = !i.active ? [t('roles.impact.inactive')] : [
+    i.usersAdded > 0 && t('roles.impact.addedGet'),
+    i.usersRemoved > 0 && t('roles.impact.removedLose'),
+    permissionsChanged && i.usersKept > 0 && t('roles.impact.keptChange', { count: i.usersKept }),
+  ].filter(Boolean) as string[];
+  return (
+    <Stack spacing={1}>
+      {lines.map(line => <Typography key={line}>{line}</Typography>)}
+      {effects.map(line => <Typography key={line} color="text.secondary">{line}</Typography>)}
+      <Typography color="text.secondary">{t('roles.impact.otherRoles')}</Typography>
+    </Stack>
   );
 }

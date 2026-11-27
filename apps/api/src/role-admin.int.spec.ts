@@ -173,6 +173,29 @@ describe('Role & Permission management OA1.3 (PostgreSQL, HTTP)', () => {
     await get(admin, '/admin/roles/user-options?size=7').expect(400);
   });
 
+  it('excludes the acting admin in SQL before COUNT and paging, wherever they fall in the results (F-OA1.3-19)', async () => {
+    // 60 picker candidates around three acting admins placed first, in the middle and last by username.
+    for (let i = 0; i < 60; i++) {
+      await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ($1, 'x', $2)`, [`pick-${String(i).padStart(3, '0')}`, `Pick ${i}`]);
+    }
+    const actors: string[] = [];
+    for (const name of ['pick-000a', 'pick-030a', 'pick-zzz']) {
+      const [{ id }] = await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ($1, $2, $1) RETURNING id`, [name, await hashPassword(PW)]);
+      await ds.query(`INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = 'ADMIN'`, [id]);
+      actors.push(name);
+    }
+    for (const actor of actors) {
+      const token = await tokenOf(actor);
+      const pages = [];
+      for (let page = 0; page < 3; page++) pages.push((await get(token, `/admin/roles/user-options?q=pick-&size=25&page=${page}`).expect(200)).body);
+      const names = pages.flatMap(page => page.items.map((u: { username: string }) => u.username));
+      expect(pages.every(page => page.total === 62)).toBe(true);
+      expect(names).toHaveLength(62);
+      expect(names).not.toContain(actor);
+      expect(new Set(names).size).toBe(62);
+    }
+  });
+
   it('validates the copy source from the database and never trusts client audit data', async () => {
     const before = (await get(admin, '/admin/roles?size=100').expect(200)).body.total;
     expect((await create(admin, { code: 'OA13_FORGED', name: 'x', permissions: [], userIds: [], copiedFrom: 999999 }).expect(422)).body.code)

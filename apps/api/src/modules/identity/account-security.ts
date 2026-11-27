@@ -5,7 +5,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { appendActivity } from '../document-records/document-records';
 import { BusinessError } from '../workflow/workflow';
 import { AttemptLimiter, LIMITS } from './attempt-limiter';
-import { activeAdminCount, grantRole, lockAdminGuard, lockGrantsExclusive } from './authorization';
+import { activeAdminCount, grantRole, lockAdminGuard, lockGrantsExclusive, lockGrantsShared } from './authorization';
 import { hashPassword, verifyPassword } from './password';
 
 export const MAX_FAILED_LOGINS = 5; // BA-USR-11
@@ -198,6 +198,9 @@ export class AccountSecurityService {
  * actor's session and `permission` live under FOR SHARE, so a revoke that committed first stops the action (F-OA1.2-03).
  */
 export async function lockActor(m: EntityManager, actor: Actor, permission: string, userIds: number[] = [], mode: 'UPDATE' | 'SHARE' = 'UPDATE') {
+  // The grant gate comes before any users row (F-OA1.3-21). A caller that already holds it exclusive keeps it: a
+  // transaction's own advisory locks never conflict, so this is not an upgrade.
+  await lockGrantsShared(m);
   const rows: { id: number; is_active: boolean; failed_login_count: number; locked: boolean }[] = await m.query(`SELECT id, is_active,
       failed_login_count, (locked_until > now()) IS TRUE AS locked
     FROM users WHERE id = ANY($1) ORDER BY id FOR ${mode === 'SHARE' ? 'SHARE' : 'UPDATE'}`, [[...new Set([actor.id, ...userIds])]]);

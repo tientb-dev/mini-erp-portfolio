@@ -248,16 +248,21 @@ Danh mục Loại hồ sơ dùng Common Master Data với Search Input, filter t
 - **Page Header:** nút Quay lại (`backTo`/`onBack`), tiêu đề, mã đối tượng và Status Badge (`StatusChip`/`ActiveChip`); phụ đề tùy chọn. **Không** đặt nút lưu hoặc thay đổi đối tượng ở góc trên bên phải.
 - **Detail Tabs:** ngay dưới header; trên màn `fillMedia` header và tabs đứng yên.
 - **Content:** panel của tab là vùng cuộn độc lập (`DetailTabs` cuộn panel trên trang fill), nội dung dài không đẩy mất header, tabs hay footer. Trang có lưới dòng riêng (PR) dùng `naturalFlow` theo COMMON-DOC-LAYOUT-001.
-- **Fixed Footer** (`DetailPageLayout.footer`): luôn ở đáy vùng làm việc, nút căn phải, hành động chính ngoài cùng phải. Create/Copy/Edit: Hủy bỏ, Lưu. View: thao tác phụ/phá hủy (Ngừng hoạt động: outlined đỏ; Kích hoạt: outlined) rồi Chỉnh sửa. Đối tượng hệ thống chỉ có thao tác được phép. Không lặp nút Quay lại ở footer.
-- **Trạng thái** hiển thị bằng Status Badge, đổi bằng action riêng + Confirm Dialog, không dùng switch disabled. Create mặc định hoạt động.
+- **Fixed Footer** (`DetailPageLayout.footer`): luôn ở đáy vùng làm việc, nút căn phải, hành động chính ngoài cùng phải. Create/Copy/Edit: Hủy bỏ, Lưu. View (từ trái sang phải): Ngừng hoạt động (outlined đỏ) hoặc Kích hoạt (outlined), Sao chép (outlined primary, icon Copy, cùng luồng Copy của danh sách), Chỉnh sửa (contained primary). Đối tượng hệ thống chỉ có thao tác được phép. Không lặp nút Quay lại ở footer.
+- **Trạng thái** hiển thị **một lần**, bằng Status Badge ở Page Header (View/Edit); không lặp lại thành trường trong tab. Create/Copy không hiện trường trạng thái (mặc định hoạt động). Đổi trạng thái bằng action riêng + Confirm Dialog, không dùng switch disabled.
 
 ## COMMON-CONFIRM-001 — Confirm Dialog
 
-`FormDialog` làm xác nhận: tiêu đề nêu thao tác, `description` nêu mã · tên đối tượng, nội dung nêu hệ quả (số người dùng bị ảnh hưởng, phần được giữ nguyên). Thao tác phá hủy (Ngừng hoạt động, Hủy) dùng `submitAction="void"` (outlined đỏ); khôi phục/xác nhận dùng primary. Thay đổi quyền cần xác nhận trước khi lưu và nêu số người dùng bị ảnh hưởng.
+`FormDialog` làm xác nhận: tiêu đề nêu thao tác, `description` nêu mã · tên đối tượng, nội dung nêu hệ quả (số người dùng bị ảnh hưởng, phần được giữ nguyên). Thao tác phá hủy (Ngừng hoạt động, Hủy) dùng `submitAction="void"` (outlined đỏ); khôi phục/xác nhận dùng primary. Thay đổi quyền cần xác nhận trước khi lưu. Nội dung tính từ dữ liệu ban đầu và dữ liệu sắp lưu, nêu đúng đối tượng: người dùng được thêm (nhận quyền nếu đối tượng đang hoạt động), bị gỡ, giữ nguyên (chỉ chịu tác động khi quyền đổi), số quyền thêm/gỡ, tổng sau khi lưu; đối tượng ngừng hoạt động thì nói rõ chưa tạo quyền hiệu lực; không đếm trùng; không khẳng định người dùng mất hẳn một quyền vì có thể còn từ vai trò khác. Chỉ đổi tên/mô tả thì không hiện cảnh báo quyền.
+
+## COMMON-LIST-TOOLBAR-001 — Toolbar của danh sách
+
+- Toolbar dùng `FilterToolbar` (căn đáy, cao 36px). Control không phải ô nhập (switch + nhãn, số đếm, nút chữ như Mở tất cả/Đóng tất cả) bọc trong `FilterToolbarItem`: cao bằng ô nhập và căn giữa theo chiều dọc, nên tâm của chúng thẳng hàng với **tâm ô nhập**, không với cả khối gồm label. Không dùng margin, transform hay pixel offset để bù lệch. Thiếu chiều ngang thì wrap theo hàng, không chồng lấn.
+- Toolbar điều khiển một danh sách dài nằm **ngoài phần cuộn của danh sách**: trên trang fill, toolbar sticky ở đầu vùng cuộn duy nhất của panel (không tạo thanh cuộn lồng nhau), danh sách bên dưới cuộn; tìm kiếm, lọc, tổng số đã chọn và mở/đóng nhóm luôn tiếp cận được.
 
 ## COMMON-PICKER-001 — Picker chọn nhiều
 
-Theo Product Picker: `FormDialog` + `FilterToolbar` (Search, Làm mới) + `DataTable` phân trang/sort **phía server** + `pickerSelectionColumn`. Lựa chọn giữ qua trang, tìm kiếm, sort và Làm mới; footer trái hiện "Đã chọn N"; mục đã gán hiển thị khóa (`isLocked`); Hủy bỏ không đổi dữ liệu; liên kết chỉ được lưu khi lưu đối tượng cha. Không có giới hạn cứng số kết quả.
+Theo Product Picker: `FormDialog` + `FilterToolbar` (Search, Làm mới) + `DataTable` phân trang/sort **phía server** + `pickerSelectionColumn`. Điều kiện **loại trừ** (ví dụ chính người thao tác) áp dụng ở server **trước COUNT và phân trang**, frontend không lọc bớt dòng của trang đã nhận; mục **hiển thị nhưng không chọn được** (đã gán) dùng `isLocked`, checkbox chọn trang chỉ áp dụng cho dòng chọn được. Lựa chọn giữ qua trang, tìm kiếm, sort và Làm mới; footer trái hiện "Đã chọn N"; mục đã gán hiển thị khóa (`isLocked`); Hủy bỏ không đổi dữ liệu; liên kết chỉ được lưu khi lưu đối tượng cha. Không có giới hạn cứng số kết quả.
 
 ## COMMON-ACTIVITY-001 — Lịch sử đối tượng quản trị
 
@@ -274,8 +279,9 @@ Theo Product Picker: `FormDialog` + `FilterToolbar` (Search, Làm mới) + `Data
 
 Checklist bắt buộc trước khi tạo màn hình mới và khi nghiệm thu:
 
-1. List: `ListPageLayout` + `FilterToolbar` (Làm mới sau bộ lọc cuối, không có Xóa bộ lọc) + `DataTable`; trạng thái list trên URL; quay lại giữ trạng thái.
-2. Full page: COMMON-DETAIL-PAGE-001 (header không có nút lưu/thay đổi, footer cố định, panel cuộn).
+1. List: `ListPageLayout` + `FilterToolbar` (Làm mới sau bộ lọc cuối, không có Xóa bộ lọc) + `DataTable`; trạng thái list trên URL; quay lại giữ trạng thái; `sortModel`/`paginationModel` ổn định tham chiếu; server áp điều kiện lọc/loại trừ trước COUNT.
+1a. Toolbar theo COMMON-LIST-TOOLBAR-001 (căn theo ô nhập; toolbar danh sách dài không cuộn theo danh sách).
+2. Full page: COMMON-DETAIL-PAGE-001 (header không có nút lưu/thay đổi, trạng thái chỉ ở header, footer cố định đủ thao tác, panel cuộn).
 3. Readonly theo COMMON-READONLY-001, không dùng disabled cho dữ liệu chỉ đọc.
 4. Validation theo FE-VALIDATION-001; Dirty Guard khi rời trang có thay đổi.
 5. Nút theo COMMON-BUTTON-001; xác nhận theo COMMON-CONFIRM-001; kết quả bằng `ActionResultDialog` (UI-15).

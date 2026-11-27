@@ -272,6 +272,27 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       }
     });
 
+    it('runs reset, unlock, disable and role changes on one account concurrently without deadlock (F-OA1.3-21)', async () => {
+      const second = await makeUser('ADMIN');
+      const other = await tokenOf(second.username);
+      for (let round = 0; round < 4; round++) {
+        const u = await makeUser('SALES');
+        const [{ id: roleId }] = await ds.query(`SELECT id FROM roles WHERE code = 'SALES'`);
+        const role = (await http().get(`/admin/roles/${roleId}`).set(bearer(admin)).expect(200)).body;
+        const results = await Promise.all([
+          reset(admin, u.id),
+          setStatus(other, u.id, false),
+          http().post(`/admin/users/${u.id}/unlock`).set(bearer(admin)),
+          http().put(`/admin/roles/${roleId}`).set(bearer(other)).send({ name: role.name, description: role.description,
+            permissions: role.permissions, userIds: role.users.map((x: { id: number }) => x.id).filter((x: number) => x !== u.id), version: role.version }),
+        ]);
+        // Never a 500 (deadlock); the role save may only lose to another save of the same role (409).
+        expect(results.map(r => r.status)).toEqual([204, 204, 204, expect.any(Number)]);
+        expect([204, 409]).toContain(results[3].status);
+        expect(await ds.query('SELECT is_active FROM users WHERE id = $1', [u.id])).toEqual([{ is_active: false }]);
+      }
+    });
+
     it('keeps one administrator when two admins disable each other at the same time', async () => {
       const a = await makeUser('ADMIN');
       const b = await makeUser('ADMIN');

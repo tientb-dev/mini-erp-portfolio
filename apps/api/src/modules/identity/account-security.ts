@@ -213,7 +213,7 @@ export const noAccount = () => new BusinessError('NO_ACCOUNT', 'This employee ha
 export const employmentInactive = () =>
   new BusinessError('EMPLOYMENT_INACTIVE', 'The employee is inactive; reactivate the employee first', HttpStatus.CONFLICT);
 
-export async function lockActor(m: EntityManager, actor: Actor, permission: string, userIds: number[] = [], mode: 'UPDATE' | 'SHARE' = 'UPDATE') {
+export async function lockActor(m: EntityManager, actor: Actor, permission: string | null, userIds: number[] = [], mode: 'UPDATE' | 'SHARE' = 'UPDATE') {
   // The grant gate comes before any users row (F-OA1.3-21). A caller that already holds it exclusive keeps it: a
   // transaction's own advisory locks never conflict, so this is not an upgrade.
   await lockGrantsShared(m);
@@ -222,7 +222,8 @@ export async function lockActor(m: EntityManager, actor: Actor, permission: stri
     FROM users WHERE id = ANY($1) ORDER BY id FOR ${mode === 'SHARE' ? 'SHARE' : 'UPDATE'}`, [[...new Set([actor.id, ...userIds])]]);
   const self = rows.find(r => r.id === actor.id);
   if (!self?.is_active || !(await sessionOpen(m, actor))) throw sessionEnded();
-  if (!(await grantRole(m, actor.id, permission, true))) throw new ForbiddenException(`Missing permission: ${permission}`);
+  // `null`: self-service (OA2.4 PATCH /me) needs only an open session, no permission.
+  if (permission && !(await grantRole(m, actor.id, permission, true))) throw new ForbiddenException(`Missing permission: ${permission}`);
   return rows;
 }
 

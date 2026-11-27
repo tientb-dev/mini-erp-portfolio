@@ -216,9 +216,13 @@ const vi = {
       MEMBERSHIPS_CHANGED: { added: 'Đơn vị được thêm', updated: 'Đơn vị thay đổi', ended: 'Đơn vị kết thúc' },
       WAREHOUSES_CHANGED: { added: 'Kho được cấp', removed: 'Kho bị gỡ' } },
   },
+  profile: {
+    employee: 'Thông tin nhân sự', account: 'Tài khoản đăng nhập', organization: 'Tổ chức', memberships: 'Các phân công tổ chức',
+    editHint: 'Bạn có thể cập nhật email và số điện thoại. Các thông tin khác do quản trị viên quản lý.', save: 'Lưu', saved: 'Đã lưu hồ sơ cá nhân', saveFailed: 'Lưu hồ sơ cá nhân không thành công',
+    conflictHint: 'Hồ sơ vừa được cập nhật ở nơi khác. Dữ liệu bạn nhập vẫn được giữ; đóng hồ sơ, mở lại rồi thực hiện lại.',
+  },
   account: {
     menu: 'Tài khoản', profile: 'Hồ sơ cá nhân', changePassword: 'Đổi mật khẩu', fullName: 'Họ tên', roles: 'Vai trò',
-    profileLater: 'Cập nhật email và số điện thoại sẽ có khi triển khai quản lý người dùng.',
     currentPassword: 'Mật khẩu hiện tại', newPassword: 'Mật khẩu mới', confirmPassword: 'Xác nhận mật khẩu mới',
     passwordHint: 'Tối thiểu {{min}} ký tự. Có thể dùng cụm từ dài, không bắt buộc ký tự đặc biệt.',
     passwordLength: 'Mật khẩu mới cần từ {{min}} đến 256 ký tự.', passwordSame: 'Mật khẩu mới phải khác mật khẩu hiện tại.',
@@ -795,9 +799,13 @@ const en: typeof vi = {
       MEMBERSHIPS_CHANGED: { added: 'Units added', updated: 'Units changed', ended: 'Units ended' },
       WAREHOUSES_CHANGED: { added: 'Warehouses granted', removed: 'Warehouses removed' } },
   },
+  profile: {
+    employee: 'Employee', account: 'Sign-in account', organization: 'Organization', memberships: 'Organization assignments',
+    editHint: 'You can update your email and phone number. Other information is managed by an administrator.', save: 'Save', saved: 'Profile saved', saveFailed: 'Could not save the profile',
+    conflictHint: 'Your profile was just changed elsewhere. Your input is kept; close the profile, reopen it and apply your change again.',
+  },
   account: {
     menu: 'Account', profile: 'Profile', changePassword: 'Change password', fullName: 'Full name', roles: 'Roles',
-    profileLater: 'Email and phone updates arrive with user management.',
     currentPassword: 'Current password', newPassword: 'New password', confirmPassword: 'Confirm new password',
     passwordHint: 'At least {{min}} characters. Long passphrases are fine; no special characters required.',
     passwordLength: 'The new password needs {{min}} to 256 characters.', passwordSame: 'The new password must differ from the current one.',

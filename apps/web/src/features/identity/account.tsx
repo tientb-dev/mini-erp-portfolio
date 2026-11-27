@@ -1,8 +1,9 @@
+import { ProfileDialog } from './ProfileDialog';
 import { FormEvent, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
-  Avatar, Box, Button, Dialog, DialogActions, DialogContent, Divider, IconButton, InputAdornment, ListItemIcon,
+  Avatar, Box, Button, Divider, IconButton, InputAdornment, ListItemIcon,
   ListItemText, Menu, MenuItem, Paper, Stack, TextField, Typography,
 } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
@@ -13,7 +14,6 @@ import Logout from '@mui/icons-material/Logout';
 import KeyboardArrowDown from '@mui/icons-material/KeyboardArrowDown';
 import { api, token } from '../../services/api-client';
 import { ErrorAlert, FormDialog } from '../../shared/components';
-import { DialogHeading } from '../../shared/components/DialogHeading';
 import type { Me } from './api';
 
 /** Same bounds as the API (BA-USR-05): 12–256 characters, no composition rule, passphrases welcome. */
@@ -127,29 +127,6 @@ const initials = (name: string) => {
   return (words.length > 1 ? [words[0]!, words.at(-1)!] : words).map(w => w[0]!.toUpperCase()).join('') || '?';
 };
 
-function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) {
-  const { t } = useTranslation();
-  const rows: [string, string][] = [
-    [t('account.fullName'), me.fullName ?? ''], [t('login.username'), me.username ?? ''], [t('account.roles'), (me.roleCodes ?? []).join(', ') || '—'],
-  ];
-  return (
-    <Dialog open onClose={onClose} maxWidth="xs" fullWidth aria-labelledby="profile-title">
-      <DialogHeading id="profile-title" onClose={onClose}>{t('account.profile')}</DialogHeading>
-      <DialogContent>
-        <Stack spacing={1.5}>
-          {rows.map(([label, value]) => (
-            <div key={label}>
-              <Typography variant="body2" color="text.secondary">{label}</Typography>
-              <Typography>{value}</Typography>
-            </div>
-          ))}
-          <Typography variant="body2" color="text.secondary">{t('account.profileLater')}</Typography>
-        </Stack>
-      </DialogContent>
-      <DialogActions><Button onClick={onClose}>{t('common.close')}</Button></DialogActions>
-    </Dialog>
-  );
-}
 
 /** AppShell account menu: avatar initials, name, username; Profile, Change password, Sign out. */
 export function AccountMenu({ me, onLogout, onPasswordChanged }: { me: Me; onLogout: () => void; onPasswordChanged: () => void }) {
@@ -175,7 +152,7 @@ export function AccountMenu({ me, onLogout, onPasswordChanged }: { me: Me; onLog
         <Divider />
         <MenuItem onClick={() => { setAnchor(null); onLogout(); }}><ListItemIcon><Logout fontSize="small" /></ListItemIcon><ListItemText>{t('app.logout')}</ListItemText></MenuItem>
       </Menu>
-      {open === 'profile' && <ProfileDialog me={me} onClose={() => setOpen(null)} />}
+      {open === 'profile' && <ProfileDialog onClose={() => setOpen(null)} />}
       {open === 'password' && <ChangePasswordDialog onClose={() => setOpen(null)} onChanged={onPasswordChanged} />}
     </>
   );

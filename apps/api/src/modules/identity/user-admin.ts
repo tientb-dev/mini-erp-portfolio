@@ -63,6 +63,12 @@ class AddMembershipInput extends MembershipInput {
   /** Employee version. */
   @ApiProperty() @IsInt() @Min(1) version!: number;
 }
+/** BA-USR-09: the only fields a user changes on their own profile; any other field is rejected (whitelist, 400). */
+class OwnContactInput {
+  @ApiPropertyOptional() @IsOptional() @IsEmail() @MaxLength(200) email?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsString() @Matches(/^[0-9+().\s-]*$/) @MaxLength(50) phone?: string | null;
+  @ApiProperty() @IsInt() @Min(1) version!: number;
+}
 class VersionInput {
   @ApiProperty() @IsInt() @Min(1) version!: number;
 }
@@ -345,6 +351,26 @@ export class UserAdminService {
   }
 
   /**
+   * OA2.4 Personal Profile (BA-USR-09): the signed-in user changes only their own email and phone, with optimistic locking
+   * and the same EMPLOYEE_UPDATED audit as the admin save. Needs an open session, no USER.* permission (lockActor null).
+   * An absent field keeps its value; nothing changed → no version bump, no history.
+   */
+  async updateOwnContact(actor: Actor, input: OwnContactInput) {
+    await this.ds.transaction(async m => {
+      const [self] = await lockActor(m, actor, null);
+      if (self.version !== input.version) throw conflict('VERSION_CONFLICT', 'Your profile was changed meanwhile. Reload it and apply your change again');
+      const [row] = await m.query('SELECT email, phone FROM users WHERE id = $1', [actor.id]);
+      const after = { email: input.email === undefined ? row.email : blank(input.email), phone: input.phone === undefined ? row.phone : blank(input.phone) };
+      const changed = (['email', 'phone'] as const).filter(k => after[k] !== row[k]);
+      if (!changed.length) return;
+      await m.query('UPDATE users SET email = $2, phone = $3, version = version + 1, updated_at = now(), updated_by = $1 WHERE id = $1',
+        [actor.id, after.email, after.phone]);
+      await audit(m, actor.id, 'EMPLOYEE_UPDATED', actor.id, {
+        before: Object.fromEntries(changed.map(k => [k, row[k]])), after: Object.fromEntries(changed.map(k => [k, after[k]])) });
+    });
+  }
+
+  /**
    * Membership API (§6, closure F02) for the unit's Nhân sự tab. Each call edits the employee's ACTIVE membership set and
    * saves it through `saveRelations`, so validation, audit, self-change, version bump and lock graph are the User save's.
    * Optimistic locking: add uses the employee version, update/end the membership version (stable under the users row lock
@@ -476,4 +502,19 @@ export class MembershipAdminController {
   end(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() input: VersionInput) {
     return this.users.endMembership(actorOf(req), id, input);
   }
+}
+
+/** OA2.4 Personal Profile: the signed-in user's own record (read) and contact fields (write), from the account menu. */
+@ApiTags('auth')
+@ApiBearerAuth()
+@Controller('me')
+export class MeController {
+  constructor(private readonly users: UserAdminService) {}
+
+  /** Same shape as the admin detail (employee, account, memberships, roles, warehouses); never a password or hash. */
+  @Get()
+  profile(@Req() req: AuthedRequest) { return this.users.get(req.user.id); }
+
+  @Patch() @HttpCode(204)
+  updateContact(@Req() req: AuthedRequest, @Body() input: OwnContactInput) { return this.users.updateOwnContact(actorOf(req), input); }
 }

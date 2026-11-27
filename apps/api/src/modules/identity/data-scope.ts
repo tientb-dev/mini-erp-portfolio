@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { lockGrantsShared } from './authorization';
+import { BusinessError } from '../workflow/workflow';
 
 /**
  * Data Scope engine (OA3.2, ADR-0018 §5.3). Resolves effective scopes per permission and turns them into one SQL
@@ -150,3 +151,20 @@ export async function assertCanAct(m: EntityManager, s: DataScope, view: string,
 /** CREATE on the projected state: action scope and read scope (`canAccessDraft`); re-check in the saving transaction. */
 export const canAccessDraft = (s: DataScope, view: string, action: string, d: ScopeDraft) =>
   matchesDraft(s, action, d) && matchesDraft(s, view, d);
+
+/**
+ * Owner unit of a new HĐ/PR (§4.4, BA-OA3-06): undefined → primary unit; a number must be one of the creator's ACTIVE
+ * memberships; NULL only when the creator has none. Never inherited from a source document (BA-SCP-11), fixed after
+ * creation. Call under the `grants` gate (`loadDataScope(m, uid, true)`), so memberships cannot change meanwhile.
+ */
+export async function ownerOrgUnit(m: EntityManager, userId: number, requested: number | null | undefined): Promise<number | null> {
+  const units: { id: number; primary: boolean }[] = await m.query(
+    `SELECT org_unit_id AS id, is_primary AS primary FROM org_memberships WHERE user_id = $1 AND status = 'ACTIVE'`, [userId]);
+  if (!units.length) {
+    if (requested == null) return null;
+  } else if (requested === undefined) {
+    const primary = units.find((u) => u.primary);
+    if (primary) return primary.id;
+  } else if (units.some((u) => u.id === requested)) return requested!;
+  throw new BusinessError('OWNER_ORG_UNIT_INVALID', 'The owner unit must be one of your active organization units');
+}

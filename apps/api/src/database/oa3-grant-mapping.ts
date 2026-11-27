@@ -20,17 +20,6 @@ export const OA3_GRANTS: Record<string, Record<string, string[]>> = {
   WAREHOUSE_MANAGER: {},
 };
 
-/**
- * Approved grants that replace today's implicit PR reads. Until the scope engine filters PR reads (OA3.3), PR.VIEW is
- * global, so seeding them now would let these roles read every PR (verified by pr-scope/procurement tests).
- * shortcut: seed skips them until OA3.3; delete this list when PR.VIEW is scope-filtered.
- */
-export const OA3_DEFERRED = ['SALES>PR.VIEW', 'PM>PR.VIEW', 'SALES_HEAD>PR.VIEW', 'PM_HEAD>PR.VIEW'];
-
-/** Approved grants of a role that are active now (matrix minus deferred). */
-export const activeGrants = (role: string) => Object.fromEntries(Object.entries(OA3_GRANTS[role] ?? {})
-  .filter(([permission]) => !OA3_DEFERRED.includes(`${role}>${permission}`)));
-
 export interface GrantPlan {
   /** `ROLE>PERMISSION` grants to add, with their scopes. */
   add: { role: string; permission: string; scopes: string[] }[];

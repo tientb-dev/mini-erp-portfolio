@@ -3,7 +3,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, login } from './test-utils';
 import { dataSourceOptions } from './database/data-source';
-import { OA3_DEFERRED, OA3_GRANTS, activeGrants, planGrantMapping } from './database/oa3-grant-mapping';
+import { OA3_GRANTS, planGrantMapping } from './database/oa3-grant-mapping';
 import { SUPPORTED_SCOPES } from './database/migrations/1734048000000-DataScope';
 import { seed } from './database/seed';
 
@@ -132,14 +132,12 @@ describe('Data Scope schema & Role API OA3.1 (PostgreSQL, HTTP)', () => {
   });
 
   it('seeds the approved matrix, removes HĐ access from COMMON and leaves administered roles alone', async () => {
-    for (const code of Object.keys(OA3_GRANTS)) expect(await roleScopes(code)).toEqual(sortedScopes(activeGrants(code)));
+    for (const code of Object.keys(OA3_GRANTS)) expect(await roleScopes(code)).toEqual(sortedScopes(OA3_GRANTS[code]));
     const scToRoles = (await ds.query(`SELECT r.code FROM role_permissions rp JOIN roles r ON r.id = rp.role_id
       JOIN permissions p ON p.id = rp.permission_id WHERE p.code = 'SALES_CONTRACT.VIEW' ORDER BY 1`)).map((r: { code: string }) => r.code);
     expect(scToRoles).toEqual(['ADMIN', 'PM', 'SALES']);
-    // Only the deferred grants remain to add (OA3.3, with the scope engine).
-    const plan = await planGrantMapping(ds.manager);
-    expect(plan.add.map(a => `${a.role}>${a.permission}`).sort()).toEqual([...OA3_DEFERRED].sort());
-    expect({ ...plan, add: [] }).toEqual({ add: [], remove: [], rescope: [], unmapped: [] });
+    // OA3.3b: the full matrix is seeded (no deferred grants), so a fresh seed needs no mapping.
+    expect(await planGrantMapping(ds.manager)).toEqual({ add: [], remove: [], rescope: [], unmapped: [] });
     const before = await roleScopes('SALES');
     await seed(ds);
     expect(await roleScopes('SALES')).toEqual(before);

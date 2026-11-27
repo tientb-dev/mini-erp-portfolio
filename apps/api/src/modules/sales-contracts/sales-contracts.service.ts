@@ -3,7 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
 import { grantRole } from '../identity/authorization';
-import { ScopeSource, assertCanAct, assertCanRead, canAccessDraft, loadDataScope, scopeFilter } from '../identity/data-scope';
+import { DataScope, ScopeSource, assertCanAct, assertCanRead, canAccessDraft, inScope, loadDataScope, ownerOrgUnit, scopeFilter } from '../identity/data-scope';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -32,6 +32,10 @@ export const readSnapshot = <T>(ds: DataSource, run: (m: EntityManager) => Promi
  * Lock order: HĐ line first (ARCHITECTURE §2.1a).
  */
 export class SalesContractFacade {
+  static canRead(m: EntityManager, scope: DataScope, id: number) {
+    return inScope(m, scope, VIEW, SC_SOURCE, id);
+  }
+
   /** PR source picker: responsible Sales/PM invariant plus SALES_CONTRACT.VIEW scope (§7). Call inside `readSnapshot`. */
   static async prOptions(m: EntityManager, userId: number, q: string, page: number) {
     const f = scopeFilter(await loadDataScope(m, userId), VIEW, SC_SOURCE.cols, 4);
@@ -76,22 +80,16 @@ export class SalesContractFacade {
   }
 
   /** A contract referenced as a stock source (B/D), read FOR SHARE: status and responsible Sales. */
-  static async sourceContract(m: EntityManager, id: number): Promise<{ status: string; responsibleSalesUserId: number | null; responsiblePmUserId: number | null } | undefined> {
-    const [r] = await m.query(`SELECT status, responsible_sales_user_id AS "responsibleSalesUserId", responsible_pm_user_id AS "responsiblePmUserId" FROM sales_contracts WHERE id = $1 FOR SHARE`, [id]);
+  static async sourceContract(m: EntityManager, id: number, lock = true): Promise<{ status: string; responsibleSalesUserId: number | null; responsiblePmUserId: number | null } | undefined> {
+    const [r] = await m.query(`SELECT status, responsible_sales_user_id AS "responsibleSalesUserId", responsible_pm_user_id AS "responsiblePmUserId" FROM sales_contracts WHERE id = $1${lock ? ' FOR SHARE' : ''}`, [id]);
     return r;
   }
 
-  /** Responsible sales of one contract (plain read, for read-only scope checks); undefined when the contract does not exist. */
   static async assignResponsiblePm(m: EntityManager, contractId: number, userId: number) {
     if (!(await grantRole(m, userId, 'PR.CREATE'))) throw new BusinessError('PR_PM_NOT_ELIGIBLE', 'Select an active PM');
     const [, updated] = await m.query(`UPDATE sales_contracts SET responsible_pm_user_id = $2,
       version = version + 1, updated_at = now() WHERE id = $1`, [contractId, userId]);
     if (!updated) throw new NotFoundException();
-  }
-
-  static async responsibleSalesOf(m: EntityManager, id: number): Promise<number | null | undefined> {
-    const [r] = await m.query(`SELECT responsible_sales_user_id AS id FROM sales_contracts WHERE id = $1`, [id]);
-    return r ? r.id : undefined;
   }
 
   /** Number and status of contracts, for pickers. */
@@ -131,26 +129,10 @@ export class SalesContractsService {
     }
   }
 
-  /**
-   * Owner unit at creation (§4.4, BA-OA3-06): undefined → primary unit; a number must be one of the creator's ACTIVE
-   * memberships; NULL only when the creator has none. Read under the `grants` gate, so memberships cannot change.
-   */
-  private async ownerUnit(m: EntityManager, userId: number, requested: number | null | undefined): Promise<number | null> {
-    const units: { id: number; primary: boolean }[] = await m.query(
-      `SELECT org_unit_id AS id, is_primary AS primary FROM org_memberships WHERE user_id = $1 AND status = 'ACTIVE'`, [userId]);
-    if (!units.length) {
-      if (requested == null) return null;
-    } else if (requested === undefined) {
-      const primary = units.find((u) => u.primary);
-      if (primary) return primary.id;
-    } else if (units.some((u) => u.id === requested)) return requested!;
-    throw new BusinessError('OWNER_ORG_UNIT_INVALID', 'The owner unit must be one of your active organization units');
-  }
-
   create(user: CurrentUser, customerId: number, responsibleSalesUserId: number | null, lines: ScLineInput[], ownerOrgUnitId?: number | null) {
     return this.ds.transaction(async (m) => {
       const s = await loadDataScope(m, user.id, true);
-      const owner = await this.ownerUnit(m, user.id, ownerOrgUnitId);
+      const owner = await ownerOrgUnit(m, user.id, ownerOrgUnitId);
       // F-OA0-03: CREATE and VIEW scope on the projected contract.
       if (!canAccessDraft(s, VIEW, CREATE, { creatorId: user.id, responsibleIds: [responsibleSalesUserId], orgUnitId: owner })) {
         throw new ForbiddenException(`Missing permission: ${CREATE}`);

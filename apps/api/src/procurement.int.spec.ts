@@ -305,9 +305,10 @@ describe('Sales contracts and procurement documents (integration)', () => {
     const path = `/purchase-requisitions/${id}`;
     const outsider = await login(app, 'sales', 'role-users-test');
     const head = await login(app, 'sales-head', 'role-users-test');
-    await get(outsider, `${path}/notes`).expect(403);
-    await get(outsider, `${path}/history`).expect(403);
-    await post(outsider, `${path}/notes`, { body: 'outside scope' }).expect(403);
+    // OA3.3b: Sales holds PR.VIEW C/R/G; a PR outside that scope answers like an unknown id (BA-OA3-07).
+    await get(outsider, `${path}/notes`).expect(404);
+    await get(outsider, `${path}/history`).expect(404);
+    await post(outsider, `${path}/notes`, { body: 'outside scope' }).expect(404);
     await get(admin, '/purchase-requisitions/999999/history').expect(404);
     await get(admin, '/purchase-requisitions/999999/notes').expect(404);
     await post(admin, '/purchase-requisitions/999999/notes', { body: 'missing' }).expect(404);
@@ -441,7 +442,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await get(receiver, `${path}/candidates`).expect(403);
     await get(pm, '/pr-workflow/candidates').expect(403);
     const outside = await login(app, 'sales', 'role-users-test');
-    await get(outside, `${path}/candidates`).expect(403);
+    await get(outside, `${path}/candidates`).expect(404); // PR.VIEW scope does not cover it (OA3.3b)
     await get(outside, `/pr-workflow/creator-candidates?salesContractId=${sc}&route=PM`).expect(403);
     await post(pm, `${path}/submit`, await prSubmission(ds, id, 'SALES')).expect(422);
     await ds.query("DELETE FROM pr_candidate_pool_members WHERE pool = 'PM'");
@@ -586,8 +587,10 @@ describe('Sales contracts and procurement documents (integration)', () => {
           reason: 'Handover', round: 1, createdAt: expect.any(String),
           metadata: { step: 'APPROVAL', from: { id: headId, fullName: expect.any(String) }, to: { id: replacementId, fullName: expect.any(String) } },
         })]) });
-      await get(head, path).expect(403);
-      await post(head, `${path}/notes`, { body: 'No longer in scope' }).expect(403);
+      // OA3.3b (BA-OA3-04): the reassigned-away approver still reads through PR.VIEW ASSIGNED (history), may add a
+      // note (read scope), but cannot act: the Business Rule requires the current assignment.
+      await get(head, path).expect(200);
+      await post(head, `${path}/notes`, { body: 'Reassigned away, still in scope' }).expect(204);
       await post(head, `${path}/approve`, await prContext(ds, id)).expect(403);
       const notifications = async (actor: string) => (await get(actor, '/pr-notifications')).body.filter((n: { prId: number }) => n.prId === id);
       expect(await notifications(head)).toEqual(expect.arrayContaining([
@@ -597,12 +600,13 @@ describe('Sales contracts and procurement documents (integration)', () => {
       expect(await notifications(replacement)).toEqual([expect.objectContaining({ action: 'REQUEST_APPROVAL', resolvedAt: null })]);
       const oldTask = (await notifications(head)).find((n: { action: string }) => n.action === 'REQUEST_APPROVAL');
       await http().patch(`/pr-notifications/${oldTask.id}/read`).set(as(head)).expect(204);
-      await get(head, path).expect(403);
+      await get(head, path).expect(200);
 
       // Reading the PR does not grant reassignment. The same actor with PR.REASSIGN can reassign.
       // ADMIN grants are protected (ADR-0018), so the actor temporarily holds a PR.VIEW-only role instead of ADMIN.
       const [{ id: viewerRole }] = await ds.query(`INSERT INTO roles (code, name) VALUES ('PR_VIEW_ONLY', 'PR view only') RETURNING id`);
       await ds.query(`INSERT INTO role_permissions (role_id, permission_id) SELECT $1, id FROM permissions WHERE code = 'PR.VIEW'`, [viewerRole]);
+      await ds.query(`INSERT INTO role_permission_scopes (role_id, permission_id, scope_type) SELECT $1, id, 'ALL' FROM permissions WHERE code = 'PR.VIEW'`, [viewerRole]);
       await ds.query(`UPDATE user_roles SET role_id = $2 WHERE user_id = $1 AND role_id = (SELECT id FROM roles WHERE code = 'ADMIN')`, [approverId, viewerRole]);
       try {
         expect((await reassign(approver, headId)).status).toBe(403);
@@ -766,6 +770,8 @@ describe('Sales contracts and procurement documents (integration)', () => {
       [`DELETE FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE code = 'SALES_HEAD')
           AND permission_id = (SELECT id FROM permissions WHERE code = 'PR.APPROVE')`,
        `INSERT INTO role_permissions (role_id, permission_id) SELECT r.id, p.id FROM roles r, permissions p
+          WHERE r.code = 'SALES_HEAD' AND p.code = 'PR.APPROVE' ON CONFLICT DO NOTHING;
+        INSERT INTO role_permission_scopes (role_id, permission_id, scope_type) SELECT r.id, p.id, 'ASSIGNED' FROM roles r, permissions p
           WHERE r.code = 'SALES_HEAD' AND p.code = 'PR.APPROVE' ON CONFLICT DO NOTHING`, true],
       [`UPDATE roles SET is_active = false WHERE code = 'SALES_HEAD'`, `UPDATE roles SET is_active = true WHERE code = 'SALES_HEAD'`, false],
     ];

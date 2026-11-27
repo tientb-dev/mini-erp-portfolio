@@ -18,6 +18,28 @@ import { dossierTemplate, snapshotDocumentDossier } from '../document-dossier/do
 import type { IncomingDossierFile } from '../document-dossier/dossier-storage';
 import { DossierUpdate, NewDossierUpdate } from '../document-dossier/dossier-update.dto';
 import { grantRole } from '../identity/authorization';
+import { DataScope, ScopeSource, assertCanAct, assertCanRead, canAccessDraft, hasPermission, inScope, loadDataScope, matchesDraft,
+  ownerOrgUnit, scopeFilter } from '../identity/data-scope';
+
+const VIEW = 'PR.VIEW';
+const CREATE = 'PR.CREATE';
+const DOSSIER = 'PR.DOSSIER_MANAGE';
+/**
+ * PR scope columns (§5.3): creator, responsible Sales/PM of the source HĐ, owner unit, and ASSIGNED = assignee of any
+ * workflow node, current or past (invalidated rounds included), or reassigned away (REASSIGN overwrites the node
+ * assignee; the append-only history keeps `from`), BA-OA3-04. Acting still needs the current assignment (Business Rule).
+ */
+export const PR_SOURCE: ScopeSource = {
+  from: 'purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id', id: 'd.id',
+  cols: {
+    creator: 'd.created_by', responsible: ['s.responsible_sales_user_id', 's.responsible_pm_user_id'], orgUnit: 'd.owner_org_unit_id',
+    assigned: `EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = :uid)
+      OR EXISTS (SELECT 1 FROM approval_histories h WHERE h.document_type = 'PR' AND h.document_id = d.id
+        AND h.action = 'REASSIGN' AND (h.metadata->'from'->>'id')::int = :uid)`,
+  },
+};
+/** Scoped PR permissions that a detail or a reassignment may use, checked against one PR (`scopedOn`). */
+const PR_ACTIONS = [CREATE, 'PR.APPROVE', 'PR.RECEIVE', 'PR.REASSIGN', DOSSIER];
 
 export interface PrLineInput {
   id?: number;
@@ -33,6 +55,8 @@ export interface PrLineInput {
   taxRateId?: number | null;
 }
 export type LineCategory = 'SALES_GOODS' | 'MATERIAL';
+/** Create-only header: `ownerOrgUnitId` is fixed at creation (BA-OA3-06), so edits never accept it. */
+export type PrCreateSelection = prWorkflow.PrSelection & PrCommercialHeader & { ownerOrgUnitId?: number | null };
 
 /** A PR line as seen by a GIR (A/C): its PR, HĐ, category and approved PO coverage. */
 export interface PrLineForIssue {
@@ -186,25 +210,33 @@ export class ProcurementService {
   constructor(private readonly ds: DataSource, private readonly dossiers: DossierDocuments) {}
 
   /** `category`: sales goods (from the HĐ screen, every line keeps its HĐ line) or material (HĐ line optional); never mixed (CM3). */
-  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute, selection: prWorkflow.PrSelection & PrCommercialHeader = {}) {
+  createPurchaseRequisition(user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory = 'SALES_GOODS', purpose?: string, route?: prWorkflow.PrRoute, selection: PrCreateSelection = {}) {
     return this.ds.transaction(m => this.createPr(m, user, salesContractId, lines, category, purpose, route, selection));
   }
 
   private async createPr(m: EntityManager, user: CurrentUser, salesContractId: number, lines: PrLineInput[], category: LineCategory,
-    purpose: string | undefined, route: prWorkflow.PrRoute | undefined, selection: prWorkflow.PrSelection & PrCommercialHeader,
+    purpose: string | undefined, route: prWorkflow.PrRoute | undefined, selection: PrCreateSelection,
     dossier?: NewDossierUpdate & { requestKey: string }) {
     if (!Number.isInteger(salesContractId) || salesContractId <= 0) {
       throw new BusinessError('PR_SALES_CONTRACT_REQUIRED', 'Select a sales contract before saving a purchase requisition');
     }
+    // Gate shared before any row lock (OA3.2 boundary, step 4): scope and memberships are fixed until commit.
+    const s = await loadDataScope(m, user.id, true);
+    const owner = await ownerOrgUnit(m, user.id, selection.ownerOrgUnitId);
+    const contract = await SalesContractFacade.sourceContract(m, salesContractId);
+    // F-OA0-03: CREATE and VIEW scope on the projected PR (creator, responsible of the HĐ, owner; no assignee yet).
+    const draft = { creatorId: user.id, responsibleIds: [contract?.responsibleSalesUserId ?? null, contract?.responsiblePmUserId ?? null], orgUnitId: owner };
+    if (!canAccessDraft(s, VIEW, CREATE, draft)) throw new ForbiddenException(`Missing permission: ${CREATE}`);
+    if (dossier?.rows.length && !matchesDraft(s, DOSSIER, draft)) throw new ForbiddenException(`Missing permission: ${DOSSIER}`);
     const creatorRoute = await prWorkflow.creatorRoute(m, user, salesContractId, route);
     assertPrLines(lines);
     await SalesContractFacade.lockActiveLines(m, salesContractId, scLineIds(lines));
     await prWorkflow.validateSelection(m, creatorRoute, user.id, selection);
     const number = await wf.nextDocumentNumber(m, 'PR');
     const [pr] = await m.query(
-      `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by, creator_route, draft_approver_id, draft_receiver_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-      [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute, selection.approverId ?? null, selection.receiverId ?? null],
+      `INSERT INTO purchase_requisitions (document_number, sales_contract_id, category, purpose, created_by, creator_route, draft_approver_id, draft_receiver_id, owner_org_unit_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+      [number, salesContractId, category, purpose?.trim() || null, user.id, creatorRoute, selection.approverId ?? null, selection.receiverId ?? null, owner],
     );
     await savePrCommercialHeader(m, pr.id, selection);
     await this.writePrLines(m, pr.id, lines);
@@ -214,7 +246,6 @@ export class ProcurementService {
     }
     await snapshotDocumentDossier(m, 'PR', pr.id, user.id, template.rows);
     if (dossier?.rows.length) {
-      this.assertDossierManage(user);
       await this.dossiers.save(m, 'PR', pr.id, user.id,
         this.newDossierContext(dossier.sessionKey ?? dossier.requestKey), dossier.rows, true);
     }
@@ -317,24 +348,24 @@ export class ProcurementService {
   }
 
   private async updatePr(m: EntityManager, user: CurrentUser, id: number, version: number, lines: PrLineInput[], selection: prWorkflow.PrSelection & PrCommercialHeader & { purpose?: string; dossier?: DossierUpdate }, context?: ActionContext) {
-    const [head] = await m.query(`SELECT created_by, sales_contract_id, creator_route FROM purchase_requisitions WHERE id = $1`, [id]);
-    if (!head) throw new NotFoundException();
-    wf.assertCreator(head, user);
-    await prWorkflow.creatorRoute(m, user, head.sales_contract_id, head.creator_route);
-    // The request is the full line set (omitted lines are deleted), so checking it covers the saved result. Category is fixed.
-    assertPrLines(lines);
+    // Gate, then VIEW + CREATE scope (403/404) before any rule; re-checked on the locked row below (lock order HĐ lines → PR).
+    const s = await loadDataScope(m, user.id, true);
+    await assertCanAct(m, s, VIEW, CREATE, PR_SOURCE, id);
+    const [head] = await m.query(`SELECT sales_contract_id FROM purchase_requisitions WHERE id = $1`, [id]);
     // Lock order: HĐ lines → document (ARCHITECTURE §2.1a); the HĐ must still be ACTIVE.
     await SalesContractFacade.lockActiveLines(m, head.sales_contract_id, scLineIds(lines));
     const doc = await prWorkflow.lock(m, id);
+    await assertCanAct(m, s, VIEW, CREATE, PR_SOURCE, id);
+    if (selection.dossier?.rows.length) await this.assertScoped(m, s, DOSSIER, id);
     if (context) assertActionContext(doc, doc.approval_round, prWorkflow.currentStep(doc.approval_status), context);
     wf.assertEditable(doc, user, version);
+    await prWorkflow.creatorRoute(m, user, doc.sales_contract_id, doc.creator_route);
+    assertPrLines(lines);
     await prWorkflow.validateSelection(m, doc.creator_route, user.id, selection);
     await wf.deleteOmittedLines(m, 'purchase_requisition_lines', 'purchase_requisition_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
     await savePrCommercialHeader(m, id, selection);
     await this.writePrLines(m, id, lines);
     if (selection.dossier?.rows.length) {
-      this.assertDossierManage(user);
-      await this.readablePr(m, user, id);
       await this.dossiers.save(m, 'PR', id, user.id, this.existingDossierContext(id, selection.dossier.sessionKey), selection.dossier.rows);
     }
     await wf.setStatus(m, 'PR', doc, doc.approval_status,
@@ -346,7 +377,7 @@ export class ProcurementService {
     });
   }
 
-  saveNewPr(user: CurrentUser, dto: prWorkflow.PrSelection & PrCommercialHeader & { salesContractId: number; lines: PrLineInput[];
+  saveNewPr(user: CurrentUser, dto: PrCreateSelection & { salesContractId: number; lines: PrLineInput[];
     category?: LineCategory; purpose?: string; route?: prWorkflow.PrRoute; requestKey: string; submit: boolean; dossier?: NewDossierUpdate }) {
     // PostgreSQL UUID equality ignores case. Use the same representation for the advisory lock and the row.
     const requestKey = dto.requestKey.toLowerCase();
@@ -359,6 +390,7 @@ export class ProcurementService {
       dto.salesContractId, dto.category, dto.purpose, dto.route, dto.approverId, dto.receiverId, dto.submit,
       dto.lines.map(line => [line.id, line.productId, line.salesContractLineId, line.quantity]),
       ...(hasCommercialFields ? [[commercialHeader, commercialLines]] : []),
+      ...(dto.ownerOrgUnitId !== undefined ? [['owner', dto.ownerOrgUnitId]] : []),
       ...(dto.dossier ? [[dto.dossier.revision, dto.dossier.sessionKey, dto.dossier.rows.map(row => [row.dossierTypeId, row.version, row.hasPaper,
         row.issuedOn ?? null, row.issuer ?? null, row.note ?? null, row.fileId ?? null])]] : []),
     ])).digest('hex');
@@ -367,6 +399,7 @@ export class ProcurementService {
       const [existing] = await m.query(`SELECT id, document_number AS "documentNumber", create_request_fingerprint AS fingerprint
         FROM purchase_requisitions WHERE created_by = $1 AND create_request_key = $2`, [user.id, requestKey]);
       if (existing) {
+        await this.lockPr(m, user, existing.id, CREATE);
         if (existing.fingerprint !== fingerprint) throw new BusinessError('PR_REQUEST_REUSED', 'The request key was already used for different data', HttpStatus.CONFLICT);
         return { id: existing.id as number, documentNumber: existing.documentNumber as string };
       }
@@ -387,8 +420,8 @@ export class ProcurementService {
   }
 
   private async submitSavedPr(m: EntityManager, user: CurrentUser, id: number, selection: prWorkflow.PrSelection) {
+    const { doc } = await this.lockPr(m, user, id, CREATE);
     if (!selection.approverId || !selection.receiverId) throw new BusinessError('PR_CANDIDATE_NOT_ELIGIBLE', 'Select both workflow assignees');
-    const doc = await prWorkflow.lock(m, id);
     await prWorkflow.submit(m, id, user, { version: doc.version, round: doc.approval_round, step: 'CREATE',
       approverId: selection.approverId, receiverId: selection.receiverId });
   }
@@ -488,12 +521,17 @@ export class ProcurementService {
   }
 
   submitPr(id: number, user: CurrentUser, dto: prWorkflow.PrSubmission) {
-    return this.ds.transaction(m => prWorkflow.submit(m, id, user, dto));
+    return this.ds.transaction(async m => {
+      await this.lockPr(m, user, id, CREATE);
+      await prWorkflow.submit(m, id, user, dto);
+    });
   }
 
   actOnPr(id: number, user: CurrentUser, action: prWorkflow.PrAction, context: ActionContext, reason?: string) {
     return this.ds.transaction(async m => {
-      const doc = await prWorkflow.lock(m, id);
+      // Action permission by step: approval → PR.APPROVE, receipt → PR.RECEIVE, creator actions → PR.CREATE (§7).
+      const { doc } = await this.lockPr(m, user, id, d => action === 'recall' || action === 'cancel' ? CREATE
+        : action === 'receive' || (action === 'reject' && d.approval_status === 'WAITING_FOR_RECEIPT') ? 'PR.RECEIVE' : 'PR.APPROVE');
       const hasChildren = async () => (await m.query(
         `SELECT 1 FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id
            JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
@@ -505,19 +543,18 @@ export class ProcurementService {
 
   reassignPr(id: number, user: CurrentUser, dto: ActionContext & { assigneeId: number; reason: string }) {
     return this.ds.transaction(async m => {
-      await this.readablePr(m, user, id);
-      const doc = await prWorkflow.lock(m, id);
-      await this.readablePr(m, user, id);
-      await prWorkflow.reassign(m, doc, user, dto);
+      const { doc, scoped } = await this.lockPr(m, user, id);
+      await prWorkflow.reassign(m, doc, user, dto, scoped);
     });
   }
 
   prReassignmentCandidates(id: number, user: CurrentUser) {
-    return this.ds.transaction(async m => {
-      await this.readablePr(m, user, id);
-      const doc = await prWorkflow.lock(m, id);
-      await this.readablePr(m, user, id);
-      return prWorkflow.reassignmentCandidates(m, doc, user);
+    return readSnapshot(this.ds, async m => {
+      const s = await loadDataScope(m, user.id);
+      await assertCanRead(m, s, VIEW, PR_SOURCE, id);
+      const [doc] = await m.query('SELECT * FROM purchase_requisitions WHERE id = $1', [id]);
+      const scoped = await this.scopedOn(m, s, id);
+      return prWorkflow.reassignmentCandidates(m, doc, user, scoped);
     });
   }
 
@@ -548,56 +585,46 @@ export class ProcurementService {
   }
 
   /**
-   * Read scope for PRs (PR #17, ADR-0014): PR.VIEW sees every PR as before. Without it, a user with SALES_CONTRACT.VIEW
-   * may read (never write) the PRs of a contract where they are the responsible sales. Anything else is 403, whether or
-   * not the contract exists, so ids cannot be probed.
+   * `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR.VIEW scope only (BA-SCP-17, ADR-0014 superseded): no implicit read via
+   * creator, responsible or assignee; `salesContractId` (PR tab of a HĐ) only narrows the list. Items and total share one
+   * scope load, one filter and one snapshot (OA3.2 F02).
    */
-  private async assertPrReadScope(user: CurrentUser, salesContractId: number | undefined): Promise<'all' | 'contract'> {
-    if (user.permissions.includes('PR.VIEW')) return 'all';
-    if (user.permissions.includes('SALES_CONTRACT.VIEW') && salesContractId !== undefined
-      && (await SalesContractFacade.responsibleSalesOf(this.ds.manager, salesContractId)) === user.id) return 'contract';
-    throw new ForbiddenException('Missing permission: PR.VIEW');
-  }
-
-  /** `assignedToMe` = "Chờ tôi duyệt" (04 §4). PR/PO are not warehouse-scoped: the VIEW permission sees all. */
-  async listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number, filters: {
+  listPrs(user: CurrentUser, assignedToMe: boolean, salesContractId?: number, filters: {
     q?: string; category?: string; status?: string; from?: string; to?: string; sort?: keyof typeof PR_SORT;
     direction?: 'asc' | 'desc'; page?: number; size?: number;
   } = {}) {
-    const fullView = user.permissions.includes('PR.VIEW');
-    const canViewContract = user.permissions.includes('SALES_CONTRACT.VIEW');
-    const canCreate = user.permissions.includes('PR.CREATE');
-    const scopedList = user.permissions.some(permission => ['PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE'].includes(permission));
-    if (!fullView && !scopedList) await this.assertPrReadScope(user, salesContractId);
-    if (!fullView && salesContractId !== undefined) {
-      const contract = await SalesContractFacade.sourceContract(this.ds.manager, salesContractId);
-      if (!canCreate || contract?.responsiblePmUserId !== user.id) await this.assertPrReadScope(user, salesContractId);
-    }
     if (filters.from && filters.to && filters.from > filters.to) {
       throw new BusinessError('PR_INVALID_DATE_RANGE', 'The start date must not be later than the end date');
     }
-    const values = [user.id, assignedToMe, salesContractId ?? null, fullView, canViewContract, canCreate,
-      filters.q?.trim() ?? '', filters.category ?? null, filters.status ?? null, filters.from ?? null, filters.to ?? null];
-    const source = `FROM purchase_requisitions d
-      JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
-      JOIN users requester ON requester.id = d.created_by`;
-    const where = `WHERE (NOT $2 OR (d.approval_status IN ('WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT') AND d.assigned_approver_id = $1))
-      AND ($3::int IS NULL OR d.sales_contract_id = $3)
-      AND ($4 OR ($5 AND s.responsible_sales_user_id = $1) OR ($6 AND s.responsible_pm_user_id = $1) OR d.created_by = $1
-        OR EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $1))
-      AND ($7 = '' OR strpos(lower(d.document_number), lower($7)) > 0 OR strpos(lower(d.name), lower($7)) > 0
-        OR strpos(lower(s.document_number), lower($7)) > 0 OR strpos(lower(c.name), lower($7)) > 0)
-      AND ($8::text IS NULL OR d.category = $8) AND ($9::text IS NULL OR d.approval_status = $9)
-      AND ($10::date IS NULL OR d.requisition_date >= $10) AND ($11::date IS NULL OR d.requisition_date <= $11)`;
-    const sort = filters.sort && Object.hasOwn(PR_SORT, filters.sort) ? PR_SORT[filters.sort] : PR_SORT.createdAt;
-    const size = filters.size ?? 25;
-    const sql = `SELECT ${wf.DOC_COLUMNS}, d.category, d.sales_contract_id AS "salesContractId", ${PR_DETAILS},
-      s.document_number AS "salesContractNumber", c.name AS "customerName"
-      ${source} ${PR_TOTALS} ${where} ORDER BY ${sort} ${filters.direction === 'asc' ? 'ASC' : 'DESC'} NULLS LAST, d.id DESC`;
-    if (filters.page === undefined) return this.ds.query(sql, values);
-    return this.ds.transaction('REPEATABLE READ', async m => {
+    return readSnapshot(this.ds, async m => {
+      const s = await loadDataScope(m, user.id);
+      if (!hasPermission(s, VIEW)) throw new ForbiddenException(`Missing permission: ${VIEW}`);
+      if (salesContractId !== undefined && !(await SalesContractFacade.canRead(m, s, salesContractId))) {
+        return filters.page === undefined ? [] : { items: [], total: 0 };
+      }
+      const values: unknown[] = [user.id, assignedToMe, salesContractId ?? null, filters.q?.trim() ?? '', filters.category ?? null,
+        filters.status ?? null, filters.from ?? null, filters.to ?? null];
+      const scope = scopeFilter(s, VIEW, PR_SOURCE.cols, values.length + 1);
+      if (!scope) return filters.page === undefined ? [] : { items: [], total: 0 };
+      values.push(...scope.params);
+      const source = `FROM purchase_requisitions d
+        JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
+        JOIN users requester ON requester.id = d.created_by`;
+      const where = `WHERE (NOT $2 OR (d.approval_status IN ('WAITING_FOR_APPROVE', 'WAITING_FOR_RECEIPT') AND d.assigned_approver_id = $1))
+        AND ($3::int IS NULL OR d.sales_contract_id = $3) AND ${scope.sql}
+        AND ($4 = '' OR strpos(lower(d.document_number), lower($4)) > 0 OR strpos(lower(d.name), lower($4)) > 0
+          OR strpos(lower(s.document_number), lower($4)) > 0 OR strpos(lower(c.name), lower($4)) > 0)
+        AND ($5::text IS NULL OR d.category = $5) AND ($6::text IS NULL OR d.approval_status = $6)
+        AND ($7::date IS NULL OR d.requisition_date >= $7) AND ($8::date IS NULL OR d.requisition_date <= $8)`;
+      const sort = filters.sort && Object.hasOwn(PR_SORT, filters.sort) ? PR_SORT[filters.sort] : PR_SORT.createdAt;
+      const size = filters.size ?? 25;
+      const sql = `SELECT ${wf.DOC_COLUMNS}, d.category, d.sales_contract_id AS "salesContractId", ${PR_DETAILS},
+        s.document_number AS "salesContractNumber", c.name AS "customerName"
+        ${source} ${PR_TOTALS} ${where} ORDER BY ${sort} ${filters.direction === 'asc' ? 'ASC' : 'DESC'} NULLS LAST, d.id DESC`;
+      if (filters.page === undefined) return m.query(sql, values);
       const [{ total }] = await m.query(`SELECT count(*)::int AS total ${source} ${where}`, values);
-      const items = await m.query(sql + ' LIMIT $12 OFFSET $13', [...values, size, (filters.page! - 1) * size]);
+      const n = values.length;
+      const items = await m.query(`${sql} LIMIT $${n + 1} OFFSET $${n + 2}`, [...values, size, (filters.page - 1) * size]);
       return { items, total };
     });
   }
@@ -610,30 +637,57 @@ export class ProcurementService {
     return CatalogFacade.productPicker(this.ds, source, query);
   }
 
-  private async readablePr(m: EntityManager, user: CurrentUser, id: number, lock: boolean | 'update' = false) {
+  /** Scoped PR permissions (`PR_ACTIONS`) whose own scope matches PR `id` (detail flags, reassignment paths). */
+  private async scopedOn(m: EntityManager, s: DataScope, id: number) {
+    const hits = await Promise.all(PR_ACTIONS.map(async p => hasPermission(s, p) && inScope(m, s, p, PR_SOURCE, id)));
+    return PR_ACTIONS.filter((_, i) => hits[i]);
+  }
+
+  /** Action permission + its scope on an already readable PR (403), e.g. dossier rows saved with an edit. */
+  private async assertScoped(m: EntityManager, s: DataScope, permission: string, id: number) {
+    if (!hasPermission(s, permission) || !(await inScope(m, s, permission, PR_SOURCE, id))) {
+      throw new ForbiddenException(`Missing permission: ${permission}`);
+    }
+  }
+
+  /**
+   * Write boundary (OA3.2 step 3, like `SalesContractsService.lockForAction`): gate shared + scope → PR FOR UPDATE →
+   * VIEW (403/404) and, with `action` (fixed or chosen from the locked row), its scope (403) → Business Rules in the caller.
+   * Without `action` only VIEW is required (notes; reassignment checks its path's scope through `scoped`).
+   */
+  private async lockPr(m: EntityManager, user: CurrentUser, id: number, action?: string | ((doc: prWorkflow.PrHeader) => string)) {
+    const s = await loadDataScope(m, user.id, true);
+    if (!hasPermission(s, VIEW)) throw new ForbiddenException(`Missing permission: ${VIEW}`);
+    const [source] = await m.query('SELECT sales_contract_id FROM purchase_requisitions WHERE id = $1', [id]);
+    if (source) await SalesContractFacade.sourceContract(m, source.sales_contract_id);
+    const doc = await prWorkflow.lock(m, id); // 404 when missing
+    const permission = typeof action === 'function' ? action(doc) : action;
+    if (permission) await assertCanAct(m, s, VIEW, permission, PR_SOURCE, id);
+    else await assertCanRead(m, s, VIEW, PR_SOURCE, id);
+    return { s, doc, scoped: await this.scopedOn(m, s, id) };
+  }
+
+  /** Readable PR header (VIEW + scope, 403/404) and the scoped permissions on it. Call inside `readSnapshot`. */
+  private async readPr(m: EntityManager, user: CurrentUser, id: number) {
+    const s = await loadDataScope(m, user.id);
+    await assertCanRead(m, s, VIEW, PR_SOURCE, id);
     const [pr] = await m.query(
       `SELECT ${wf.DOC_COLUMNS}, d.approval_round AS "approvalRound", d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
         d.creator_route AS "creatorRoute", d.draft_approver_id AS "draftApproverId", d.draft_receiver_id AS "draftReceiverId",
         s.responsible_sales_user_id AS "responsibleSalesUserId", s.status AS "contractStatus", d.category, ${PR_DETAILS},
-        s.document_number AS "salesContractNumber", c.name AS "customerName",
-        EXISTS (SELECT 1 FROM pr_workflow_nodes n WHERE n.pr_id = d.id AND n.assignee_id = $2) AS "wasAssigned"
+        s.document_number AS "salesContractNumber", c.name AS "customerName", d.owner_org_unit_id AS "ownerOrgUnitId"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
          JOIN users requester ON requester.id = d.created_by
          ${PR_TOTALS}
-        WHERE d.id = $1 ${lock === 'update' ? 'FOR UPDATE OF d' : lock ? 'FOR SHARE OF d, s' : ''}`,
-      [id, user.id],
+        WHERE d.id = $1`,
+      [id],
     );
-    const fullView = user.permissions.includes('PR.VIEW');
-    const scoped = pr && (pr.createdBy === user.id || pr.wasAssigned
-      || (user.permissions.includes('PR.CREATE') && pr.responsiblePmUserId === user.id)
-      || (user.permissions.includes('SALES_CONTRACT.VIEW') && pr.responsibleSalesUserId === user.id));
-    if (!fullView && !scoped) throw new ForbiddenException('Missing permission: PR.VIEW');
-    if (!pr) throw new NotFoundException();
-    const { responsibleSalesUserId, contractStatus, wasAssigned, ...header } = pr;
+    const scoped = await this.scopedOn(m, s, id);
+    const { responsibleSalesUserId, contractStatus, ...header } = pr;
     const routeOwner = header.creatorRoute === 'SALES' ? responsibleSalesUserId : header.responsiblePmUserId;
-    const canEdit = header.createdBy === user.id && user.permissions.includes('PR.CREATE')
+    const canEdit = header.createdBy === user.id && scoped.includes(CREATE)
       && contractStatus === 'ACTIVE' && routeOwner === user.id && ['DRAFT', 'REJECTED'].includes(header.approvalStatus);
-    return { header, fullView, canEdit };
+    return { header, scoped, canEdit, canViewPo: hasPermission(s, 'PO.VIEW') };
   }
 
   prDossierTemplate() { return dossierTemplate(this.ds.manager, 'PR'); }
@@ -642,27 +696,27 @@ export class ProcurementService {
   private existingDossierContext(id: number, session?: string) { return 'PR:' + id + ':' + (session?.toLowerCase() ?? ''); }
 
   private assertDossierManage(user: CurrentUser, status?: string) {
-    if (!user.permissions.includes('PR.DOSSIER_MANAGE')) throw new ForbiddenException('Missing permission: PR.DOSSIER_MANAGE');
+    if (!user.permissions.includes(DOSSIER)) throw new ForbiddenException(`Missing permission: ${DOSSIER}`);
     if (status === 'CANCELED') throw new BusinessError('PR_DOSSIER_CANCELED', 'Không thể cập nhật hồ sơ của PR đã hủy.', HttpStatus.CONFLICT);
   }
 
-  async prDossier(user: CurrentUser, id: number) {
-    return this.ds.transaction(async m => {
-      const { header } = await this.readablePr(m, user, id);
-      return { rows: await this.dossiers.list(m, 'PR', id),
-        canManage: user.permissions.includes('PR.DOSSIER_MANAGE') && header.approvalStatus !== 'CANCELED' };
+  prDossier(user: CurrentUser, id: number) {
+    return readSnapshot(this.ds, async m => {
+      const { header, scoped } = await this.readPr(m, user, id);
+      return { rows: await this.dossiers.list(m, 'PR', id), canManage: scoped.includes(DOSSIER) && header.approvalStatus !== 'CANCELED' };
     });
   }
 
   savePrDossier(user: CurrentUser, id: number, body: DossierUpdate) {
     return this.ds.transaction(async m => {
-      const { header } = await this.readablePr(m, user, id, 'update');
-      this.assertDossierManage(user, header.approvalStatus);
+      const { doc } = await this.lockPr(m, user, id, DOSSIER);
+      this.assertDossierManage(user, doc.approval_status);
       await this.dossiers.save(m, 'PR', id, user.id, this.existingDossierContext(id, body.sessionKey), body.rows);
       return { rows: await this.dossiers.list(m, 'PR', id), canManage: true };
     });
   }
 
+  /** Staging writes a file outside any transaction: scope is checked here (snapshot) and again when rows are saved. */
   async stagePrDossier(user: CurrentUser, key: string | number, typeId: number, file: IncomingDossierFile, session?: string) {
     this.assertDossierManage(user);
     if (typeof key === 'string') {
@@ -670,28 +724,41 @@ export class ProcurementService {
       if (!template.rows.some(row => row.dossierTypeId === typeId)) throw new NotFoundException('Dossier type not in current configuration');
       return this.dossiers.stage(user.id, this.newDossierContext(key), typeId, file);
     }
-    const { rows, canManage } = await this.prDossier(user, key);
-    if (!canManage) this.assertDossierManage(user, 'CANCELED');
+    const rows = await readSnapshot(this.ds, async m => {
+      const { header, scoped } = await this.readPr(m, user, key);
+      if (!scoped.includes(DOSSIER)) throw new ForbiddenException(`Missing permission: ${DOSSIER}`);
+      this.assertDossierManage(user, header.approvalStatus);
+      return this.dossiers.list(m, 'PR', key);
+    });
     if (!rows.some(row => row.dossierTypeId === typeId)) throw new NotFoundException('Dossier type not in snapshot');
     return this.dossiers.stage(user.id, this.existingDossierContext(key, session), typeId, file);
   }
 
+  /**
+   * Scope check and file lookup in one transaction (OA3.2 boundary, step 2: same `em`); not read-only because the
+   * lookup locks the file row FOR SHARE. The stream is read after commit, without the gate.
+   */
   downloadPrDossier(user: CurrentUser, key: string | number, fileId: number, session?: string) {
-    return this.ds.transaction(async m => {
+    return this.ds.transaction('REPEATABLE READ', async m => {
       if (typeof key === 'string') {
         this.assertDossierManage(user);
         return this.dossiers.download(m, 'PR', null, fileId, { actor: user.id, context: this.newDossierContext(key) });
       }
-      const { header } = await this.readablePr(m, user, key);
-      const temporary = session && user.permissions.includes('PR.DOSSIER_MANAGE') && header.approvalStatus !== 'CANCELED'
+      const { header, scoped } = await this.readPr(m, user, key);
+      const temporary = session && scoped.includes(DOSSIER) && header.approvalStatus !== 'CANCELED'
         ? { actor: user.id, context: this.existingDossierContext(key, session) } : undefined;
       return this.dossiers.download(m, 'PR', key, fileId, temporary);
     });
   }
 
-  async getPr(user: CurrentUser, id: number) {
-    const { header, fullView, canEdit } = await this.readablePr(this.ds.manager, user, id);
-    const lines = await this.ds.query(
+  /** Detail in one snapshot (OA3.2 F02). Action flags need the action's own scope on this PR, then the Business Rules. */
+  getPr(user: CurrentUser, id: number) {
+    return readSnapshot(this.ds, m => this.readPrDetail(m, user, id));
+  }
+
+  private async readPrDetail(m: EntityManager, user: CurrentUser, id: number) {
+    const { header, scoped, canEdit, canViewPo } = await this.readPr(m, user, id);
+    const lines = await m.query(
       `SELECT l.id, l.sales_contract_line_id AS "sourceLineId", l.product_id AS "productId", sl.item_name AS "ref", l.snapshot_code AS "partNumber", l.snapshot_name AS "productName",
               COALESCE(l.uom_code, u.code) AS uom, l.quantity,
               CASE WHEN l.product_id IS NULL THEN 'TEMPORARY' ELSE 'MAIN' END AS "sourceType",
@@ -710,29 +777,28 @@ export class ProcurementService {
         WHERE l.purchase_requisition_id = $1 ORDER BY l.id`,
       [id],
     );
-    const children = await this.ds.query(
+    const children = await m.query(
       `SELECT DISTINCT po.id, po.document_number AS "documentNumber", po.approval_status AS "approvalStatus"
          FROM purchase_orders po JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id
          JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
         WHERE prl.purchase_requisition_id = $1 ORDER BY po.id`,
       [id],
     );
-    // The contract-scoped reader gets no PO numbers: PO.VIEW is not widened (PR #17).
     const [notes, history] = await Promise.all([
-      documentPage(this.ds.manager, 'PR', id, 'notes'),
-      documentPage(this.ds.manager, 'PR', id, 'history'),
+      documentPage(m, 'PR', id, 'notes'),
+      documentPage(m, 'PR', id, 'history'),
     ]);
-    const canReassign = await prWorkflow.canReassign(this.ds.manager, {
+    const canReassign = await prWorkflow.canReassign(m, {
       approval_status: header.approvalStatus, assigned_approver_id: header.assignedApproverId, created_by: header.createdBy,
-    }, user, false);
-    const creatorRole = await grantRole(this.ds.manager, header.createdBy, 'PR.CREATE');
+    }, user, false, scoped);
+    const creatorRole = await grantRole(m, header.createdBy, 'PR.CREATE');
     const rejection = header.approvalStatus === 'REJECTED'
-      ? await latestRoundActivity(this.ds.manager, 'PR', id, header.approvalRound, 'REJECT') : null;
-    const canCancel = header.createdBy === user.id && user.permissions.includes('PR.CREATE')
+      ? await latestRoundActivity(m, 'PR', id, header.approvalRound, 'REJECT') : null;
+    const canCancel = header.createdBy === user.id && scoped.includes(CREATE)
       && (['DRAFT', 'REJECTED'].includes(header.approvalStatus)
         || (header.approvalStatus === 'DONE' && children.every((po: { approvalStatus: string }) => po.approvalStatus === 'CANCELED')));
-    return { ...header, canCancel, canEdit, creatorRole: creatorRole?.role ?? null, rejection, canReassign, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
-      nodes: await this.ds.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",
+    return { ...header, canCancel, canEdit, creatorRole: creatorRole?.role ?? null, rejection, canReassign, lines, children: canViewPo ? children : [], history: history.items, historyCursor: history.nextCursor,
+      nodes: await m.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",
         a.full_name AS "assigneeName", u.full_name AS "actorName", n.acted_at AS "actedAt", n.invalidated_at AS "invalidatedAt"
         FROM pr_workflow_nodes n JOIN users a ON a.id = n.assignee_id LEFT JOIN users u ON u.id = n.actor_id
         WHERE n.pr_id = $1 ORDER BY n.round DESC, n.step`, [id]),
@@ -752,10 +818,13 @@ export class ProcurementService {
   }
 
   async listPrCandidates(id: number, user: CurrentUser) {
-    const [doc] = await this.ds.query('SELECT * FROM purchase_requisitions WHERE id = $1 AND created_by = $2', [id, user.id]);
-    if (!doc) throw new ForbiddenException('The PR is outside your creation scope');
-    wf.assertStatus(doc, ['DRAFT', 'REJECTED']);
-    return this.listCreatorCandidates(user, doc.sales_contract_id, doc.creator_route);
+    return readSnapshot(this.ds, async m => {
+      await assertCanAct(m, await loadDataScope(m, user.id), VIEW, CREATE, PR_SOURCE, id);
+      const [doc] = await m.query('SELECT * FROM purchase_requisitions WHERE id = $1', [id]);
+      if (doc.created_by !== user.id) throw new ForbiddenException('The PR is outside your creation scope');
+      wf.assertStatus(doc, ['DRAFT', 'REJECTED']);
+      return this.listCreatorCandidates(user, doc.sales_contract_id, doc.creator_route, m);
+    });
   }
 
   async listPrSuppliers(user: CurrentUser, contractId: number, brandId: number, requestedRoute?: prWorkflow.PrRoute) {
@@ -765,11 +834,11 @@ export class ProcurementService {
     });
   }
 
-  async listCreatorCandidates(user: CurrentUser, contractId: number, requestedRoute?: prWorkflow.PrRoute) {
-    const route = await prWorkflow.creatorRoute(this.ds.manager, user, contractId, requestedRoute);
+  async listCreatorCandidates(user: CurrentUser, contractId: number, requestedRoute?: prWorkflow.PrRoute, m = this.ds.manager) {
+    const route = await prWorkflow.creatorRoute(m, user, contractId, requestedRoute, false);
     const [approvers, receivers] = await Promise.all([
-      listCandidates(this.ds.manager, route, user.id),
-      listCandidates(this.ds.manager, 'RECEIPT', user.id),
+      listCandidates(m, route, user.id),
+      listCandidates(m, 'RECEIPT', user.id),
     ]);
     return { approvers, receivers };
   }
@@ -779,24 +848,43 @@ export class ProcurementService {
   }
 
   async addPrNote(user: CurrentUser, id: number, body: string) {
-    if (!body.trim()) throw new BusinessError('PR_NOTE_REQUIRED', 'Enter a note');
     await this.ds.transaction(async m => {
-      await this.readablePr(m, user, id, true);
+      await this.lockPr(m, user, id);
+      if (!body.trim()) throw new BusinessError('PR_NOTE_REQUIRED', 'Enter a note');
       await insertNote(m, 'PR', id, user.id, body.trim());
     });
   }
 
-  async readPrRecords(user: CurrentUser, id: number, kind: 'notes' | 'history', before?: number) {
-    await this.readablePr(this.ds.manager, user, id);
-    return documentPage(this.ds.manager, 'PR', id, kind, before);
+  readPrRecords(user: CurrentUser, id: number, kind: 'notes' | 'history', before?: number) {
+    return readSnapshot(this.ds, async m => {
+      await assertCanRead(m, await loadDataScope(m, user.id), VIEW, PR_SOURCE, id);
+      return documentPage(m, 'PR', id, kind, before);
+    });
   }
 
+  /** Lines of one PR (PO form), same read check as the detail. */
+  prLines(user: CurrentUser, id: number) {
+    return readSnapshot(this.ds, async m => {
+      await assertCanRead(m, await loadDataScope(m, user.id), VIEW, PR_SOURCE, id);
+      return m.query(`SELECT id, product_id AS "productId", temporary_product_id AS "temporaryProductId", quantity
+        FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [id]);
+    });
+  }
+
+  /**
+   * The user's PR notifications, only for PRs within their PR.VIEW scope: a notification carries PR data (number, reason),
+   * so it is not an implicit read either. Delivery itself is unchanged.
+   */
   listPrNotifications(recipientId: number) {
-    return this.ds.query(`SELECT n.id, n.pr_id AS "prId", pr.document_number AS "documentNumber",
-      n.action, n.round, n.reason, n.created_at AS "createdAt", n.read_at AS "readAt",
-      n.task_step AS "taskStep", n.resolved_at AS "resolvedAt"
-      FROM pr_notifications n JOIN purchase_requisitions pr ON pr.id = n.pr_id
-      WHERE n.recipient_id = $1 ORDER BY n.id DESC`, [recipientId]);
+    return readSnapshot(this.ds, async m => {
+      const scope = scopeFilter(await loadDataScope(m, recipientId), VIEW, PR_SOURCE.cols, 2);
+      if (!scope) return [];
+      return m.query(`SELECT n.id, n.pr_id AS "prId", d.document_number AS "documentNumber",
+        n.action, n.round, n.reason, n.created_at AS "createdAt", n.read_at AS "readAt",
+        n.task_step AS "taskStep", n.resolved_at AS "resolvedAt"
+        FROM pr_notifications n JOIN purchase_requisitions d ON d.id = n.pr_id JOIN sales_contracts s ON s.id = d.sales_contract_id
+        WHERE n.recipient_id = $1 AND ${scope.sql} ORDER BY n.id DESC`, [recipientId, ...scope.params]);
+    });
   }
 
   async readPrNotification(recipientId: number, id: number) {

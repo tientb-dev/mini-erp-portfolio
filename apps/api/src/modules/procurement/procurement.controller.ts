@@ -111,6 +111,8 @@ class CreatePrDto extends PrDraftSelection {
   @ApiPropertyOptional({ enum: ['SALES_GOODS', 'MATERIAL'], default: 'SALES_GOODS' }) @IsOptional() @IsIn(['SALES_GOODS', 'MATERIAL']) category?: 'SALES_GOODS' | 'MATERIAL';
   @ApiPropertyOptional({ description: 'Purpose of use (materials; reference)' }) @IsOptional() @IsString() purpose?: string;
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
+  @ApiPropertyOptional({ nullable: true, description: 'Owner unit (BA-OA3-06): omitted → primary unit; fixed after creation' })
+  @IsOptional() @IsInt() ownerOrgUnitId?: number | null;
 }
 class CreatePoDto {
   @ApiProperty() @IsInt() supplierId!: number;
@@ -143,8 +145,9 @@ class SubmitEditedPrDto extends UpdatePrDto {
 export class ProcurementController {
   constructor(private readonly svc: ProcurementService, @InjectDataSource() private readonly ds: DataSource) {}
 
-  /** PR.VIEW, or read-only for the responsible sales of `salesContractId` (scope checked in the service). */
+  /** PR.VIEW with its Data Scope (filtered in the service); `salesContractId` only narrows the list. */
   @Get('purchase-requisitions')
+  @RequirePermissions('PR.VIEW')
   listPrs(
     @Req() req: AuthedRequest,
     @Query() query: PrRequestListQuery,
@@ -153,8 +156,9 @@ export class ProcurementController {
     return this.svc.listPrs(req.user, assignedToMe === 'true', salesContractId, filters);
   }
 
-  /** PR.VIEW, or read-only for the responsible sales of the PR's contract (scope checked in the service). */
+  /** PR.VIEW; outside its scope → 404 (BA-OA3-07). */
   @Get('purchase-requisitions/:id')
+  @RequirePermissions('PR.VIEW')
   getPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.svc.getPr(req.user, id);
   }
@@ -164,6 +168,7 @@ export class ProcurementController {
   prDossierTemplate() { return this.svc.prDossierTemplate(); }
 
   @Get('purchase-requisitions/:id/dossier')
+  @RequirePermissions('PR.VIEW')
   prDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe, dossierIdRange) id: number) {
     return this.svc.prDossier(req.user, id);
   }
@@ -203,6 +208,7 @@ export class ProcurementController {
   }
 
   @Get('purchase-requisitions/:id/dossier/files/:fileId')
+  @RequirePermissions('PR.VIEW')
   @Header('Cache-Control', 'private, no-store')
   @Header('X-Content-Type-Options', 'nosniff')
   async downloadDossier(@Req() req: AuthedRequest, @Param('id', ParseIntPipe, dossierIdRange) id: number,
@@ -283,8 +289,8 @@ export class ProcurementController {
 
   @Get('purchase-requisitions/:id/lines')
   @RequirePermissions('PR.VIEW')
-  prLines(@Param('id', ParseIntPipe) id: number) {
-    return this.ds.query(`SELECT id, product_id AS "productId", temporary_product_id AS "temporaryProductId", quantity FROM purchase_requisition_lines WHERE purchase_requisition_id = $1 ORDER BY id`, [id]);
+  prLines(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.prLines(req.user, id);
   }
 
   @Post('purchase-orders')
@@ -341,17 +347,20 @@ export class ProcurementController {
 
   @Post('purchase-requisitions/:id/notes')
   @HttpCode(204)
+  @RequirePermissions('PR.VIEW')
   addNote(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrNoteDto) {
     return this.svc.addPrNote(req.user, id, dto.body);
   }
 
   @Get('purchase-requisitions/:id/notes')
+  @RequirePermissions('PR.VIEW')
   listNotes(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number) {
     return this.svc.readPrRecords(req.user, id, 'notes', before);
   }
 
   @Get('purchase-requisitions/:id/history')
+  @RequirePermissions('PR.VIEW')
   listHistory(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number) {
     return this.svc.readPrRecords(req.user, id, 'history', before);
@@ -387,24 +396,28 @@ export class ProcurementController {
   }
 
   @Get('purchase-requisitions/:id/reassignment-candidates')
+  @RequirePermissions('PR.VIEW')
   reassignmentCandidates(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.svc.prReassignmentCandidates(id, req.user);
   }
 
   @Post('purchase-requisitions/:id/reassign')
   @HttpCode(204)
+  @RequirePermissions('PR.VIEW')
   reassignPr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrReassignDto) {
     return this.svc.reassignPr(id, req.user, dto);
   }
 
   @Post('purchase-requisitions/:id/approve')
   @HttpCode(204)
+  @RequirePermissions('PR.VIEW')
   approvePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrDecisionDto) {
     return this.svc.actOnPr(id, req.user, 'approve', dto);
   }
 
   @Post('purchase-requisitions/:id/receive')
   @HttpCode(204)
+  @RequirePermissions('PR.VIEW')
   receivePr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrDecisionDto) {
     return this.svc.actOnPr(id, req.user, 'receive', dto);
   }
@@ -425,6 +438,7 @@ export class ProcurementController {
 
   @Post('purchase-requisitions/:id/reject')
   @HttpCode(204)
+  @RequirePermissions('PR.VIEW')
   rejectPR(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: PrRejectDto) {
     return this.svc.actOnPr(id, req.user, 'reject', dto, dto.reason);
   }

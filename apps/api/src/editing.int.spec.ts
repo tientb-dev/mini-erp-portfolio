@@ -184,9 +184,10 @@ describe('Document editing (integration)', () => {
     expect(d.lines.map((l: { partNumber: string; uom: string; quantity: string }) => [l.partNumber, l.uom, Number(l.quantity)])).toEqual([['PN-E2', 'BOX', 4], ['PN-E1', 'PCS', 1]]);
     expect(d.approvalStatus).toBe('DRAFT');
 
-    // Only the creator edits; the assigned approver never does (E06).
-    expect((await patch(approver, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(403)).body.code)
-      .toBe('NOT_DOCUMENT_CREATOR');
+    // Only the creator edits; the assigned approver never does (E06). OA3.3b: PR.CREATE scope is checked before the
+    // creator rule, so the approver (ADMIN: C R O T, none matches) is refused on permission.
+    expect((await patch(approver, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(403)).body.detail)
+      .toBe('Missing permission: PR.CREATE');
     await post(admin, `/purchase-requisitions/${pr}/submit`, await prSubmission(ds, pr)).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(409)).body.code)

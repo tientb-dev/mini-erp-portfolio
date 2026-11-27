@@ -20,7 +20,7 @@
 ## 2. Vai trò nghiệp vụ chính
 | Vai trò | Trách nhiệm |
 |---|---|
-| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT` (hiện dùng `SALES_CONTRACT.CREATE`; khóa từ `ACTIVE`, CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`; xem HĐ theo quyền VIEW (hiện chưa lọc theo khách hàng); **xem (chỉ xem) PR của HĐ mình là Sales phụ trách** dù không có `PR.VIEW` (ADR-0014); xác nhận/từ chối Product được phép giao cho dòng HĐ |
+| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT` (hiện dùng `SALES_CONTRACT.CREATE`; khóa từ `ACTIVE`, CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`; xem HĐ theo quyền VIEW (hiện chưa lọc theo khách hàng); xem PR theo `PR.VIEW` scope C R G (OA3.3b, thay ADR-0014); xác nhận/từ chối Product được phép giao cho dòng HĐ |
 | Người phụ trách nguồn hàng | Sales phụ trách HĐ nguồn, ghi trên lô khi duyệt GR và bất biến (CT15, CT17); MVP không chuyển giao tồn giữa Sales. Bước 1 (đồng ý) của GIR `AVAILABLE_STOCK` lấy hàng thuộc mình; có thể khác Sales của HĐ nhận hàng |
 | PM | Tạo GIR; đề xuất Product thay thế cho dòng HĐ kèm lý do; không tự xác nhận thay Sales |
 | Quản lý kho | Phụ trách GI; duyệt GIR (bước cuối với `AVAILABLE_STOCK`); "Xác nhận hoàn thành xuất" GIR |

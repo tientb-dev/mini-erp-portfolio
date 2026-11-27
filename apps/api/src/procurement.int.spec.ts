@@ -594,14 +594,15 @@ describe('Sales contracts and procurement documents (integration)', () => {
       await http().patch(`/pr-notifications/${oldTask.id}/read`).set(as(head)).expect(204);
       await get(head, path).expect(403);
 
-      // PR.CONFIGURE alone does not grant reassignment. The same actor with PR.REASSIGN and PR.VIEW can reassign.
-      await ds.query(`DELETE FROM role_permissions rp USING roles r, permissions p
-        WHERE rp.role_id = r.id AND rp.permission_id = p.id AND r.code = 'ADMIN' AND p.code = 'PR.REASSIGN'`);
+      // Reading the PR does not grant reassignment. The same actor with PR.REASSIGN can reassign.
+      // ADMIN grants are protected (ADR-0018), so the actor temporarily holds a PR.VIEW-only role instead of ADMIN.
+      const [{ id: viewerRole }] = await ds.query(`INSERT INTO roles (code, name) VALUES ('PR_VIEW_ONLY', 'PR view only') RETURNING id`);
+      await ds.query(`INSERT INTO role_permissions (role_id, permission_id) SELECT $1, id FROM permissions WHERE code = 'PR.VIEW'`, [viewerRole]);
+      await ds.query(`UPDATE user_roles SET role_id = $2 WHERE user_id = $1 AND role_id = (SELECT id FROM roles WHERE code = 'ADMIN')`, [approverId, viewerRole]);
       try {
         expect((await reassign(approver, headId)).status).toBe(403);
       } finally {
-        await ds.query(`INSERT INTO role_permissions (role_id, permission_id)
-          SELECT r.id, p.id FROM roles r CROSS JOIN permissions p WHERE r.code = 'ADMIN' AND p.code = 'PR.REASSIGN'`);
+        await ds.query(`UPDATE user_roles SET role_id = (SELECT id FROM roles WHERE code = 'ADMIN') WHERE user_id = $1 AND role_id = $2`, [approverId, viewerRole]);
       }
       expect((await reassign(approver, headId)).status).toBe(204);
       await post(head, `${path}/approve`, await prContext(ds, id)).expect(204);
@@ -740,5 +741,59 @@ describe('Sales contracts and procurement documents (integration)', () => {
     expect((await get(warehouse, '/goods-receipt-requests').expect(200)).body.some((r: { id: number }) => r.id === grr)).toBe(true);
     await post(approver, `/goods-receipt-requests/${grr}/reject`, { reason: 'Thiếu chứng từ' }).expect(204);
     expect((await get(admin, `/goods-receipt-requests/${grr}`)).body.approvalStatus).toBe('REJECTED');
+  });
+  it('OA1.1: an HTTP PR approval racing a role deactivation or grant revoke follows the committed grant', async () => {
+    const head = await login(app, 'sales-head', 'role-users-test');
+    const submitted = async () => {
+      const { sc, lineId } = await activeContract();
+      const { id } = (await post(admin, '/purchase-requisitions', {
+        salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }],
+      }).expect(201)).body;
+      await post(admin, `/purchase-requisitions/${id}/submit`, await prSubmission(ds, id)).expect(204);
+      return id as number;
+    };
+    const state = async (id: number) => (await ds.query(`SELECT p.approval_status AS status, p.version,
+        (SELECT count(*)::int FROM approval_histories h WHERE h.document_type = 'PR' AND h.document_id = p.id AND h.action = 'APPROVE') AS approvals,
+        (SELECT count(*)::int FROM pr_notifications n WHERE n.pr_id = p.id AND n.action = 'REQUEST_RECEIPT') AS "receiptTasks"
+      FROM purchase_requisitions p WHERE p.id = $1`, [id]))[0];
+    const cases: [string, string, boolean][] = [
+      [`UPDATE roles SET is_active = false WHERE code = 'SALES_HEAD'`, `UPDATE roles SET is_active = true WHERE code = 'SALES_HEAD'`, true],
+      [`DELETE FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE code = 'SALES_HEAD')
+          AND permission_id = (SELECT id FROM permissions WHERE code = 'PR.APPROVE')`,
+       `INSERT INTO role_permissions (role_id, permission_id) SELECT r.id, p.id FROM roles r, permissions p
+          WHERE r.code = 'SALES_HEAD' AND p.code = 'PR.APPROVE' ON CONFLICT DO NOTHING`, true],
+      [`UPDATE roles SET is_active = false WHERE code = 'SALES_HEAD'`, `UPDATE roles SET is_active = true WHERE code = 'SALES_HEAD'`, false],
+    ];
+    for (const [revoke, restore, commit] of cases) {
+      const id = await submitted();
+      const before = await state(id);
+      const revoker = ds.createQueryRunner();
+      await revoker.connect();
+      await revoker.startTransaction();
+      try {
+        await revoker.query(revoke);
+        // The guard still sees the committed grant; the live check inside the action transaction must wait on the lock.
+        const approve = post(head, `/purchase-requisitions/${id}/approve`, await prContext(ds, id)).then(res => res.status);
+        let waiting = 0;
+        for (let i = 0; i < 50 && !waiting; i++) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+          [{ waiting }] = await ds.query(`SELECT count(*)::int AS waiting FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event_type = 'Lock'`);
+        }
+        expect(waiting).toBeGreaterThan(0);
+        await (commit ? revoker.commitTransaction() : revoker.rollbackTransaction());
+        if (commit) {
+          expect(await approve).toBe(403);
+          expect(await state(id)).toEqual(before);
+        } else {
+          expect(await approve).toBe(204);
+          expect(await state(id)).toMatchObject({ status: 'WAITING_FOR_RECEIPT', approvals: before.approvals + 1, receiptTasks: before.receiptTasks + 1 });
+        }
+      } finally {
+        if (revoker.isTransactionActive) await revoker.rollbackTransaction();
+        await revoker.release();
+        await ds.query(restore);
+      }
+    }
   });
 });

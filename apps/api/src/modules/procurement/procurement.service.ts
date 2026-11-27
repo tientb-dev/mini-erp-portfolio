@@ -17,6 +17,7 @@ import { DossierDocuments } from '../document-dossier/dossier-documents';
 import { dossierTemplate, snapshotDocumentDossier } from '../document-dossier/dossier-snapshot';
 import type { IncomingDossierFile } from '../document-dossier/dossier-storage';
 import { DossierUpdate, NewDossierUpdate } from '../document-dossier/dossier-update.dto';
+import { grantRole } from '../identity/authorization';
 
 export interface PrLineInput {
   id?: number;
@@ -724,15 +725,13 @@ export class ProcurementService {
     const canReassign = await prWorkflow.canReassign(this.ds.manager, {
       approval_status: header.approvalStatus, assigned_approver_id: header.assignedApproverId, created_by: header.createdBy,
     }, user, false);
-    const [creatorRole] = await this.ds.query(`SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id
-      JOIN role_permissions rp ON rp.role_id = r.id JOIN permissions p ON p.id = rp.permission_id
-      WHERE ur.user_id = $1 AND p.code = 'PR.CREATE' ORDER BY r.id LIMIT 1`, [header.createdBy]);
+    const creatorRole = await grantRole(this.ds.manager, header.createdBy, 'PR.CREATE');
     const rejection = header.approvalStatus === 'REJECTED'
       ? await latestRoundActivity(this.ds.manager, 'PR', id, header.approvalRound, 'REJECT') : null;
     const canCancel = header.createdBy === user.id && user.permissions.includes('PR.CREATE')
       && (['DRAFT', 'REJECTED'].includes(header.approvalStatus)
         || (header.approvalStatus === 'DONE' && children.every((po: { approvalStatus: string }) => po.approvalStatus === 'CANCELED')));
-    return { ...header, canCancel, canEdit, creatorRole: creatorRole?.name ?? null, rejection, canReassign, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
+    return { ...header, canCancel, canEdit, creatorRole: creatorRole?.role ?? null, rejection, canReassign, lines, children: fullView ? children : [], history: history.items, historyCursor: history.nextCursor,
       nodes: await this.ds.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",
         a.full_name AS "assigneeName", u.full_name AS "actorName", n.acted_at AS "actedAt", n.invalidated_at AS "invalidatedAt"
         FROM pr_workflow_nodes n JOIN users a ON a.id = n.assignee_id LEFT JOIN users u ON u.id = n.actor_id

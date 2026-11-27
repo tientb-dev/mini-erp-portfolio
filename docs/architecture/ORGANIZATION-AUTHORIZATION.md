@@ -297,7 +297,8 @@ INDEX ON user_sessions (user_id) WHERE revoked_at IS NULL;
 UNIQUE (lower(code))
 
 -- permissions (hiện có): catalog đồng bộ bằng migration
-+ module varchar(50) NOT NULL, name varchar(200) NOT NULL, description text, sort_order int
++ module varchar(50) NOT NULL, name varchar(200) NOT NULL, description text   -- OA1.1
++ sort_order int                                                              -- OA1.3
 + supported_scopes text[] NOT NULL          -- '{}' = permission không phân scope
 + admin_only boolean NOT NULL DEFAULT false -- BA-RBAC-10
 CHECK (NOT admin_only OR supported_scopes = '{}')
@@ -718,6 +719,32 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 - **P2** (sau P1): UX OA5; rate-limit theo IP; báo cáo "ai có quyền X"; sửa H-11.
 - **P2 thuộc phase nghiệp vụ** (không thuộc OA): scope và đơn vị cho PO và kho; bỏ đọc ngầm kho; Reassign cho PO và kho.
 - **P3:** MFA, SSO, refresh token, ủy quyền tạm thời, lập lịch điều chuyển, field-level permission, workflow động, HRM, Delegated Administration.
+
+### 11.0 Trạng thái triển khai
+
+| Phần | Trạng thái |
+|---|---|
+| OA0 | Hoàn thành (`788135b`) |
+| **OA1.1** Authorization Foundation | **Hoàn thành.** Catalog có metadata và `admin_only` (migration `1733443200000`); `roles.is_active/is_system`; ADMIN bảo vệ bằng trigger DB (INSERT/UPDATE/DELETE/TRUNCATE trên `roles`, `role_permissions`, cờ `admin_only`); key mới tự cấp cho ADMIN; `v_user_grants`; module `identity/authorization.ts` (`loadGrants`, `grantRole` có `lock`, `usersWithPermission`) thay 5 điểm truy vấn grant; seed chỉ tạo khi thiếu |
+| OA1.2 Account Security | Chưa triển khai |
+| OA1.3 Role & Permission Management | Chưa triển khai |
+
+**Quyết định Architect tại OA1.1:**
+
+- Authorization là module hàm nhận `EntityManager`, không phải Nest provider.
+- Bảo vệ Role ADMIN bằng trigger DB.
+- `supported_scopes` thuộc OA3; `permissions.sort_order` thuộc OA1.3 (Permission Catalog UI).
+- **Bảo vệ Admin cuối cùng** (§5.5) triển khai ngay tại phase đầu tiên có API làm thay đổi trạng thái hoặc quyền của Admin. Nếu OA1.2 có đường như vậy (ví dụ vô hiệu hóa tài khoản), guard phải có trong OA1.2, không chờ OA1.3.
+
+**OA1.1 (đã đạt)**
+
+- Fresh migration và upgrade từ baseline OA0 trên PostgreSQL Test; snapshot role→permission và user→permission chỉ khác ở loại đã duyệt (ADMIN nhận `USER.*`, `ROLE.*`); chạy lại migration không có thay đổi; `down`/`up` khôi phục đúng snapshot.
+- `v_user_grants` và `grantRole(lock)` cho cùng kết quả; Role inactive không cấp quyền; thu hồi Role, membership, Permission có hiệu lực từ request tiếp theo.
+- `FOR SHARE` chặn mọi đường thu hồi khi action giữ grant; thu hồi commit trong lúc chờ được thấy sau khi chờ; không deadlock.
+- HTTP: phê duyệt PR đồng thời với ngừng Role hoặc gỡ `PR.APPROVE` → 403, trạng thái PR, Activity và Notification không đổi; khi thu hồi rollback → 204, chuyển bước, có Activity APPROVE và task tiếp nhận.
+- Role thường không nhận `admin_only` (INSERT và UPDATE); ADMIN không bị gỡ, chuyển, ngừng, đổi mã hay xóa grant; không nâng Role thường thành hệ thống; ADMIN sửa được tên, mô tả.
+- Chạy lại seed không khôi phục Permission, membership, kho, không kích hoạt lại Role, không đổi tên Role, không đặt lại mật khẩu.
+- Test kiến trúc: không JOIN grant ngoài module Authorization.
 
 ### 11.1 Acceptance criteria
 

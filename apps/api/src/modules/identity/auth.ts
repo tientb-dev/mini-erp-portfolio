@@ -8,7 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 import { Request } from 'express';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { loadGrants } from './authorization';
 import { User } from './identity.entities';
 import { verifyPassword } from './password';
 
@@ -32,16 +33,10 @@ export const Public = () => SetMetadata(PUBLIC_KEY, true);
 
 @Injectable()
 export class IdentityService {
-  constructor(@InjectRepository(User) private readonly users: Repository<User>) {}
+  constructor(@InjectRepository(User) private readonly users: Repository<User>, private readonly ds: DataSource) {}
 
   async loadCurrentUser(id: number): Promise<CurrentUser | null> {
-    const user = await this.users.findOne({
-      where: { id, isActive: true },
-      relations: { roles: { permissions: true }, warehouses: true },
-    });
-    if (!user) return null;
-    const permissions = [...new Set(user.roles.flatMap((r) => r.permissions.map((p) => p.code)))];
-    return { id: user.id, username: user.username, fullName: user.fullName, roleCodes: user.roles.map((role) => role.code), permissions, warehouseIds: user.warehouses.map((w) => w.id) };
+    return (await loadGrants(this.ds.manager, id)) ?? null;
   }
 
   async checkCredentials(username: string, password: string): Promise<number | null> {

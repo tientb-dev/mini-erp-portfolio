@@ -1,4 +1,5 @@
 import { EntityManager } from 'typeorm';
+import { grantRole } from '../identity/authorization';
 import { BusinessError } from '../workflow/workflow';
 
 export const PR_POOLS = ['SALES', 'PM', 'RECEIPT'] as const;
@@ -18,21 +19,18 @@ export function lockPool(m: EntityManager, pool: PrPool, exclusive: boolean) {
   return m.query(`SELECT ${lock}(hashtext('pr-candidate-pool'), hashtext($1))`, [pool]);
 }
 
-export function currentGrant(m: EntityManager, id: number, permission: string): Promise<{ role: string; fullName: string }[]> {
-  return m.query(`SELECT r.name AS role, u.full_name AS "fullName" FROM users u JOIN user_roles ur ON ur.user_id = u.id
-    JOIN roles r ON r.id = ur.role_id JOIN role_permissions rp ON rp.role_id = r.id
-    JOIN permissions p ON p.id = rp.permission_id
-    WHERE u.id = $1 AND u.is_active AND p.code = $2
-    ORDER BY r.id LIMIT 1 FOR SHARE OF u, ur, rp`, [id, permission]);
+/** Live grant check under FOR SHARE (ADR-0015 §eligibility), via the central Authorization lock. */
+export async function currentGrant(m: EntityManager, id: number, permission: string): Promise<{ role: string; fullName: string }[]> {
+  const grant = await grantRole(m, id, permission, true);
+  return grant ? [grant] : [];
 }
 
 export function listCandidates(m: EntityManager, pool: PrPool, exclude: number | null = null, configured = true): Promise<Candidate[]> {
-  return m.query(`SELECT DISTINCT ON (u.id) u.id, u.full_name AS "fullName", u.username, r.name AS role
-    FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-    JOIN role_permissions rp ON rp.role_id = r.id JOIN permissions p ON p.id = rp.permission_id
-    WHERE u.is_active AND p.code = $2 AND ($3::int IS NULL OR u.id <> $3)
+  return m.query(`SELECT DISTINCT ON (u.id) u.id, u.full_name AS "fullName", u.username, g.role_name AS role
+    FROM v_user_grants g JOIN users u ON u.id = g.user_id
+    WHERE g.permission = $2 AND ($3::int IS NULL OR u.id <> $3)
       AND (NOT $4 OR EXISTS (SELECT 1 FROM pr_candidate_pool_members c WHERE c.pool = $1 AND c.user_id = u.id))
-    ORDER BY u.id, r.id`, [pool, permissionFor(pool), exclude, configured]);
+    ORDER BY u.id, g.role_id`, [pool, permissionFor(pool), exclude, configured]);
 }
 
 export async function eligible(m: EntityManager, pool: PrPool, userId: number, creatorId: number) {

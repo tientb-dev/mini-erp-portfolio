@@ -6,16 +6,22 @@ import { EntityManager } from 'typeorm';
  * Every function takes the caller's EntityManager so checks run in the same transaction as the write.
  */
 
-/** Active permissions, active role codes and warehouses of an active account; undefined when it cannot sign in. */
-export async function loadGrants(m: EntityManager, userId: number): Promise<{
-  id: number; username: string; fullName: string; permissions: string[]; roleCodes: string[]; warehouseIds: number[];
+/**
+ * Active permissions, active role codes and warehouses of an active account; undefined when it cannot act.
+ * With `sessionId` (every HTTP request) the session must also be open, unexpired and owned by the user (OA1.2).
+ */
+export async function loadGrants(m: EntityManager, userId: number, sessionId?: string): Promise<{
+  id: number; username: string; fullName: string; mustChangePassword: boolean;
+  permissions: string[]; roleCodes: string[]; warehouseIds: number[];
 } | undefined> {
-  const [user] = await m.query(`SELECT u.id, u.username, u.full_name AS "fullName",
+  const [user] = await m.query(`SELECT u.id, u.username, u.full_name AS "fullName", u.must_change_password AS "mustChangePassword",
       ARRAY(SELECT DISTINCT g.permission FROM v_user_grants g WHERE g.user_id = u.id ORDER BY 1) AS permissions,
       ARRAY(SELECT r.code FROM user_roles ur JOIN roles r ON r.id = ur.role_id AND r.is_active
         WHERE ur.user_id = u.id ORDER BY r.id) AS "roleCodes",
       ARRAY(SELECT uw.warehouse_id FROM user_warehouses uw WHERE uw.user_id = u.id ORDER BY 1) AS "warehouseIds"
-    FROM users u WHERE u.id = $1 AND u.is_active`, [userId]);
+    FROM users u WHERE u.id = $1 AND u.is_active
+      AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM user_sessions s WHERE s.id = $2 AND s.user_id = u.id
+        AND s.revoked_at IS NULL AND s.expires_at > now()))`, [userId, sessionId ?? null]);
   return user;
 }
 
@@ -46,4 +52,18 @@ export function usersWithPermission(m: EntityManager, permission: string, exclud
       ORDER BY u.username`,
     [permission, excludeUserId, warehouseId ?? null],
   ) as Promise<{ id: number; username: string; fullName: string }[]>;
+}
+
+/**
+ * Last Admin Protection (BA-USR-08, BA-SEC-04). Call `lockAdminGuard` first in the transaction (lock order:
+ * admin-guard → users rows → roles), apply the change, then check `activeAdminCount` (`assertAdminRemains`). Shared with role/membership
+ * changes in OA1.3. A temporary login lockout does not remove admin standing.
+ */
+export const lockAdminGuard = (m: EntityManager) => m.query(`SELECT pg_advisory_xact_lock(hashtext('admin-guard'))`);
+/** Active accounts holding an active system role. */
+export async function activeAdminCount(m: EntityManager): Promise<number> {
+  const [{ admins }] = await m.query(`SELECT count(DISTINCT u.id)::int AS admins FROM users u
+    JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id AND r.is_system AND r.is_active
+    WHERE u.is_active`);
+  return admins;
 }

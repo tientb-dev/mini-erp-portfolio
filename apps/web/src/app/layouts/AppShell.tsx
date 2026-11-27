@@ -6,7 +6,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import { fillMedia, tokens } from '../../config/theme';
 import { DossierConfigurationRoute } from '../../features/document-dossier';
 import { PrNotifications } from '../../features/procurement';
-import { useMe } from '../../features/identity';
+import { AccountMenu, useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';
 import { DETAIL_ALSO, NAV, PAGE_CREATE, PageKey, PAGES } from '../routes';
 import { SideNav } from './SideNav';
@@ -26,7 +26,7 @@ function PageRoute({ allowed, has }: { allowed: (k: PageKey) => boolean; has: (p
   return <Page key={`${page}-${id ?? ''}`} initialId={creating ? 0 : id ? Number(id) : undefined} />;
 }
 
-export function AppShell({ onLogout }: { onLogout: () => void }) {
+export function AppShell({ onLogout, onPasswordChanged }: { onLogout: () => void; onPasswordChanged: () => void }) {
   const { t, i18n } = useTranslation();
   const me = useMe();
   const navigate = useNavigate();
@@ -49,7 +49,7 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
           <Typography component="span" sx={{ fontWeight: 700, color: 'primary.main', flexGrow: 1 }}>{t('app.title')}</Typography>
           <Button size="small" onClick={() => void i18n.changeLanguage(i18n.language === 'en' ? 'vi' : 'en')}>{t('app.language')}</Button>
           {me.data && <PrNotifications userId={me.data.id} openPr={id => openDoc("purchase-requisitions", id)} />}
-          <Button size="small" onClick={onLogout}>{t('app.logout')}</Button>
+          {me.data && <AccountMenu me={me.data} onLogout={onLogout} onPasswordChanged={onPasswordChanged} />}
         </Toolbar>
       </AppBar>
       <Drawer

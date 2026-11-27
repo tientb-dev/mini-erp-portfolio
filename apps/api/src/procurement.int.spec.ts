@@ -275,6 +275,10 @@ describe('Sales contracts and procurement documents (integration)', () => {
     const runner = ds.createQueryRunner();
     await runner.startTransaction();
     try {
+      // Replaying this older migration predates the USER activity target (OA1.2): hide those rows inside the rolled-back transaction.
+      await runner.query(`ALTER TABLE approval_histories DISABLE TRIGGER protect_document_activity_rows;
+        DELETE FROM approval_histories WHERE document_type = 'USER';
+        ALTER TABLE approval_histories ENABLE TRIGGER protect_document_activity_rows`);
       const migration = new CommonDocumentRecords1732492800000();
       await migration.down(runner);
       await runner.query(`INSERT INTO pr_notes (id, pr_id, author_id, body, created_at)

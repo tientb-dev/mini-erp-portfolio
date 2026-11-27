@@ -31,7 +31,7 @@
    - Mật khẩu ≥ 12 ký tự.
    - Bắt đổi mật khẩu khởi tạo và sau reset.
    - Sai 5 lần liên tiếp thì khóa 15 phút; ADMIN mở khóa được.
-   - Phiên lưu trong `user_sessions`: logout thu hồi phiên hiện tại; đổi/reset mật khẩu hoặc vô hiệu hóa thì thu hồi toàn bộ, kể cả phiên hiện tại, không cấp token mới. Token cũ không sống lại khi kích hoạt lại tài khoản.
+   - Phiên lưu trong `user_sessions`: logout thu hồi phiên hiện tại; đổi/reset mật khẩu hoặc vô hiệu hóa thì thu hồi toàn bộ, kể cả phiên hiện tại, không cấp token mới. Token cũ không sống lại khi kích hoạt lại tài khoản. Rate limit đăng nhập và kiểm tra mật khẩu hiện tại bổ trợ cho khóa tài khoản; đăng nhập thất bại với username không tồn tại ghi vào `auth_events` append-only.
 7. **Nhóm ứng viên** Role + User có ID số, dùng cho 5 nhóm. Có permission không đồng nghĩa là ứng viên. Ứng viên trên chứng từ cần thêm quyền đọc và quyền xử lý khớp scope, đánh giá trên trạng thái dự kiến sau phân công.
 8. **Authorization tập trung** (`modules/identity/authorization.ts`, module hàm, không phải Nest provider) nhận `EntityManager` của transaction. Có `v_user_grants` cho đường đọc, `grantRole(..., lock)` (`FOR SHARE` trên bảng gốc) giữ live grant check của PR. Role ADMIN được bảo vệ bằng trigger DB. Bảo vệ Admin cuối cùng có mặt ngay từ phase đầu tiên có API thay đổi trạng thái hoặc quyền của Admin.
 9. **Legacy:** ưu tiên đúng thiết kế mới. Được dọn chứng từ thử nghiệm sau khi backup và được duyệt. Không backfill hay compatibility layer. Snapshot quyền phân loại khác biệt "đã duyệt" và "ngoài dự kiến".

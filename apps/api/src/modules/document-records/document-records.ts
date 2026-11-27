@@ -17,7 +17,8 @@ export function insertNote(m: EntityManager, type: DocumentTarget, id: number, a
     [type, id, authorId, body]);
 }
 
-export function appendActivity(m: EntityManager, type: DocumentTarget, id: number, action: string, actorId: number,
+/** `USER` carries account security events (OA1.2); it is not a document target for notes or dossiers. */
+export function appendActivity(m: EntityManager, type: DocumentTarget | 'USER', id: number, action: string, actorId: number,
   reason?: string, details: ActivityDetails = {}) {
   return m.query(`INSERT INTO approval_histories
     (document_type, document_id, action, actor_id, reason, previous_status, next_status, approval_round, metadata)

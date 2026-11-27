@@ -36,10 +36,13 @@ export const ROLES: Record<string, { name: string; username: string; fullName: s
   },
 };
 
-/** Creates a missing user with its role and warehouse; an existing user is left exactly as administered (BA-SEC-06). */
+/**
+ * Creates a missing user with its role and warehouse; an existing user is left exactly as administered (BA-SEC-06).
+ * A new interactive account must change its password at first sign-in (BA-N-15).
+ */
 async function upsertUser(ds: DataSource, username: string, password: string, fullName: string, role = 'ADMIN') {
   const hash = await hashPassword(password);
-  const [created] = await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ($1, $2, $3)
+  const [created] = await ds.query(`INSERT INTO users (username, password_hash, full_name, must_change_password) VALUES ($1, $2, $3, true)
     ON CONFLICT (username) DO NOTHING RETURNING id`, [username, hash, fullName]);
   if (!created) return;
   await ds.query('INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = $2', [created.id, role]);

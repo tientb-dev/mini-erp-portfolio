@@ -244,7 +244,8 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
     const options = (all: boolean) => {
       const base = dataSourceOptions();
       const migrations = base.migrations as Function[];
-      return { ...base, migrations: all ? migrations : migrations.slice(0, -1), extra: { options: `-c search_path=${schema}` } };
+      const oa11 = migrations.findIndex(mig => mig.name === 'AuthorizationFoundation1733443200000');
+      return { ...base, migrations: all ? migrations : migrations.slice(0, oa11), extra: { options: `-c search_path=${schema}` } };
     };
 
     afterAll(async () => {
@@ -282,6 +283,9 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       await up.initialize();
       await up.runMigrations();
       const after = { roles: await roleGrants(up), users: await userGrants(up) };
+      // OA1.2 keeps every account as it was: hash, status, no forced change.
+      expect(await up.query('SELECT DISTINCT password_hash, is_active, must_change_password, failed_login_count FROM users'))
+        .toEqual([{ password_hash: 'x', is_active: true, must_change_password: false, failed_login_count: 0 }]);
       // Approved: the new admin-only keys go to ADMIN only. Anything else is unexpected.
       expect(diff(before.roles, after.roles)).toEqual({ added: NEW_KEYS.map(k => `ADMIN>${k}`), removed: [] });
       expect(diff(before.users, after.users)).toEqual({ added: NEW_KEYS.map(k => `admin>${k}`), removed: [] });
@@ -294,6 +298,8 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       expect(after.roles.filter(g => !reseeded.includes(g))).toEqual([]);
 
       expect(await up.runMigrations()).toEqual([]);
+      // Revert OA1.2 then OA1.1.
+      await up.undoLastMigration();
       await up.undoLastMigration();
       expect(await roleGrants(up)).toEqual(before.roles);
       await up.runMigrations();

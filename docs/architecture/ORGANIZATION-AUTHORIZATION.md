@@ -726,7 +726,32 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 |---|---|
 | OA0 | Hoàn thành (`788135b`) |
 | **OA1.1** Authorization Foundation | **Hoàn thành.** Catalog có metadata và `admin_only` (migration `1733443200000`); `roles.is_active/is_system`; ADMIN bảo vệ bằng trigger DB (INSERT/UPDATE/DELETE/TRUNCATE trên `roles`, `role_permissions`, cờ `admin_only`); key mới tự cấp cho ADMIN; `v_user_grants`; module `identity/authorization.ts` (`loadGrants`, `grantRole` có `lock`, `usersWithPermission`) thay 5 điểm truy vấn grant; seed chỉ tạo khi thiếu |
-| OA1.2 Account Security | Chưa triển khai |
+| **OA1.2** Account Security | **Hoàn thành.** Migration `1733529600000`: `user_sessions`, cột mật khẩu/khóa trên `users`, target Activity `USER`. JWT `{sub, sid, exp}`, session kiểm tra trong cùng query nạp quyền; logout thu hồi phiên hiện tại; đổi/reset mật khẩu, vô hiệu hóa thu hồi toàn bộ. Khóa 5 lần/15 phút, ADMIN mở khóa. `must_change_password` chỉ cho `/auth/me`, `/auth/change-password`, `/auth/logout`. API: `POST /auth/logout`, `POST /auth/change-password`, `GET /admin/users/:id/account`, `POST /admin/users/:id/reset-password`, `PATCH /admin/users/:id/account-status`, `POST /admin/users/:id/unlock`. Last Admin Protection (`lockAdminGuard` + `assertAdminRemains`) áp cho vô hiệu hóa tài khoản và dùng lại ở OA1.3 |
+
+**Quyết định Architect tại OA1.2:** username không phân biệt hoa thường làm ở OA2 kèm preflight dữ liệu trùng; reset mật khẩu đồng thời mở khóa; sai mật khẩu hiện tại không tính vào khóa đăng nhập nhưng có rate limit riêng; mật khẩu 12–256 ký tự; scrypt chạy trong transaction khóa dòng user; `EMPLOYMENT_INACTIVE` thuộc OA2; hồ sơ cá nhân chỉ đọc.
+
+**Chốt OA1.2 (F-OA1.2-01…09):**
+
+- **Audit:** đăng nhập thất bại với username không tồn tại ghi vào bảng append-only `auth_events` (không phải Activity History vì không có target USER): sự kiện, nguyên nhân, SHA-256 của tên đã nhập (không lưu nguyên văn vì người dùng có thể gõ nhầm mật khẩu vào ô username), IP tối đa 45 ký tự.
+- **Thời gian phản hồi:** mọi nhánh đăng nhập (không tồn tại, khóa, tắt, sai, đúng) chạy đúng một lần scrypt.
+- **Rate limit** (bổ trợ, không thay khóa tài khoản), cửa sổ cố định trong bộ nhớ tiến trình, khóa theo dữ liệu đầu vào trước khi tra DB nên không lộ tài khoản tồn tại; vượt giới hạn trả 429 `TOO_MANY_ATTEMPTS`, không tính vào bộ đếm khóa:
+  - `AUTH_LOGIN_LIMIT_PER_IP` mặc định 30 lần/phút/địa chỉ IP;
+  - `AUTH_LOGIN_LIMIT_PER_ACCOUNT` mặc định 10 lần/phút/(IP, username);
+  - `AUTH_PASSWORD_CHECK_LIMIT` mặc định 5 lần/15 phút/tài khoản cho kiểm tra mật khẩu hiện tại.
+  - Giới hạn theo từng instance API và mất khi khởi động lại; chạy nhiều instance cần kho dùng chung.
+- **Session trong transaction:** đổi mật khẩu kiểm tra lại session dưới khóa dòng user; reset/disable/enable/unlock khóa dòng actor và target theo thứ tự id (sau admin-guard khi có), kiểm tra lại session và `USER.MANAGE` của actor bằng `grantRole(lock)`. Request đã qua AuthGuard nhưng session bị thu hồi trước đó trả 401.
+- **Frontend:** 401 chỉ xóa đúng token đã gửi request (401 muộn của phiên cũ không làm mất phiên mới); nhiều 401 đồng thời chỉ phát một sự kiện; logout lỗi mạng vẫn xóa phiên cục bộ và báo chưa xác nhận được với máy chủ; thông báo "Phiên đăng nhập không còn hiệu lực…" hiện một lần, không hiện khi chủ động đăng xuất hay đổi mật khẩu; dữ liệu cache của phiên cũ bị xóa. Mỗi tab giữ token riêng (`sessionStorage`).
+- **UI:** Login rộng 420px, hiện/ẩn mật khẩu, dòng "Hệ thống quản lý doanh nghiệp" và "Quên mật khẩu? Liên hệ quản trị viên."; màn bắt buộc đổi mật khẩu cùng chiều rộng, nút Đăng xuất outlined, có hướng dẫn đăng nhập lại; menu tài khoản có chevron; dialog đổi mật khẩu 480px, hướng dẫn chính sách hiện sẵn dưới mật khẩu mới.
+
+**Chi tiết OA1.2 so với §5:**
+
+- So khớp username **phân biệt hoa thường** như baseline; không phân biệt hoa thường (BA-USR-02) đi cùng unique index ở OA2.
+- Reset mật khẩu xóa bộ đếm và trạng thái khóa. Sai mật khẩu hiện tại khi tự đổi không tính vào khóa đăng nhập.
+- Lần đăng nhập khi đang khóa hoặc tài khoản tắt được ghi `LOGIN_FAILED` (cause) nhưng không tăng bộ đếm. Username không tồn tại không ghi (không có target USER, không tạo user giả).
+- ADMIN không tự reset mật khẩu (dùng đổi mật khẩu) và không tự tắt tài khoản (`SELF_CHANGE_DENIED`).
+- `revoke_reason` chưa có `EMPLOYMENT_INACTIVE`; OA2 bổ sung cùng trạng thái nhân sự.
+- Hồ sơ cá nhân ở OA1.2 chỉ đọc (họ tên, username, vai trò); sửa email/SĐT thuộc OA2.
+- Tài khoản hiện có giữ nguyên hash và trạng thái khi migrate; user demo mới do seed tạo luôn phải đổi mật khẩu; fixture test đặt cờ riêng trong `bootTestApp`.
 | OA1.3 Role & Permission Management | Chưa triển khai |
 
 **Quyết định Architect tại OA1.1:**

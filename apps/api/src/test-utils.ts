@@ -7,6 +7,10 @@ import { DataSource } from 'typeorm';
 import { currentStep } from './modules/procurement/pr-workflow';
 
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+// Fixture: suites sign in far more often than a person; rate-limit tests lower these explicitly.
+process.env.AUTH_LOGIN_LIMIT_PER_IP ??= '100000';
+process.env.AUTH_LOGIN_LIMIT_PER_ACCOUNT ??= '100000';
+process.env.AUTH_PASSWORD_CHECK_LIMIT ??= '100000';
 
 /** Recreates the schema, runs migrations + seed, boots the app. */
 export async function bootTestApp(): Promise<{ app: INestApplication; ds: DataSource }> {
@@ -30,6 +34,8 @@ export async function bootTestApp(): Promise<{ app: INestApplication; ds: DataSo
   await setup.query(`INSERT INTO suppliers (id, code, name) VALUES (900001, 'PR-TEST', 'PR fixture supplier');
     INSERT INTO tax_rates (id, code, name, rate) VALUES (900001, 'PR-TEST', 'Zero tax fixture', 0);
     INSERT INTO brand_suppliers (brand_id, supplier_id) SELECT id, 900001 FROM brands WHERE code = 'TEST'`);
+  // Fixture only (BA-N-15): automated tests sign in seeded accounts directly; runtime has no bypass.
+  await setup.query('UPDATE users SET must_change_password = false');
   await setup.query(`INSERT INTO pr_candidate_pool_members (pool, user_id)
     SELECT fixture.pool, u.id FROM (VALUES ('SALES','sales-head'), ('PM','pm-head'), ('RECEIPT','purchaser')) fixture(pool, username)
     JOIN users u ON u.username = fixture.username`);

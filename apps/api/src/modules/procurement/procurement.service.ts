@@ -5,7 +5,7 @@ import { DOCUMENT_MONEY_PRECISION, nonNegativeDecimal } from '../../common/docum
 import type { CurrentUser } from '../identity/auth';
 import { CatalogFacade } from '../master-data/catalog.facade';
 import { ProductUsage } from '../master-data/product-usage';
-import { SalesContractFacade } from "../sales-contracts/sales-contracts.service";
+import { SalesContractFacade, readSnapshot } from "../sales-contracts/sales-contracts.service";
 import { assertDecimal, PR_AMOUNTS, PR_TOTALS, PrCommercialHeader, PrLineError, savePrCommercialHeader } from './pr-commercial';
 import * as prWorkflow from './pr-workflow';
 import { configurePool, listCandidates, PR_POOLS, PrPool } from './pr-eligibility';
@@ -603,7 +603,7 @@ export class ProcurementService {
   }
 
   listPrContracts(user: CurrentUser, q: string, page: number) {
-    return SalesContractFacade.prOptions(this.ds.manager, user.id, q, page);
+    return readSnapshot(this.ds, m => SalesContractFacade.prOptions(m, user.id, q, page));
   }
 
   productPicker(source: 'main' | 'temporary', query: Parameters<typeof CatalogFacade.productPicker>[2]) {

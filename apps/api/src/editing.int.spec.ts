@@ -140,7 +140,8 @@ describe('Document editing (integration)', () => {
   });
 
   it('HĐ DRAFT: edit customer and lines in place, keep number and line ids; ACTIVE is locked (03 §9.1, G10)', async () => {
-    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(5, 'A'), scLine(3, 'B')] }).expect(201)).body.id;
+    const [{ id: salesId }] = await ds.query(`SELECT id FROM users WHERE username = 'sales'`);
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: salesId, lines: [scLine(5, 'A'), scLine(3, 'B')] }).expect(201)).body.id;
     const before = (await get(admin, `/sales-contracts/${sc}`)).body;
     const [a, b] = before.lines;
     const sales = await login(app, 'sales', 'role-users-test');
@@ -153,7 +154,7 @@ describe('Document editing (integration)', () => {
       .toBe('RECORD_IN_USE');
 
     await patch(sales, `/sales-contracts/${sc}`, {
-      version: before.version, customerId: customer2, responsibleSalesUserId: adminId,
+      version: before.version, customerId: customer2, responsibleSalesUserId: salesId,
       lines: [{ id: a.id, ...scLine(7, 'A2') }, { id: b.id, ...scLine(3, 'B') }, scLine(2, 'C')],
     }).expect(204);
     const after = (await get(admin, `/sales-contracts/${sc}`)).body;

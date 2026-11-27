@@ -360,7 +360,8 @@ describe('Sales contracts and procurement documents (integration)', () => {
     await post(pm, `/product-proposals/${proposal}/approve`).expect(403); // PM cannot confirm in place of Sales (04 §2)
     await post(sales, `/sales-contract-lines/${lineId}/product-proposals`, { productId, reason: 'x' }).expect(403);
     await post(sales, `/product-proposals/${proposal}/approve`, { note: 'PL-01' }).expect(204);
-    const [line] = (await get(pm, `/sales-contracts/${sc}`).expect(200)).body.lines;
+    await get(pm, `/sales-contracts/${sc}`).expect(404); // OA3.3a: PM reads only HĐ it is responsible for (VIEW R)
+    const [line] = (await get(admin, `/sales-contracts/${sc}`).expect(200)).body.lines;
     expect(line.products[0]).toMatchObject({ status: 'APPROVED', decisionNote: 'PL-01', decidedByName: 'Nhân viên Sales' });
     await post(sales, '/purchase-requisitions', { salesContractId: sc, lines: [] }).expect(400);
   });

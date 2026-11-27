@@ -73,7 +73,7 @@ describe('Outbound: GIR → GI (integration)', () => {
       { itemCode: 'R', itemName: 'Router', unitOfMeasureId: pcs, quantity: routerQty },
       { itemCode: 'C', itemName: 'Cable', unitOfMeasureId: pcs, quantity: cableQty },
     ]);
-    await svc.activate(sc.id);
+    await svc.activate(pmUser, sc.id);
     await ds.query(`UPDATE sales_contracts SET responsible_pm_user_id = $2 WHERE id = $1`, [sc.id, pmUser.id]);
     const [r, c] = await ds.query(`SELECT id FROM sales_contract_lines WHERE sales_contract_id = $1 ORDER BY id`, [sc.id]);
     if (confirm) {

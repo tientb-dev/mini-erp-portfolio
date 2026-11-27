@@ -1,8 +1,9 @@
-import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
 import { grantRole } from '../identity/authorization';
+import { ScopeSource, assertCanAct, assertCanRead, canAccessDraft, loadDataScope, scopeFilter } from '../identity/data-scope';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -16,18 +17,31 @@ export interface ScListQuery {
   sort?: 'createdAt' | 'documentNumber'; order?: 'asc' | 'desc'; page?: number; pageSize?: number;
 }
 
+const VIEW = 'SALES_CONTRACT.VIEW';
+const CREATE = 'SALES_CONTRACT.CREATE';
+/** HĐ scope columns (§5.3): creator, responsible Sales/PM, owner unit. */
+const SC_SOURCE: ScopeSource = { from: 'sales_contracts s', id: 's.id',
+  cols: { creator: 's.created_by', responsible: ['s.responsible_sales_user_id', 's.responsible_pm_user_id'], orgUnit: 's.owner_org_unit_id' } };
+
+/** Read boundary (OA3.2 F02): scope and data from one snapshot. */
+export const readSnapshot = <T>(ds: DataSource, run: (m: EntityManager) => Promise<T>) =>
+  ds.transaction('REPEATABLE READ', async (m) => { await m.query('SET TRANSACTION READ ONLY'); return run(m); });
+
 /**
  * Facade for other modules (Procurement, Outbound). Runs inside the caller's transaction.
  * Lock order: HĐ line first (ARCHITECTURE §2.1a).
  */
 export class SalesContractFacade {
-  static prOptions(m: EntityManager, userId: number, q: string, page: number) {
+  /** PR source picker: responsible Sales/PM invariant plus SALES_CONTRACT.VIEW scope (§7). Call inside `readSnapshot`. */
+  static async prOptions(m: EntityManager, userId: number, q: string, page: number) {
+    const f = scopeFilter(await loadDataScope(m, userId), VIEW, SC_SOURCE.cols, 4);
+    if (!f) return [];
     return m.query(`SELECT s.id, s.document_number AS "documentNumber", c.name AS "customerName",
       s.responsible_sales_user_id AS "responsibleSalesUserId", s.responsible_pm_user_id AS "responsiblePmUserId"
       FROM sales_contracts s JOIN customers c ON c.id = s.customer_id
       WHERE s.status = 'ACTIVE' AND $1 IN (s.responsible_sales_user_id, s.responsible_pm_user_id)
-        AND (strpos(lower(s.document_number), lower($2)) > 0 OR strpos(lower(c.name), lower($2)) > 0)
-      ORDER BY s.document_number DESC, s.id DESC LIMIT 25 OFFSET $3`, [userId, q.trim(), (page - 1) * 25]);
+        AND (strpos(lower(s.document_number), lower($2)) > 0 OR strpos(lower(c.name), lower($2)) > 0) AND ${f.sql}
+      ORDER BY s.document_number DESC, s.id DESC LIMIT 25 OFFSET $3`, [userId, q.trim(), (page - 1) * 25, ...f.params]);
   }
 
   /** Locks HĐ lines (id order) of an ACTIVE contract; throws if any line is missing or the contract is not ACTIVE. */
@@ -117,14 +131,36 @@ export class SalesContractsService {
     }
   }
 
-  create(user: CurrentUser, customerId: number, responsibleSalesUserId: number | null, lines: ScLineInput[]) {
+  /**
+   * Owner unit at creation (§4.4, BA-OA3-06): undefined → primary unit; a number must be one of the creator's ACTIVE
+   * memberships; NULL only when the creator has none. Read under the `grants` gate, so memberships cannot change.
+   */
+  private async ownerUnit(m: EntityManager, userId: number, requested: number | null | undefined): Promise<number | null> {
+    const units: { id: number; primary: boolean }[] = await m.query(
+      `SELECT org_unit_id AS id, is_primary AS primary FROM org_memberships WHERE user_id = $1 AND status = 'ACTIVE'`, [userId]);
+    if (!units.length) {
+      if (requested == null) return null;
+    } else if (requested === undefined) {
+      const primary = units.find((u) => u.primary);
+      if (primary) return primary.id;
+    } else if (units.some((u) => u.id === requested)) return requested!;
+    throw new BusinessError('OWNER_ORG_UNIT_INVALID', 'The owner unit must be one of your active organization units');
+  }
+
+  create(user: CurrentUser, customerId: number, responsibleSalesUserId: number | null, lines: ScLineInput[], ownerOrgUnitId?: number | null) {
     return this.ds.transaction(async (m) => {
+      const s = await loadDataScope(m, user.id, true);
+      const owner = await this.ownerUnit(m, user.id, ownerOrgUnitId);
+      // F-OA0-03: CREATE and VIEW scope on the projected contract.
+      if (!canAccessDraft(s, VIEW, CREATE, { creatorId: user.id, responsibleIds: [responsibleSalesUserId], orgUnitId: owner })) {
+        throw new ForbiddenException(`Missing permission: ${CREATE}`);
+      }
       await CatalogFacade.assertActive(m, 'customer', customerId);
       await this.assertResponsibleSales(m, responsibleSalesUserId);
       const number = await wf.nextDocumentNumber(m, 'SC');
       const [sc] = await m.query(
-        `INSERT INTO sales_contracts (document_number, customer_id, responsible_sales_user_id, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [number, customerId, responsibleSalesUserId, user.id],
+        `INSERT INTO sales_contracts (document_number, customer_id, responsible_sales_user_id, created_by, owner_org_unit_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [number, customerId, responsibleSalesUserId, user.id, owner],
       );
       for (const l of lines) await this.insertLine(m, sc.id, l);
       return { id: sc.id as number, documentNumber: number };
@@ -140,10 +176,17 @@ export class SalesContractsService {
   /** `lines`: undefined keeps the lines untouched (header-only edit); an array replaces them as described above. */
   update(user: CurrentUser, id: number, version: number, customerId: number, responsibleSalesUserId: number | null | undefined, lines?: ScLineInput[]) {
     return this.ds.transaction(async (m) => {
-      await this.lockDraft(m, id, version);
-      const [current] = await m.query('SELECT customer_id FROM sales_contracts WHERE id = $1', [id]);
+      const { s, sc: current } = await this.lockDraft(m, user, id, version);
       if (current.customer_id !== customerId) await CatalogFacade.assertActive(m, 'customer', customerId);
-      if (responsibleSalesUserId !== undefined) await this.assertResponsibleSales(m, responsibleSalesUserId);
+      if (responsibleSalesUserId !== undefined) {
+        // Prospective scope: changing the responsible Sales must not leave the actor without VIEW/CREATE scope.
+        const after = { creatorId: current.created_by, orgUnitId: current.owner_org_unit_id,
+          responsibleIds: [responsibleSalesUserId, current.responsible_pm_user_id] };
+        if (!canAccessDraft(s, VIEW, CREATE, after)) {
+          throw new BusinessError('SCOPE_WOULD_BE_LOST', 'After this change you would no longer have access to the contract', HttpStatus.FORBIDDEN);
+        }
+        await this.assertResponsibleSales(m, responsibleSalesUserId);
+      }
       if (lines) {
         await wf.deleteOmittedLines(m, 'sales_contract_lines', 'sales_contract_id', id, lines.flatMap((l) => (l.id ? [l.id] : [])));
         for (const l of lines) {
@@ -162,7 +205,7 @@ export class SalesContractsService {
   /** Adds one line to a DRAFT contract (each line is saved on its own). */
   addLine(user: CurrentUser, id: number, version: number, line: ScLineInput) {
     return this.ds.transaction(async (m) => {
-      await this.lockDraft(m, id, version);
+      await this.lockDraft(m, user, id, version);
       const lineId = await this.insertLine(m, id, line);
       await this.touch(m, id, user);
       return { id: lineId };
@@ -173,7 +216,7 @@ export class SalesContractsService {
   editLine(user: CurrentUser, lineId: number, version: number, line: ScLineInput) {
     return this.ds.transaction(async (m) => {
       const id = await this.lineContract(m, lineId);
-      await this.lockDraft(m, id, version);
+      await this.lockDraft(m, user, id, version);
       await this.updateLine(m, id, lineId, line);
       await this.touch(m, id, user);
     });
@@ -183,24 +226,43 @@ export class SalesContractsService {
   deleteLine(user: CurrentUser, lineId: number, version: number) {
     return this.ds.transaction(async (m) => {
       const id = await this.lineContract(m, lineId);
-      await this.lockDraft(m, id, version);
+      await this.lockDraft(m, user, id, version);
       await m.query(`DELETE FROM sales_contract_lines WHERE id = $1`, [lineId]);
       await this.touch(m, id, user);
     });
   }
 
+  /** Contract of a line; 0 when the line is unknown, so `lockForAction` answers 403 (no VIEW) or 404 like any id. */
   private async lineContract(m: EntityManager, lineId: number): Promise<number> {
     const [l] = await m.query(`SELECT sales_contract_id AS id FROM sales_contract_lines WHERE id = $1`, [lineId]);
-    if (!l) throw new NotFoundException('Sales contract line not found');
-    return l.id;
+    return l?.id ?? 0;
   }
 
-  /** FOR UPDATE serializes with activate/cancel and with PR/GIR creation (FOR SHARE in lockActiveLines). */
-  private async lockDraft(m: EntityManager, id: number, version: number) {
-    const [sc] = await m.query(`SELECT status, version FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
-    if (!sc) throw new NotFoundException();
-    if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be edited', HttpStatus.CONFLICT);
-    if (sc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
+  /**
+   * Action boundary (OA3.2 F02): `grants` gate shared before any row lock → contract FOR UPDATE (serializes with
+   * activate/cancel and PR/GIR creation, FOR SHARE in lockActiveLines) → VIEW + CREATE scope on the locked row.
+   */
+  private async lockForAction(m: EntityManager, user: CurrentUser, id: number) {
+    const s = await loadDataScope(m, user.id, true);
+    const [sc] = await m.query(`SELECT status, version, customer_id, created_by, responsible_sales_user_id, responsible_pm_user_id, owner_org_unit_id
+      FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
+    await assertCanAct(m, s, VIEW, CREATE, SC_SOURCE, id);
+    return { s, sc };
+  }
+
+  /** H-01 (F-OA0-07): a DRAFT is handled only by its creator or responsible Sales, on top of permission and scope; no ADMIN bypass. */
+  private assertDraftOwner(user: CurrentUser, sc: { created_by: number; responsible_sales_user_id: number | null }) {
+    if (sc.created_by !== user.id && sc.responsible_sales_user_id !== user.id) {
+      throw new BusinessError('SALES_CONTRACT_NOT_OWNER', 'Only the creator or the responsible sales can change a DRAFT contract', HttpStatus.FORBIDDEN);
+    }
+  }
+
+  private async lockDraft(m: EntityManager, user: CurrentUser, id: number, version: number) {
+    const locked = await this.lockForAction(m, user, id);
+    if (locked.sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be edited', HttpStatus.CONFLICT);
+    this.assertDraftOwner(user, locked.sc);
+    if (locked.sc.version !== version) throw new BusinessError('STALE_VERSION', 'The document was changed by someone else; reload and retry', HttpStatus.CONFLICT);
+    return locked;
   }
 
   private touch(m: EntityManager, id: number, user: CurrentUser) {
@@ -261,29 +323,26 @@ export class SalesContractsService {
   }
 
   /** DRAFT → ACTIVE; ACTIVE never returns to DRAFT (H2). Requires a responsible sales, which is locked from then on (CT17). */
-  async activate(id: number) {
-    const [, count] = await this.ds.query(
-      `UPDATE sales_contracts SET status = 'ACTIVE', version = version + 1 WHERE id = $1 AND status = 'DRAFT' AND responsible_sales_user_id IS NOT NULL
-         AND EXISTS (SELECT 1 FROM sales_contract_lines WHERE sales_contract_id = $1)`,
-      [id],
-    );
-    if (count) return;
-    const [sc] = await this.ds.query(
-      `SELECT status, EXISTS (SELECT 1 FROM sales_contract_lines WHERE sales_contract_id = $1) AS "hasLines" FROM sales_contracts WHERE id = $1`, [id]);
-    if (!sc) throw new NotFoundException();
-    if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be activated', HttpStatus.CONFLICT);
-    // Assumption (OPEN-QUESTIONS §3, confirmed by the user for PR #16): activation needs at least one line.
-    if (!sc.hasLines) throw new BusinessError('SALES_CONTRACT_NO_LINES', 'Add at least one line before activating the contract');
-    throw new BusinessError('RESPONSIBLE_SALES_REQUIRED', 'Assign a responsible sales before activating the contract');
+  activate(user: CurrentUser, id: number) {
+    return this.ds.transaction(async (m) => {
+      const { sc } = await this.lockForAction(m, user, id);
+      if (sc.status !== 'DRAFT') throw new BusinessError('INVALID_STATUS', 'Only DRAFT sales contracts can be activated', HttpStatus.CONFLICT);
+      this.assertDraftOwner(user, sc);
+      const [{ hasLines }] = await m.query(`SELECT EXISTS (SELECT 1 FROM sales_contract_lines WHERE sales_contract_id = $1) AS "hasLines"`, [id]);
+      // Assumption (OPEN-QUESTIONS §3, confirmed by the user for PR #16): activation needs at least one line.
+      if (!hasLines) throw new BusinessError('SALES_CONTRACT_NO_LINES', 'Add at least one line before activating the contract');
+      if (sc.responsible_sales_user_id === null) throw new BusinessError('RESPONSIBLE_SALES_REQUIRED', 'Assign a responsible sales before activating the contract');
+      await m.query(`UPDATE sales_contracts SET status = 'ACTIVE', version = version + 1 WHERE id = $1`, [id]);
+    });
   }
 
   /** Only DRAFT/ACTIVE contracts with no PR/GIR that is not CANCELED (H2, 03 §9.1). */
-  cancel(id: number) {
+  cancel(user: CurrentUser, id: number) {
     return this.ds.transaction(async (m) => {
       // FOR UPDATE waits for PR/GIR creation, which holds the contract FOR SHARE (lockActiveLines).
-      const [sc] = await m.query(`SELECT status FROM sales_contracts WHERE id = $1 FOR UPDATE`, [id]);
-      if (!sc) throw new NotFoundException();
+      const { sc } = await this.lockForAction(m, user, id);
       if (sc.status === 'CANCELED') throw new BusinessError('INVALID_STATUS', 'The sales contract is already canceled', HttpStatus.CONFLICT);
+      if (sc.status === 'DRAFT') this.assertDraftOwner(user, sc);
       // shortcut: reads Procurement/Outbound tables directly (reverse of the module graph) until they expose a usage count.
       const [ref] = await m.query(
         `SELECT 1 FROM purchase_requisitions WHERE sales_contract_id = $1 AND approval_status <> 'CANCELED'
@@ -296,9 +355,18 @@ export class SalesContractsService {
   }
 
   /** Server-side search/filter/sort; with `page` it returns `{ items, total }`, otherwise the plain array (pickers). */
-  async list(f: ScListQuery = {}) {
+  list(user: CurrentUser, f: ScListQuery = {}) {
+    return readSnapshot(this.ds, (m) => this.listIn(m, user, f));
+  }
+
+  /** One scope load; items and total share the same predicate and snapshot (F02). */
+  private async listIn(m: EntityManager, user: CurrentUser, f: ScListQuery) {
     const where: string[] = [];
     const params: unknown[] = [];
+    const scope = scopeFilter(await loadDataScope(m, user.id), VIEW, SC_SOURCE.cols, 1);
+    if (!scope) return f.page ? { items: [], total: 0 } : [];
+    where.push(scope.sql);
+    params.push(...scope.params);
     const add = (sql: (n: string) => string, v: unknown) => { params.push(v); where.push(sql(`$${params.length}`)); };
     // strpos instead of ILIKE: no wildcard escaping needed for user input.
     if (f.q?.trim()) add((n) => `(strpos(lower(s.document_number), lower(${n})) > 0 OR strpos(lower(c.name), lower(${n})) > 0)`, f.q.trim());
@@ -309,7 +377,7 @@ export class SalesContractsService {
          LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
     const order = `${f.sort === 'documentNumber' ? 's.document_number' : 's.created_at'} ${f.order === 'asc' ? 'ASC' : 'DESC'}, s.id DESC`;
     const size = f.pageSize ?? 25;
-    const items = await this.ds.query(
+    const items = await m.query(
       `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId", c.name AS "customerName", s.created_at AS "createdAt",
               u.full_name AS "createdByName", s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName", s.responsible_pm_user_id AS "responsiblePmUserId",
               (SELECT COUNT(*)::int FROM sales_contract_lines l WHERE l.sales_contract_id = s.id) AS "lineCount",
@@ -319,28 +387,39 @@ export class SalesContractsService {
       params,
     );
     if (!f.page) return items;
-    const [{ total }] = await this.ds.query(`SELECT COUNT(*)::int AS total ${from}`, params);
+    const [{ total }] = await m.query(`SELECT COUNT(*)::int AS total ${from}`, params);
     return { items, total };
   }
 
-  async get(id: number) {
-    const [sc] = await this.ds.query(
-      `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId",
-              c.code AS "customerCode", c.name AS "customerName",
-              s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt",
-              s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName", s.responsible_pm_user_id AS "responsiblePmUserId",
-              s.updated_at AS "updatedAt", (SELECT full_name FROM users WHERE id = s.updated_by) AS "updatedByName"
-         FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
-         LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id WHERE s.id = $1`,
-      [id],
-    );
-    if (!sc) throw new NotFoundException();
-    return { ...sc, lines: await this.lines(id) };
+  get(user: CurrentUser, id: number) {
+    return readSnapshot(this.ds, async (m) => {
+      await assertCanRead(m, await loadDataScope(m, user.id), VIEW, SC_SOURCE, id);
+      const [sc] = await m.query(
+        `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId",
+                c.code AS "customerCode", c.name AS "customerName",
+                s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt",
+                s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName", s.responsible_pm_user_id AS "responsiblePmUserId",
+                s.updated_at AS "updatedAt", (SELECT full_name FROM users WHERE id = s.updated_by) AS "updatedByName",
+                s.owner_org_unit_id AS "ownerOrgUnitId"
+           FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
+           LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id WHERE s.id = $1`,
+        [id],
+      );
+      if (!sc) throw new NotFoundException();
+      return { ...sc, lines: await this.linesIn(m, id) };
+    });
   }
 
   /** Lines with confirmed (APPROVED) products and GIR quota usage, for GIR forms. */
-  lines(id: number) {
-    return this.ds.query(
+  lines(user: CurrentUser, id: number) {
+    return readSnapshot(this.ds, async (m) => {
+      await assertCanRead(m, await loadDataScope(m, user.id), VIEW, SC_SOURCE, id);
+      return this.linesIn(m, id);
+    });
+  }
+
+  private linesIn(m: EntityManager, id: number) {
+    return m.query(
       `SELECT l.id, l.item_code AS "itemCode", l.item_name AS "itemName", l.item_description AS "itemDescription", l.product_id AS "productId",
               l.temporary_product_id AS "temporaryProductId", l.unit_of_measure_id AS "unitOfMeasureId", uom.name AS "uomName",
               uom.code AS "uomCode", l.quantity,

@@ -3,7 +3,7 @@ import { EntityManager } from 'typeorm';
 export const DOCUMENT_TARGETS = ['PR', 'PO', 'GRR', 'GIR', 'GR', 'GI', 'SALES_CONTRACT'] as const;
 export type DocumentTarget = typeof DOCUMENT_TARGETS[number];
 /** Activity History targets: documents plus administration targets (USER security events, ROLE changes). */
-export type ActivityTarget = DocumentTarget | 'USER' | 'ROLE' | 'JOB_TITLE';
+export type ActivityTarget = DocumentTarget | 'USER' | 'ROLE' | 'JOB_TITLE' | 'ORG_UNIT';
 export const DOCUMENT_PAGE_SIZE = 25;
 
 export interface ActivityDetails {

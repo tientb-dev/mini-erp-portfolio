@@ -356,7 +356,8 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       expect(after.roles.filter(g => !reseeded.includes(g))).toEqual([]);
 
       expect(await up.runMigrations()).toEqual([]);
-      // Revert OA2.1, OA1.3, OA1.2 then OA1.1.
+      // Revert OA2.2, OA2.1, OA1.3, OA1.2 then OA1.1.
+      await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();

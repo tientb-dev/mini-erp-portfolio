@@ -2,6 +2,7 @@ import { ComponentType } from 'react';
 import { SvgIconComponent } from '@mui/icons-material';
 import AdminPanelSettingsOutlined from '@mui/icons-material/AdminPanelSettingsOutlined';
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined';
+import AccountTreeOutlined from '@mui/icons-material/AccountTreeOutlined';
 import AssignmentOutlined from '@mui/icons-material/AssignmentOutlined';
 import CategoryOutlined from '@mui/icons-material/CategoryOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
@@ -19,7 +20,7 @@ import StorefrontOutlined from '@mui/icons-material/StorefrontOutlined';
 import TimelineOutlined from '@mui/icons-material/TimelineOutlined';
 import WarehouseOutlined from '@mui/icons-material/WarehouseOutlined';
 import WorkOutline from '@mui/icons-material/WorkOutlined';
-import { JobTitlesPage, RolesPage } from '../features/administration';
+import { JobTitlesPage, OrgUnitsPage, RolesPage } from '../features/administration';
 import { GoodsReceiptsPage } from '../features/inbound';
 import { InventoryLotsPage, InventoryPage } from '../features/inventory';
 import { BrandsPage, CurrenciesPage, CustomersPage, DossierTypesPage, ProductsPage, SuppliersPage, TaxRatesPage, TemporaryProductsPage, UnitsOfMeasurePage, WarehousesPage } from '../features/master-data';
@@ -53,6 +54,7 @@ export const PAGES = {
   warehouses: [WarehousesPage, 'WAREHOUSE.VIEW', WarehouseOutlined],
   customers: [CustomersPage, 'CUSTOMER.VIEW', GroupsOutlined],
   suppliers: [SuppliersPage, 'SUPPLIER.VIEW', LocalShippingOutlined],
+  orgUnits: [OrgUnitsPage, 'ORGANIZATION.VIEW', AccountTreeOutlined],
   jobTitles: [JobTitlesPage, 'ORGANIZATION.VIEW', BadgeOutlined],
   roles: [RolesPage, 'ROLE.VIEW', AdminPanelSettingsOutlined],
 } as const satisfies Record<string, readonly [ComponentType<{ initialId?: number }>, string, SvgIconComponent]>;
@@ -78,5 +80,5 @@ export const NAV: { group: string; icon: SvgIconComponent; items: PageKey[] }[] 
   { group: 'nav.purchasing', icon: ShoppingCartOutlined, items: ['purchaseRequisitions', 'purchaseOrders'] },
   { group: 'nav.warehouseOps', icon: StorefrontOutlined, items: ['goodsReceiptRequests', 'goodsReceipts', 'goodsIssueRequests', 'goodsIssues', 'inventory', 'inventoryLots'] },
   { group: 'nav.masterData', icon: FolderOutlined, items: ['products', 'temporaryProducts', 'brands', 'unitsOfMeasure', 'warehouses', 'customers', 'suppliers', 'currencies', 'taxRates', 'dossierTypes'] },
-  { group: 'nav.system', icon: FolderOutlined, items: ['jobTitles', 'roles', 'dossierConfigurations'] },
+  { group: 'nav.system', icon: FolderOutlined, items: ['orgUnits', 'jobTitles', 'roles', 'dossierConfigurations'] },
 ];

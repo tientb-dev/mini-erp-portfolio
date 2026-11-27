@@ -10,7 +10,8 @@ import { SalesContractsService } from "../modules/sales-contracts/sales-contract
 import { env } from './env';
 
 /**
- * Demo data via the real services (same rules as the API); requires `pnpm seed` first. Each run creates:
+ * Demo data via the real services (same rules as the API); requires `pnpm seed` first and the PR candidate pools
+ * SALES and RECEIPT configured with eligible users (`PUT /pr-workflow/routes/:route`, PR.CONFIGURE). Each run creates:
  *  - HĐ (ACTIVE) with Sales-confirmed products per line,
  *  - PR → PO → GRR (APPROVED) ready for a GR in the UI,
  *  - plus a second GRR received by an APPROVED GR (stock + SNs in HCM), ready for GIR → GI in the UI.

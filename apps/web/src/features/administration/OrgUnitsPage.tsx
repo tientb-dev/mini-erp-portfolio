@@ -5,8 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Box, Collapse, IconButton, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import ChevronRight from '@mui/icons-material/ChevronRight';
-import UnfoldMore from '@mui/icons-material/UnfoldMore';
-import UnfoldLess from '@mui/icons-material/UnfoldLess';
+import ExpandAllIcon from '@mui/icons-material/KeyboardDoubleArrowDown';
+import CollapseAllIcon from '@mui/icons-material/KeyboardDoubleArrowUp';
 import { api, ApiError } from '../../services/api-client';
 import { fillMedia } from '../../config/theme';
 import { ActionResultDialog, ActiveChip, DetailTabs, FormDialog, ListPageLayout } from '../../shared/components';
@@ -18,10 +18,15 @@ import { DocumentRecordList } from '../../shared/components/DocumentRecordList';
 import { ReadOnlyField } from '../../shared/components/ReadOnlyField';
 import { SearchInput } from '../../shared/components/SearchInput';
 import { useMe } from '../identity';
+import { OrgUnitMembers, useMembers } from './OrgUnitMembers';
+import { PersonRef, personLabel } from './users-api';
 
-export interface OrgNode { id: number; code: string; name: string; parentId: number | null; isActive: boolean; version: number }
+export interface OrgNode { id: number; code: string; name: string; parentId: number | null; isActive: boolean; version: number; memberCount?: number }
 interface UnitRef { id: number; code: string; name: string }
-interface OrgUnit { id: number; code: string; name: string; description: string | null; isActive: boolean; version: number; parent: UnitRef | null; headUserId: number | null }
+interface OrgUnit {
+  id: number; code: string; name: string; description: string | null; isActive: boolean; version: number; parent: UnitRef | null; headUserId: number | null;
+  head: PersonRef | null;
+}
 
 const PATH = '/admin/org-units';
 const CODE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,49}$/;
@@ -85,7 +90,8 @@ export function OrgUnitsPage({ initialId }: { initialId?: number }) {
             {open(n.id) ? <ExpandMore fontSize="small" /> : <ChevronRight fontSize="small" />}
           </IconButton>
           <ListItemText primary={<OverflowTooltip text={label(n)} />}
-            secondary={[!n.isActive && t('common.inactive'), kids.length && t('orgUnits.childCount', { count: children.get(n.id)!.length })].filter(Boolean).join(' · ') || undefined}
+            secondary={[!n.isActive && t('common.inactive'), kids.length && t('orgUnits.childCount', { count: children.get(n.id)!.length }),
+              t('orgUnits.memberCount', { count: n.memberCount ?? 0 })].filter(Boolean).join(' · ')}
             slotProps={{ primary: { variant: 'body2', component: 'div' }, secondary: { variant: 'caption' } }} sx={{ minWidth: 0 }} />
         </ListItemButton>
         {kids.length > 0 && <Collapse in={open(n.id)} unmountOnExit><List disablePadding>{renderLevel(n.id, depth + 1)}</List></Collapse>}
@@ -104,11 +110,12 @@ export function OrgUnitsPage({ initialId }: { initialId?: number }) {
             <Stack spacing={1} sx={{ flexShrink: 0, pb: 1 }}>
               <SearchInput label={t('common.search')} placeholder={t('searchFields.codeOrName')} value={q} onChange={setQ} />
               <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                {([['expandAll', UnfoldMore, () => setExpanded(new Set(nodes.map(n => n.id)))],
-                  ['collapseAll', UnfoldLess, () => setExpanded(new Set())]] as const).map(([key, Icon, onClick]) =>
+                {([['expandAll', ExpandAllIcon, () => setExpanded(new Set(nodes.map(n => n.id)))],
+                  ['collapseAll', CollapseAllIcon, () => setExpanded(new Set())]] as const).map(([key, Icon, onClick]) =>
                   <Tooltip key={key} title={t(`orgUnits.${key}`)}>
-                    <IconButton aria-label={t(`orgUnits.${key}`)} onClick={onClick} color="primary"
-                      sx={{ width: 32, height: 32, border: 1, borderColor: 'primary.main', borderRadius: 1 }}><Icon fontSize="small" /></IconButton>
+                    {/* F09 Tree View pattern: 32×32 neutral icon buttons, tooltip names the action. */}
+                    <IconButton aria-label={t(`orgUnits.${key}`)} onClick={onClick}
+                      sx={{ width: 32, height: 32, borderRadius: 1, color: 'text.secondary' }}><Icon fontSize="small" /></IconButton>
                   </Tooltip>)}
                 <Box sx={{ flex: 1 }} />
                 <ActionButton action="refresh" size="small" disabled={tree.isFetching} onClick={() => void refresh()} sx={{ height: 32 }}>{t('common.refresh')}</ActionButton>
@@ -122,7 +129,7 @@ export function OrgUnitsPage({ initialId }: { initialId?: number }) {
           </Paper>
           <Box sx={{ flex: 1, minWidth: 0, width: '100%', [fillMedia]: { display: 'flex', flexDirection: 'column', minHeight: 0 } }}>
             {initialId ? <OrgUnitDetail key={initialId} id={initialId} canManage={canManage}
-              childCount={children.get(initialId)?.length ?? 0} activeChildCount={children.get(initialId)?.filter(c => c.isActive).length ?? 0}
+              childCount={children.get(initialId)?.length ?? 0} memberCount={nodes.find(n => n.id === initialId)?.memberCount ?? 0} activeChildCount={children.get(initialId)?.filter(c => c.isActive).length ?? 0}
               onAddChild={parentId => setDialog({ parentId })} onEdit={edit => setDialog({ edit })} onResult={setResult} onChanged={refresh} />
               : <Paper sx={{ p: 3 }}><Typography color="text.secondary">{t('orgUnits.selectHint')}</Typography></Paper>}
           </Box>
@@ -146,8 +153,8 @@ function OverflowTooltip({ text }: { text: string }) {
   </Tooltip>;
 }
 
-function OrgUnitDetail({ id, canManage, childCount, activeChildCount, onAddChild, onEdit, onResult, onChanged }: {
-  id: number; canManage: boolean; childCount: number; activeChildCount: number; onAddChild: (parentId: number) => void; onEdit: (unit: OrgUnit) => void;
+function OrgUnitDetail({ id, canManage, childCount, memberCount, activeChildCount, onAddChild, onEdit, onResult, onChanged }: {
+  id: number; canManage: boolean; childCount: number; memberCount: number; activeChildCount: number; onAddChild: (parentId: number) => void; onEdit: (unit: OrgUnit) => void;
   onResult: (result: ActionResult) => void; onChanged: () => void;
 }) {
   const { t } = useTranslation();
@@ -180,8 +187,9 @@ function OrgUnitDetail({ id, canManage, childCount, activeChildCount, onAddChild
           </Box>
           {canManage && <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
             {/* F05: blocked up front from the loaded tree; the server still enforces ORG_UNIT_HAS_ACTIVE_CHILDREN. */}
-            <Tooltip title={u.isActive && activeChildCount ? t('orgUnits.disableBlocked', { count: activeChildCount }) : ''}>
-              <span><ActionButton action={u.isActive ? 'void' : 'confirm'} variant="outlined" disabled={u.isActive && activeChildCount > 0}
+            {/* ORG_UNIT_IN_USE: ACTIVE memberships block it too (server re-checks under org-tree). */}
+            <Tooltip title={!u.isActive ? '' : activeChildCount ? t('orgUnits.disableBlocked', { count: activeChildCount }) : memberCount ? t('orgUnits.disableBlockedMembers', { count: memberCount }) : ''}>
+              <span><ActionButton action={u.isActive ? 'void' : 'confirm'} variant="outlined" disabled={u.isActive && (activeChildCount > 0 || memberCount > 0)}
                 onClick={() => setConfirmStatus(true)}>{t(u.isActive ? 'master.disable' : 'master.activate')}</ActionButton></span>
             </Tooltip>
             <ActionButton action="add" variant="outlined" disabled={!u.isActive} onClick={() => onAddChild(u.id)}>{t('orgUnits.addChild')}</ActionButton>
@@ -194,12 +202,13 @@ function OrgUnitDetail({ id, canManage, childCount, activeChildCount, onAddChild
           <DocumentFormCell span={4}><ReadOnlyField label={t('orgUnits.code')} value={u.code} /></DocumentFormCell>
           <DocumentFormCell span={8}><ReadOnlyField label={t('orgUnits.name')} value={u.name} /></DocumentFormCell>
           <DocumentFormCell span={6}><ReadOnlyField label={t('orgUnits.parent')} value={u.parent ? label(u.parent) : t('orgUnits.root')} /></DocumentFormCell>
-          <DocumentFormCell span={6}><ReadOnlyField label={t('orgUnits.head')} value={t('orgUnits.headNone')} helperText={t('orgUnits.headPending')} /></DocumentFormCell>
-          <DocumentFormCell span={6}><ReadOnlyField label={t('orgUnits.childUnits')} value={String(childCount)} /></DocumentFormCell>
+          <DocumentFormCell span={6}><ReadOnlyField label={t('orgUnits.head')} value={u.head ? personLabel(u.head) : t('orgUnits.headNone')} helperText={u.head ? undefined : t('orgUnits.headPending')} /></DocumentFormCell>
+          <DocumentFormCell span={3}><ReadOnlyField label={t('orgUnits.childUnits')} value={String(childCount)} /></DocumentFormCell>
+          <DocumentFormCell span={3}><ReadOnlyField label={t('orgUnits.members')} value={String(memberCount)} /></DocumentFormCell>
           <DocumentFormCell span={12}><ReadOnlyField label={t('master.fields.description')} value={u.description ?? ''} multiline minRows={2} /></DocumentFormCell>
         </DocumentFormGrid> },
-        { key: 'members', label: t('orgUnits.tabMembers'), content:
-          <Typography variant="body2" color="text.secondary">{t('orgUnits.membersPending')}</Typography> },
+        { key: 'members', label: `${t('orgUnits.tabMembers')} (${memberCount})`, content:
+          <OrgUnitMembers unit={u} canManage={canManage} onResult={onResult} onChanged={onChanged} /> },
         { key: 'history', label: t('orgUnits.tabHistory'), content: history.data
           ? <DocumentRecordList key={u.version} path={`${PATH}/${id}/history`} items={history.data.items} nextCursor={history.data.nextCursor}
             render={items => <ActivityHistoryTable entries={items}
@@ -221,11 +230,15 @@ function OrgUnitDialog({ nodes, subtreeOf, unit, parentId, onClose, onSaved, onF
   onClose: () => void; onSaved: (result: ActionResult, id?: number) => void; onFailed: (result: ActionResult) => void;
 }) {
   const { t } = useTranslation();
-  const [value, setValue] = useState({ code: unit?.code ?? '', name: unit?.name ?? '', description: unit?.description ?? '', parentId });
+  const [value, setValue] = useState({ code: unit?.code ?? '', name: unit?.name ?? '', description: unit?.description ?? '', parentId, headUserId: unit?.headUserId ?? null });
+  // BA-ORG-10: the head is picked among the unit's ACTIVE members who are ACTIVE employees (server: HEAD_NOT_MEMBER, HEAD_INACTIVE).
+  const members = useMembers(unit?.id ?? 0, Boolean(unit));
+  const headOptions = (members.data ?? []).filter(m => m.employmentStatus === 'ACTIVE' || m.id === value.headUserId);
   const [touched, setTouched] = useState(false);
   const [confirmMove, setConfirmMove] = useState(false);
   const moved = Boolean(unit) && value.parentId !== (unit?.parent?.id ?? null);
-  const dirty = value.code !== (unit?.code ?? '') || value.name !== (unit?.name ?? '') || value.description !== (unit?.description ?? '') || value.parentId !== parentId;
+  const dirty = value.code !== (unit?.code ?? '') || value.name !== (unit?.name ?? '') || value.description !== (unit?.description ?? '') || value.parentId !== parentId
+    || value.headUserId !== (unit?.headUserId ?? null);
   // Active units only, and never the unit itself or its subtree (cycle); the server re-checks both.
   const blocked = unit ? subtreeOf(unit.id) : new Set<number>();
   const options = nodes.filter(n => !blocked.has(n.id) && (n.isActive || n.id === value.parentId));
@@ -234,7 +247,8 @@ function OrgUnitDialog({ nodes, subtreeOf, unit, parentId, onClose, onSaved, onF
   const save = useMutation({
     mutationFn: () => {
       const body = { name: value.name.trim(), description: value.description.trim() || null, parentId: value.parentId };
-      return unit ? api(`${PATH}/${unit.id}`, { method: 'PUT', body: JSON.stringify({ ...body, version: unit.version }) })
+      return unit ? api(`${PATH}/${unit.id}`, { method: 'PUT', body: JSON.stringify({ ...body, version: unit.version,
+          ...(value.headUserId !== unit.headUserId && { headUserId: value.headUserId }) }) })
         : api<{ id: number }>(PATH, { method: 'POST', body: JSON.stringify({ ...body, code: value.code.trim() }) });
     },
     onSuccess: created => onSaved({ success: true, title: t('master.resultSuccess', { action }), message: target() }, (created as { id?: number } | undefined)?.id),
@@ -270,7 +284,13 @@ function OrgUnitDialog({ nodes, subtreeOf, unit, parentId, onClose, onSaved, onF
             <MenuItem value="">{t('orgUnits.root')}</MenuItem>
             {options.map(n => <MenuItem key={n.id} value={n.id}>{label(n)}</MenuItem>)}
           </TextField></DocumentFormCell>
-          <DocumentFormCell span={6}><ReadOnlyField label={t('orgUnits.head')} value={t('orgUnits.headNone')} helperText={t('orgUnits.headPending')} /></DocumentFormCell>
+          <DocumentFormCell span={6}>{unit
+            ? <TextField select fullWidth size="small" label={t('orgUnits.head')} value={value.headUserId ?? ''} disabled={save.isPending}
+                helperText={t('orgUnits.headPending')} onChange={e => edit({ headUserId: e.target.value === '' ? null : Number(e.target.value) })}>
+                <MenuItem value="">{t('orgUnits.headNone')}</MenuItem>
+                {headOptions.map(m => <MenuItem key={m.id} value={m.id}>{personLabel(m)}</MenuItem>)}
+              </TextField>
+            : <ReadOnlyField label={t('orgUnits.head')} value={t('orgUnits.headNone')} helperText={t('orgUnits.headAfterCreate')} />}</DocumentFormCell>
           <DocumentFormCell span={12}><TextField fullWidth size="small" multiline minRows={2} label={t('master.fields.description')} value={value.description}
             disabled={save.isPending} error={Boolean(shownIssue('description'))} helperText={shownIssue('description')} onChange={e => edit({ description: e.target.value })} /></DocumentFormCell>
           {unit && <DocumentFormCell span={4}><Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>

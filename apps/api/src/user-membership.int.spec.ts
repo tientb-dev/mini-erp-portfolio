@@ -411,6 +411,25 @@ describe('User management OA2.3b: memberships, roles, warehouses, atomic save (P
     const putM = async (t: string, id: number, body: object) => http().put(`/admin/memberships/${id}`).set(bearer(t)).send({ version: await mVersion(id), ...body });
     const endM = async (t: string, id: number, version?: number) => http().post(`/admin/memberships/${id}/end`).set(bearer(t)).send({ version: version ?? await mVersion(id) });
 
+    it('OA2.3c F11: unit members carry membershipId/membershipVersion usable for update/end; same permission', async () => {
+      const [a, t, t2] = [await unit(), await title(), await title()];
+      const e = await employee({ memberships: [member(a, t)] });
+      const members = async () => (await get(admin, `/admin/org-units/${a}/members`).expect(200)).body as any[];
+      const [row] = await members();
+      const [db] = await ds.query(`SELECT id, version FROM org_memberships WHERE user_id = $1 AND org_unit_id = $2 AND status = 'ACTIVE'`, [e.id, a]);
+      expect(row).toMatchObject({ id: e.id, membershipId: db.id, membershipVersion: db.version });
+      await done(http().put(`/admin/memberships/${row.membershipId}`).set(bearer(admin)).send({ jobTitleId: t2, isPrimary: true, version: row.membershipVersion }));
+      // The listed version is now stale: optimistic locking rejects it; the fresh listing works.
+      const stale = await http().post(`/admin/memberships/${row.membershipId}/end`).set(bearer(admin)).send({ version: row.membershipVersion });
+      expect([stale.status, code(stale)]).toEqual([409, 'VERSION_CONFLICT']);
+      const [fresh] = await members();
+      expect(fresh.membershipVersion).toBe(row.membershipVersion + 1);
+      await done(http().post(`/admin/memberships/${fresh.membershipId}/end`).set(bearer(admin)).send({ version: fresh.membershipVersion }));
+      expect(await members()).toEqual([]);
+      const sales = await login(app, 'sales', 'role-users-test');
+      expect((await get(sales, `/admin/org-units/${a}/members`)).status).toBe(403);
+    });
+
     it('F01: reactivation re-checks every active membership; an inactive employee can be fixed first', async () => {
       const [a, t, t2] = [await unit(), await title(), await title()];
       const e = await employee({ memberships: [member(a, t)] });

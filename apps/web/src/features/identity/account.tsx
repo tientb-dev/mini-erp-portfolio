@@ -32,14 +32,16 @@ function problems(v: PasswordInput) {
 }
 
 /** Common password input with show/hide, shared by Login, the change dialog and the required-change screen. */
-export function PasswordField({ label, value, onChange, error, helper, autoComplete, autoFocus }: {
+export function PasswordField({ label, value, onChange, error, helper, autoComplete, autoFocus, inputRef, onBlur, size, fullWidth }: {
   label: string; value: string; onChange: (v: string) => void; error?: string; helper?: string; autoComplete: string; autoFocus?: boolean;
+  inputRef?: React.Ref<HTMLInputElement>; onBlur?: () => void; size?: "small" | "medium"; fullWidth?: boolean;
 }) {
   const { t } = useTranslation();
   const [shown, setShown] = useState(false);
   return (
     <TextField label={label} type={shown ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)} required
       autoComplete={autoComplete} autoFocus={autoFocus} error={Boolean(error)} helperText={error ? t(error, { min: PASSWORD_MIN }) : helper}
+      inputRef={inputRef} onBlur={onBlur} size={size} fullWidth={fullWidth}
       slotProps={{ htmlInput: { maxLength: PASSWORD_MAX }, input: { endAdornment: (
         <InputAdornment position="end">
           <IconButton edge="end" onClick={() => setShown(s => !s)} aria-label={t(shown ? 'account.hidePassword' : 'account.showPassword')}>

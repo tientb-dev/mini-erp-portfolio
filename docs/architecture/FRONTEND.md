@@ -266,7 +266,7 @@ Theo Product Picker: `FormDialog` + `FilterToolbar` (Search, Làm mới) + `Data
 
 ## COMMON-ACTIVITY-001 — Lịch sử đối tượng quản trị
 
-`ActivityHistoryTable` (shared) cho Vai trò và các đối tượng quản trị sau (Người dùng OA2, Cấu hình quy trình OA4): cột Thời gian, Người thực hiện, Hành động, Nội dung thay đổi; mới nhất trước; đọc metadata theo quy ước `before`/`after` (giá trị trước → sau), mảng mục được thêm/gỡ, `copiedFrom`. Không hiển thị JSON thô. Chứng từ có vòng duyệt tiếp tục dùng `DocumentHistoryTable`.
+`ActivityHistoryTable` (shared) cho Vai trò và các đối tượng quản trị sau (Người dùng OA2, Cấu hình quy trình OA4): cột Thời gian, Người thực hiện, Hành động, Nội dung thay đổi; mới nhất trước; đọc metadata theo quy ước `before`/`after` (giá trị trước → sau), mảng mục được thêm/gỡ, `copiedFrom`; giá trị dạng đối tượng hiện mã (tên); mục lồng (membership) qua `formatItem`. Không hiển thị JSON thô. Chứng từ có vòng duyệt tiếp tục dùng `DocumentHistoryTable`.
 
 ## FE-VALIDATION-001 — Validation form và nút Lưu
 
@@ -307,3 +307,9 @@ Tab Hồ sơ PR dùng `ScrollTable` với một tầng header sticky, 7 cột v�
 Grid Hồ sơ dành đủ chỗ cho tên loại thông dụng và cho cột Ghi chú, File đính kèm co giãn. Hộp thoại thay thế tách file hiện tại và file thay thế thành hai khối, dùng chung FormDialog. Kết quả lưu dùng Action Result Dialog theo UI-15, nêu mã PR khi thành công và nguyên nhân kèm hướng xử lý khi thất bại.
 
 `DocumentTotals` hiển thị số 0 theo precision tiền tệ. Gắn mã tiền tệ với tổng thanh toán có giá trị, ví dụ **0 VND**. Giá trị thiếu dùng **—**.
+
+## COMMON-TREE-VIEW-001 — Tree View
+
+Cây (ví dụ Cơ cấu tổ chức) dùng MUI List/Collapse, không thêm dependency. Thanh công cụ của cây gồm Search Input, nút mở rộng toàn bộ (`KeyboardDoubleArrowDown`) và thu gọn toàn bộ (`KeyboardDoubleArrowUp`) dạng `IconButton` 32×32px màu trung tính (`text.secondary`, không viền), có tooltip và `aria-label`, cùng Làm mới có chữ ở bên phải. Tìm kiếm giữ đường dẫn tổ tiên. Mỗi nút hiện mã · tên và dòng phụ (trạng thái, số con, số nhân sự). Thêm/sửa/kết thúc dữ liệu con hoặc Làm mới chỉ invalidate query: trạng thái mở/thu gọn, nút đang chọn và tab chi tiết được giữ nguyên.
+
+Cột boolean "có/không" trong bảng quản trị (đơn vị chính, trưởng đơn vị) dùng dấu check `CheckCircle` màu success căn giữa, ô trống khi không; thống nhất giữa màn User và Organization. Selector chọn một mục từ danh mục có thể lớn dùng autocomplete tìm phía server (`q`, phân trang), không tải toàn bộ hoặc cắt cứng số mục.

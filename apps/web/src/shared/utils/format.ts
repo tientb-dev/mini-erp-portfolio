@@ -5,3 +5,5 @@ export const num = (v: string | number) => Number(v);
 export const trimDecimal = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 /** `dd/MM/yyyy` in every language (the list shows the day; the full time goes in a tooltip). */
 export const fmtDay = (v: string) => new Date(v).toLocaleDateString('en-GB');
+/** `dd/MM/yyyy, HH:mm:ss` (security history). */
+export const fmtDateTime = (v: string) => new Date(v).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium' });

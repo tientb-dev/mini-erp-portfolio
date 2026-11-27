@@ -147,6 +147,7 @@ export class OrgUnitAdminService {
   async members(id: number) {
     await this.get(id);
     return this.ds.query(`SELECT u.id, u.employee_code AS "employeeCode", u.full_name AS "fullName", u.employment_status AS "employmentStatus",
+        om.id AS "membershipId", om.version AS "membershipVersion",
         om.is_primary AS "isPrimary", om.started_at AS "startedAt", (o.head_user_id = u.id) IS TRUE AS "isHead",
         json_build_object('id', jt.id, 'code', jt.code, 'name', jt.name) AS "jobTitle",
         CASE WHEN mg.id IS NULL THEN NULL ELSE json_build_object('id', mg.id, 'employeeCode', mg.employee_code, 'fullName', mg.full_name) END AS manager

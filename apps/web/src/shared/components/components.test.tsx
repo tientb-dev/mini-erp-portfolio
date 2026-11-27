@@ -267,15 +267,19 @@ describe('DataTable loading and error (list standard)', () => {
   });
 });
 
-describe('FilterToolbar (list standard)', () => {
-  it('always shows "Xóa bộ lọc" last; disabled without filters, clears when enabled', () => {
-    const onClear = vi.fn();
-    const { rerender } = render(<FilterToolbar active={false} onClear={onClear}><input aria-label="q" /></FilterToolbar>);
-    const btn = screen.getByRole('button', { name: /Xóa bộ lọc|Clear filters/ }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
+describe('FilterToolbar (COMMON-LIST-002)', () => {
+  it('puts "Làm mới" right after the last filter, always enabled, disabled only while refreshing; no "Xóa bộ lọc"', () => {
+    const onRefresh = vi.fn();
+    const { rerender } = render(<FilterToolbar onRefresh={onRefresh}><input aria-label="q" /></FilterToolbar>);
+    const btn = screen.getByRole('button', { name: /Làm mới|Refresh/ }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
     expect(btn.previousElementSibling?.getAttribute('aria-label')).toBe('q');
-    rerender(<FilterToolbar active onClear={onClear}><input aria-label="q" /></FilterToolbar>);
+    expect(btn.className).toContain('MuiButton-outlined');
+    expect(getComputedStyle(btn).marginLeft).not.toBe('auto');
+    expect(screen.queryByRole('button', { name: /Xóa bộ lọc|Clear filters/ })).toBeNull();
     fireEvent.click(btn);
-    expect(onClear).toHaveBeenCalledTimes(1);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    rerender(<FilterToolbar onRefresh={onRefresh} refreshing><input aria-label="q" /></FilterToolbar>);
+    expect((screen.getByRole('button', { name: /Làm mới|Refresh/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

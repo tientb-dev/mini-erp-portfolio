@@ -800,4 +800,66 @@ describe('Sales contracts and procurement documents (integration)', () => {
       }
     }
   });
+  it('OA1.3: role administration racing PR approval and account security never deadlocks or commits a revoked action', async () => {
+    const head = await login(app, 'sales-head', 'role-users-test');
+    const roleOf = async (code: string) => {
+      const [{ id }] = await ds.query('SELECT id FROM roles WHERE code = $1', [code]);
+      return (await get(admin, `/admin/roles/${id}`).expect(200)).body;
+    };
+    const editable = (r: { name: string; description: string | null; permissions: string[]; users: { id: number }[]; version: number }) =>
+      ({ name: r.name, description: r.description, permissions: r.permissions, userIds: r.users.map(u => u.id), version: r.version });
+    const submitted = async () => {
+      const { sc, lineId } = await activeContract();
+      const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body;
+      await post(admin, `/purchase-requisitions/${id}/submit`, await prSubmission(ds, id)).expect(204);
+      return id as number;
+    };
+    const state = async (id: number) => (await ds.query(`SELECT p.approval_status AS status,
+        (SELECT count(*)::int FROM approval_histories h WHERE h.document_type = 'PR' AND h.document_id = p.id AND h.action = 'APPROVE') AS approvals
+      FROM purchase_requisitions p WHERE p.id = $1`, [id]))[0];
+    const restore = async () => {
+      const role = await roleOf('SALES_HEAD');
+      if (!role.isActive) await http().patch(`/admin/roles/${role.id}/status`).set(as(admin)).send({ isActive: true, version: role.version }).expect(204);
+      const fresh = await roleOf('SALES_HEAD');
+      if (!fresh.permissions.includes('PR.APPROVE')) await http().put(`/admin/roles/${fresh.id}`).set(as(admin)).send({ ...editable(fresh), permissions: [...fresh.permissions, 'PR.APPROVE'] }).expect(204);
+    };
+    try {
+      for (const revoke of ['status', 'permission'] as const) for (let round = 0; round < 3; round++) {
+        const id = await submitted();
+        const role = await roleOf('SALES_HEAD');
+        const change = revoke === 'status'
+          ? http().patch(`/admin/roles/${role.id}/status`).set(as(admin)).send({ isActive: false, version: role.version })
+          : http().put(`/admin/roles/${role.id}`).set(as(admin)).send({ ...editable(role), permissions: role.permissions.filter((p: string) => p !== 'PR.APPROVE') });
+        const [approve, admin_] = await Promise.all([post(head, `/purchase-requisitions/${id}/approve`, await prContext(ds, id)), change]);
+        expect(admin_.status).toBe(204);
+        const after = await state(id);
+        // Either the approval committed before the revoke, or it was refused after it; never a 500 (deadlock) or a half state.
+        if (approve.status === 204) expect(after).toMatchObject({ status: 'WAITING_FOR_RECEIPT', approvals: 1 });
+        else expect([approve.status, after]).toEqual([403, { status: 'WAITING_FOR_APPROVE', approvals: 0 }]);
+        await restore();
+      }
+
+      // Membership change racing disable and reset of the same account.
+      const managedRole = await roleOf('PM_HEAD');
+      const [{ id: target }] = await ds.query(`SELECT id FROM users WHERE username = 'pm-head'`);
+      for (const op of ['disable', 'reset'] as const) {
+        const role = await roleOf('PM_HEAD');
+        const [membership, account] = await Promise.all([
+          http().put(`/admin/roles/${role.id}`).set(as(admin)).send({ ...editable(role), userIds: role.users.map((u: { id: number }) => u.id).filter((u: number) => u !== target) }),
+          op === 'disable'
+            ? http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: false })
+            : http().post(`/admin/users/${target}/reset-password`).set(as(admin)).send({ temporaryPassword: 'role-users-test' }),
+        ]);
+        expect([membership.status, account.status]).toEqual([204, 204]);
+        const back = await roleOf('PM_HEAD');
+        await http().put(`/admin/roles/${back.id}`).set(as(admin)).send({ ...editable(back), userIds: [...back.users.map((u: { id: number }) => u.id), target] }).expect(204);
+        if (op === 'disable') await http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: true }).expect(204);
+      }
+      await ds.query(`UPDATE users SET must_change_password = false WHERE username = 'pm-head'`);
+      expect((await roleOf('PM_HEAD')).users.map((u: { id: number }) => u.id)).toContain(target);
+      expect(managedRole.code).toBe('PM_HEAD');
+    } finally {
+      await restore();
+    }
+  });
 });

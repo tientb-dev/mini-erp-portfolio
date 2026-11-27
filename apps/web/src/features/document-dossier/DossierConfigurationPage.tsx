@@ -180,7 +180,7 @@ function DossierTypePicker({ exclude, onClose, onConfirm }: {
     pending={false} canSubmit={selected.size > 0 && !query.isError} error={query.error} onClose={onClose}
     footerAside={t('dossier.selected', { count: selected.size })} onSubmit={() => onConfirm([...selected.values()])}>
     <FilterToolbar refreshing={query.isFetching}
-      onRefresh={() => { setSearch(''); setPage({ page: 0, pageSize: 25 }); void query.refetch(); }}>
+      onRefresh={() => { setSearch(''); setPage(previous => ({ ...previous, page: 0 })); void query.refetch(); }}>
       <SearchInput label={t('common.search')} value={search} placeholder={t('searchFields.catalog.dossierTypes')}
         onChange={value => { setSearch(value); setPage(previous => ({ ...previous, page: 0 })); }} sx={{ flex: '1 1 200px' }} />
     </FilterToolbar>

@@ -11,6 +11,8 @@ export const token = {
 
 export const SESSION_ENDED = 'mini-erp:session-ended';
 export const PASSWORD_CHANGE_REQUIRED = 'mini-erp:password-change-required';
+/** A 403 other than a required password change: effective permissions may have changed since /auth/me was read. */
+export const PERMISSION_DENIED = 'mini-erp:permission-denied';
 
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, detail: string, readonly fieldIssue?: { index: number; field: string }) {
@@ -32,7 +34,9 @@ export async function apiResponse(path: string, init: RequestInit = {}) {
     // The backend is the authority: an ended session or a required password change switches the whole app (OA1.2).
     // Only the token this request used may be cleared: a late 401 from an old session must not end a newer one.
     if (res.status === 401 && accessToken && token.get() === accessToken) { token.clear(); window.dispatchEvent(new Event(SESSION_ENDED)); }
-    if (res.status === 403 && problem.code === 'PASSWORD_CHANGE_REQUIRED' && token.get() === accessToken) window.dispatchEvent(new Event(PASSWORD_CHANGE_REQUIRED));
+    if (res.status === 403 && token.get() === accessToken) {
+      window.dispatchEvent(new Event(problem.code === 'PASSWORD_CHANGE_REQUIRED' ? PASSWORD_CHANGE_REQUIRED : PERMISSION_DENIED));
+    }
     throw new ApiError(res.status, problem.code ?? 'HTTP_ERROR', String(problem.detail ?? res.statusText), problem.fieldIssue);
   }
   return res;

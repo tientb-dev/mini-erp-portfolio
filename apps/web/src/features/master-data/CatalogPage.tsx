@@ -163,7 +163,7 @@ export function CatalogPage({ catalog, initialId }: { catalog: Catalog; initialI
           {t('master.create', { name: title.toLocaleLowerCase(i18n.language) })}
         </ActionButton>}
         toolbar={<FilterToolbar refreshing={catalogQuery.isFetching || updateStatus.isPending}
-          onRefresh={() => { setParams({}, { replace: true }); void catalogQuery.refetch(); }}>
+          onRefresh={() => { setParams(size ? { size: String(size) } : {}, { replace: true }); void catalogQuery.refetch(); }}>
           <SearchInput label={t('master.search')} placeholder={t(`searchFields.catalog.${catalog.key}`, { defaultValue: t('searchFields.codeOrName') })}
             value={q} onChange={value => setFilter('q', value)} sx={{ flex: { xs: '1 1 100%', sm: '0 1 420px' }, minWidth: 0 }} />
           <TextField select size="small" label={t('common.status')} value={status || 'all'}

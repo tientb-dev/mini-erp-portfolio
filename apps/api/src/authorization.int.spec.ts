@@ -64,7 +64,9 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       }
     };
     walk(join(__dirname, 'modules'));
-    expect(offenders).toEqual(['modules/identity/authorization.ts', 'modules/identity/identity.entities.ts']);
+    // Grant tables are read and written only inside the identity (Authorization) module.
+    expect(offenders.filter(path => !path.startsWith('modules/identity/'))).toEqual([]);
+    expect(offenders).toContain('modules/identity/authorization.ts');
   });
 
   it('rejects admin-only grants to business roles and protects the ADMIN role', async () => {
@@ -298,7 +300,8 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       expect(after.roles.filter(g => !reseeded.includes(g))).toEqual([]);
 
       expect(await up.runMigrations()).toEqual([]);
-      // Revert OA1.2 then OA1.1.
+      // Revert OA1.3, OA1.2 then OA1.1.
+      await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       expect(await roleGrants(up)).toEqual(before.roles);

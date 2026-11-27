@@ -5,7 +5,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { appendActivity } from '../document-records/document-records';
 import { BusinessError } from '../workflow/workflow';
 import { AttemptLimiter, LIMITS } from './attempt-limiter';
-import { activeAdminCount, grantRole, lockAdminGuard } from './authorization';
+import { activeAdminCount, grantRole, lockAdminGuard, lockGrantsExclusive } from './authorization';
 import { hashPassword, verifyPassword } from './password';
 
 export const MAX_FAILED_LOGINS = 5; // BA-USR-11
@@ -155,6 +155,8 @@ export class AccountSecurityService {
     if (actor.id === userId) throw selfChange();
     await this.ds.transaction(async m => {
       await lockAdminGuard(m);
+      // Disabling revokes every grant of the account: same gate as role changes (F-OA1.3-09).
+      await lockGrantsExclusive(m);
       const user = await this.lockForAdmin(m, actor, userId);
       if (user.is_active === isActive) return;
       await m.query('UPDATE users SET is_active = $2, version = version + 1, updated_at = now() WHERE id = $1', [userId, isActive]);
@@ -183,21 +185,26 @@ export class AccountSecurityService {
     return state;
   }
 
-  /**
-   * Locks actor and target user rows in id order (after admin-guard when the caller took it), then re-checks the actor's
-   * session and USER.MANAGE live under FOR SHARE, so a revoke that committed first stops the action (F-OA1.2-03).
-   */
   private async lockForAdmin(m: EntityManager, actor: Actor, userId: number) {
-    const rows: { id: number; is_active: boolean; failed_login_count: number; locked: boolean }[] = await m.query(`SELECT id, is_active,
-        failed_login_count, (locked_until > now()) IS TRUE AS locked
-      FROM users WHERE id = ANY($1) ORDER BY id FOR UPDATE`, [[actor.id, userId]]);
-    const self = rows.find(r => r.id === actor.id);
-    if (!self?.is_active || !(await sessionOpen(m, actor))) throw sessionEnded();
-    if (!(await grantRole(m, actor.id, 'USER.MANAGE', true))) throw new ForbiddenException('Missing permission: USER.MANAGE');
-    const user = rows.find(r => r.id === userId);
+    const user = (await lockActor(m, actor, 'USER.MANAGE', [userId])).find(r => r.id === userId);
     if (!user) throw new NotFoundException();
     return user;
   }
+}
+
+/**
+ * Admin-action preamble shared by account and role administration. Lock order: admin-guard (taken by the caller when
+ * admin standing may change) → users rows of the actor and `userIds` in id order → role/grant rows. Then re-checks the
+ * actor's session and `permission` live under FOR SHARE, so a revoke that committed first stops the action (F-OA1.2-03).
+ */
+export async function lockActor(m: EntityManager, actor: Actor, permission: string, userIds: number[] = [], mode: 'UPDATE' | 'SHARE' = 'UPDATE') {
+  const rows: { id: number; is_active: boolean; failed_login_count: number; locked: boolean }[] = await m.query(`SELECT id, is_active,
+      failed_login_count, (locked_until > now()) IS TRUE AS locked
+    FROM users WHERE id = ANY($1) ORDER BY id FOR ${mode === 'SHARE' ? 'SHARE' : 'UPDATE'}`, [[...new Set([actor.id, ...userIds])]]);
+  const self = rows.find(r => r.id === actor.id);
+  if (!self?.is_active || !(await sessionOpen(m, actor))) throw sessionEnded();
+  if (!(await grantRole(m, actor.id, permission, true))) throw new ForbiddenException(`Missing permission: ${permission}`);
+  return rows;
 }
 
 /** HTTP callers carry a session; service-level callers (no session) are trusted callers inside the app. */

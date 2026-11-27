@@ -98,7 +98,7 @@ Xác nhận dùng `FormDialog` hoặc `DocActionDialog`. `DataTable` và `Detail
 - Biến thể: hành động chính `variant="contained"` (một nút chính mỗi vùng); phụ `text` (mặc định) hoặc `outlined`; phá hủy/từ chối `color="error"`; điều kiện chưa đủ → `disabled`, không ẩn khi người dùng có quyền.
 - Đang chạy: nút chính disabled bởi `pending` của mutation.
 - Thao tác theo dòng trong bảng: `IconButton` + `Tooltip` + `aria-label` (kèm mã chứng từ); thao tác ít dùng vào menu ba chấm; click thao tác không mở dòng. Mã chứng từ là Link thật (mở tab mới/copy URL được); click vùng còn lại của dòng hoặc Enter cũng mở chi tiết.
-- Vị trí: dialog/form → footer căn phải (Hủy bỏ trước, hành động chính cuối). Trang chi tiết → Back là mũi tên cạnh tiêu đề (`backTo`); nhóm thao tác ở bên phải header (`DetailPageLayout.actions`), thứ tự: thao tác phá hủy/phụ, rồi hành động chính cuối cùng. Danh sách → thao tác chung ở header (`ListPageLayout.actions`); thao tác theo dòng ở cột cuối bảng (hoặc bấm dòng để mở).
+- Vị trí: dialog/form → footer căn phải (Hủy bỏ trước, hành động chính cuối). Trang chi tiết → theo [COMMON-DETAIL-PAGE-001](#common-detail-page-001): Back là mũi tên cạnh tiêu đề; **mọi thao tác lưu/thay đổi đối tượng nằm ở footer cố định** (`DetailPageLayout.footer`), không ở góc trên bên phải. Danh sách → thao tác chung ở header (`ListPageLayout.actions`); thao tác theo dòng ở cột cuối bảng (hoặc bấm dòng để mở).
 - Hiển thị thao tác theo quyền + trạng thái + vai trò (người tạo/người duyệt) — do feature quyết định; server kiểm tra lại.
 
 ## 8. Test
@@ -125,7 +125,7 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 | Form | Nhãn luôn nằm trên ô (không nổi trong viền), ô cao 40px, khoảng cách bội số 8. Thanh lọc không có nhãn trên: giá trị rỗng ghi "Tất cả …", tên trường là `aria-label`. |
 | Bảng | DataGrid dòng 44px, header 40px, chữ 14px; số căn phải; ngày trong danh sách `dd/MM/yyyy`, giờ đầy đủ ở tooltip; phân trang tiếng Việt ("1–3 trên 3"). |
 | Thao tác theo dòng | Mỗi dòng đúng một menu `⋯` (`MoreHoriz`) trong ô cố định, căn phải. Menu **chỉ liệt kê thao tác chạy được ngay**: không có quyền, hoặc trạng thái/điều kiện chưa cho phép (cùng điều kiện server) → ẩn, không hiện mờ. Lý do chưa đủ điều kiện (vd. chưa thể Chốt) do trang chi tiết giải thích. DataGrid tắt menu cột (`disableColumnMenu`). |
-| Chi tiết chứng từ | Tiêu đề là mã chứng từ, chip trạng thái ngay cạnh, phụ đề là loại chứng từ. Header chỉ có thao tác sửa. Quyết định (Hủy: outlined đỏ, có xác nhận; Chốt: contained) cùng nằm ở `DetailPageLayout.footer`, căn phải. Không có thao tác nào thì không hiện footer. |
+| Chi tiết chứng từ | Tiêu đề là mã chứng từ, chip trạng thái ngay cạnh, phụ đề là loại chứng từ. Header không chứa nút thao tác. Mọi thao tác (Hủy: outlined đỏ, có xác nhận; Sửa thông tin: outlined; Chốt: contained, ngoài cùng phải) nằm ở `DetailPageLayout.footer`, căn phải (COMMON-DETAIL-PAGE-001). Không có thao tác nào thì không hiện footer. |
 | Layout và cuộn | `AppShell` cao đúng `100dvh` nên document không bao giờ cuộn. Topbar cố định; sidebar cuộn riêng; `[data-main-scroll]` là vùng cuộn dọc duy nhất của nội dung. `DetailPageLayout` lấp đầy vùng đó, footer `sticky` ở đáy (nằm trong luồng trang nên không che dòng cuối). Bảng rộng cuộn ngang trong khung bảng; bảng ít dòng không có vùng cuộn riêng (DataGrid `autoHeight`). Menu, select, dialog render qua portal nên không bị overflow cắt. |
 | Dialog | Tiêu đề + X, một dòng `description`, footer có đường kẻ, Hủy bỏ + nút chính căn phải. Trường văn bản chiếm cả hàng; cặp giá trị đọc cùng nhau (Số lượng + ĐVT) chung một hàng. |
 
@@ -152,10 +152,10 @@ Toàn bộ token và quy tắc component nằm trong `config/theme.ts` (MUI them
 - Query key chứa toàn bộ tham số; `placeholderData: keepPreviousData`. Phản hồi về trễ của tham số cũ chỉ ghi vào cache của key cũ, không đè dữ liệu đang hiển thị.
 - `DataTable`: `loading = isFetching || isPlaceholderData` → lớp mờ + spinner phủ vùng dòng, dữ liệu cũ vẫn ở dưới, không hiện empty state; phân trang bị khóa và vẫn mô tả dữ liệu đang hiển thị cho tới khi trang mới về. `error` → xóa dòng, thông báo không tải được, giữ trang và tổng số (không tự nhảy về trang 1); trang hiển thị chi tiết lỗi qua `ErrorAlert`.
 
-**Thanh bộ lọc** (mọi màn danh sách có bộ lọc; dùng `FilterToolbar` trong `shared/components`, feature chỉ đưa các ô tìm kiếm/lọc vào):
-- Nút **"Xóa bộ lọc"** (nút text màu phụ, icon xoay ngược) **luôn hiển thị** ở cuối thanh bộ lọc, không ẩn/hiện làm xô lệch bố cục. Nút nằm **ngay sau ô lọc cuối cùng**, cùng nhóm và cùng khoảng cách (`gap`) với các ô lọc; **không** dùng `margin-left: auto` hay bố cục đẩy nút ra mép container (trên màn rộng như 2K nút sẽ bị tách xa bộ lọc). Thiếu chiều ngang thì nút tự xuống dòng như một ô lọc, không tràn ngang; chiều rộng các ô lọc không đổi.
-- Disabled khi không có điều kiện lọc nào, enabled khi có. Trạng thái tính từ **bộ lọc đang áp dụng trên URL** (kèm từ khóa đang gõ), nên Back/Forward cũng cập nhật đúng; ô tìm kiếm đồng bộ theo `q` trên URL.
-- Bấm: xóa từ khóa và mọi điều kiện lọc trong một lần đổi URL (`push`), quay về trang 1, **giữ nguyên sort và cỡ trang**. Bảng dùng loading chuẩn ở trên, không giật.
+**Thanh bộ lọc** (mọi màn danh sách có bộ lọc; dùng `FilterToolbar` trong `shared/components`, feature chỉ đưa các ô tìm kiếm/lọc vào) — quyết định BA OA1.3 thay "Xóa bộ lọc" bằng **"Làm mới"**:
+- Nút **"Làm mới"** (outlined primary, icon Refresh + chữ, cao 36px) nằm **ngay sau ô lọc cuối cùng**, đúng vị trí cũ của "Xóa bộ lọc", cùng `gap` với các ô lọc; **không** dùng spacer hay `margin-left: auto`. Thiếu chiều ngang thì nút xuống dòng như một ô lọc. Mỗi thanh chỉ có **một** nút Làm mới, không có Xóa bộ lọc.
+- Luôn khả dụng, kể cả khi chưa áp dụng bộ lọc; chỉ disabled khi đang làm mới (hoặc lần tải đầu đang chạy).
+- Bấm: đặt lại từ khóa, mọi bộ lọc và sort về mặc định, quay về trang đầu, **giữ số hàng mỗi trang**, rồi truy vấn lại server. Bảng dùng loading chuẩn ở trên, không giật.
 
 **Trạng thái áp dụng:** Hợp đồng bán (danh sách + chi tiết, kể cả `FilterToolbar`) đã áp dụng và kiểm chứng ở 1440×900, 1366×768, 768×1024, 390×844. Các màn PR, PO, GRR, PNK, PXK, kho, danh mục chuyển sang `fill`/`ScrollTable` ở PR sau, theo đúng quy chuẩn này.
 
@@ -199,7 +199,7 @@ Common Product Picker dùng chung API server-side cho hai tab mã chính/mã t�
 
 ## COMMON-MASTER-DATA-001 — Danh mục
 
-- Mỗi danh mục có mục điều hướng riêng. List dùng ListPageLayout, FilterToolbar, SearchInput và DataTable. Mã mở View; cột Thao tác sticky cuối bảng dùng Pencil mở Edit và Copy mở Create theo quyền. URL giữ từ khóa, bộ lọc, sort, trang và cỡ trang qua các mode. Làm mới luôn khả dụng ngoài lúc đang xử lý, cao 36px, outlined và căn phải. Thao tác này đặt lại toàn bộ trạng thái danh sách về mặc định trước khi tải lại. Picker giữ quy tắc refresh và selection riêng.
+- Mỗi danh mục có mục điều hướng riêng. List dùng ListPageLayout, FilterToolbar, SearchInput và DataTable. Mã mở View; cột Thao tác sticky cuối bảng dùng Pencil mở Edit và Copy mở Create theo quyền. URL giữ từ khóa, bộ lọc, sort, trang và cỡ trang qua các mode. Làm mới theo Thanh bộ lọc ở trên: ngay sau bộ lọc cuối, luôn khả dụng ngoài lúc đang làm mới, đặt lại trạng thái danh sách (giữ số hàng mỗi trang) rồi tải lại. Picker giữ quy tắc refresh và selection riêng.
 - Dùng cùng form cho Create, View và Edit. Create chưa có ID, View/Edit dùng cùng ID. Mở Edit, Create hoặc Copy từ List thì Hủy bỏ, Đóng, Quay lại hoặc lưu thành công trở về đúng List. Mở Edit từ View thì Hủy bỏ, Đóng, Quay lại hoặc lưu thành công trở về View tại chỗ, với dữ liệu mới sau lưu. Lưu thất bại giữ mode và dữ liệu nhập. Đóng View trở về List. View chỉ đọc, hiện Chỉnh sửa theo quyền. Create/Edit dùng cùng validation, chỉ rõ lỗi tại trường tương ứng và xác nhận bỏ thay đổi chưa lưu.
 - Mã chính và Hãng dùng DetailPageLayout với footer dùng chung. Mã tạm, ĐVT, Kho, Khách hàng, NCC, Tiền tệ, Thuế suất và Loại hồ sơ dùng FormDialog. Mỗi danh mục dùng chung form, lưới 12 cột ưu tiên mã/tên 4:8. Mô tả tùy chọn mặc định 2 dòng, cột đứng sau Tên. View chuyển Edit tại chỗ. Trạng thái dùng StatusChip và chỉnh ở danh sách. Nút chính ở bên phải.
 - Hiển thị tỷ giá, thuế suất theo locale và bỏ số 0 cuối phần thập phân. Kết quả tạo và sửa dùng Action Result Dialog theo UI-15; lỗi trường tiếp tục hiển thị inline. Hãng hiển thị grid NCC trong cả ba mode. Picker giữ lựa chọn qua lọc, phân trang và refresh, chỉ cập nhật form cục bộ khi xác nhận.
@@ -219,7 +219,7 @@ Common Product Picker dùng chung API server-side cho hai tab mã chính/mã t�
 
 **COMMON-LIST-001.** Với danh sách phân trang phía server, gửi tìm kiếm sau khoảng 300 ms, lọc và sắp xếp một cột trên toàn bộ tập dữ liệu. API áp dụng phạm vi dữ liệu trước khi tính tổng và dùng danh sách trường sort cho phép. Danh sách PR lưu truy vấn và trang trên URL, mặc định 25 dòng theo ngày tạo mới nhất với ID giảm dần làm tiêu chí phụ. Cột tiền thanh toán tắt sắp xếp vì danh sách có nhiều tiền tệ. Query key riêng theo tham số và tín hiệu hủy giữ phản hồi cũ khỏi lượt tìm mới.
 
-**COMMON-LIST-002.** Nút Làm mới dùng kiểu secondary, có icon và nhãn. Đặt lại từ khóa, bộ lọc, chế độ chờ xử lý, sort và pagination về mặc định rồi tải lại kể cả khi ở trạng thái mặc định. Với Product Picker, áp dụng đặt lại cho tab hiện hành và giữ các mục đã chọn. Search, dropdown và Làm mới trong FilterToolbar cao 36px, căn đáy và cách nhau 12px. Search của Master Data đơn giản có chiều rộng mục tiêu 420px và co giãn theo viewport. Picker dùng cùng lề ngang ở header, nội dung và footer. Checkbox đầu bảng áp dụng cho trang hiện tại sau lọc/sort, có trạng thái chọn một phần. Duy trì lựa chọn qua tìm kiếm, lọc, sort, phân trang và refresh.
+**COMMON-LIST-002.** Nút Làm mới dùng kiểu outlined primary, có icon và nhãn, đặt ngay sau bộ lọc cuối (Thanh bộ lọc). Đặt lại từ khóa, bộ lọc, chế độ chờ xử lý, sort và pagination về mặc định rồi tải lại kể cả khi ở trạng thái mặc định. Với Product Picker, áp dụng đặt lại cho tab hiện hành và giữ các mục đã chọn. Search, dropdown và Làm mới trong FilterToolbar cao 36px, căn đáy và cách nhau 12px. Search của Master Data đơn giản có chiều rộng mục tiêu 420px và co giãn theo viewport. Picker dùng cùng lề ngang ở header, nội dung và footer. Checkbox đầu bảng áp dụng cho trang hiện tại sau lọc/sort, có trạng thái chọn một phần. Duy trì lựa chọn qua tìm kiếm, lọc, sort, phân trang và refresh.
 
 **Common Search Input.** Giữ label phía trên, icon tìm kiếm bên trái và vùng cố định cho nút X có tooltip và tên truy cập. Placeholder mô tả dữ liệu mà truy vấn hiện tại hỗ trợ, bắt đầu bằng “Nhập” trong giao diện tiếng Việt. X chỉ xóa từ khóa, giữ bộ lọc và sort. Màn hình điều khiển debounce, URL và đưa danh sách về trang đầu theo cách xử lý tìm kiếm hiện hữu.
 
@@ -241,6 +241,47 @@ Giữa toolbar, vùng validation và grid header dùng khoảng cách 8px. Giữ
 
 Danh mục Loại hồ sơ dùng Common Master Data với Search Input, filter trạng thái, Làm mới và popup Create/View/Edit. Hệ thống có trang Cấu hình hồ sơ chứng từ lấy loại chứng từ từ API. Mã loại chứng từ mở Detail Page với ScrollTable, các nút di chuyển và xóa, và picker nhiều lựa chọn dùng Search Input, DataTable và FormDialog. Picker giữ lựa chọn qua tìm kiếm và phân trang, hiển thị loại Active chưa áp dụng. Thay đổi chỉ áp dụng khi Lưu cấu hình. Dirty Guard bảo vệ dữ liệu chưa lưu. Action Result Dialog hiển thị kết quả và giữ danh sách đang sửa nếu API thất bại.
 
+## COMMON-DETAIL-PAGE-001 — Full Page Detail (chứng từ và quản trị)
+
+Áp dụng cho mọi Full Page Create/View/Edit: chứng từ (HĐ, PR, PO, kho), danh mục full page và màn quản trị (Vai trò, Người dùng…). Dùng `DetailPageLayout` + `DetailTabs`, không tạo layout/footer riêng.
+
+- **Page Header:** nút Quay lại (`backTo`/`onBack`), tiêu đề, mã đối tượng và Status Badge (`StatusChip`/`ActiveChip`); phụ đề tùy chọn. **Không** đặt nút lưu hoặc thay đổi đối tượng ở góc trên bên phải.
+- **Detail Tabs:** ngay dưới header; trên màn `fillMedia` header và tabs đứng yên.
+- **Content:** panel của tab là vùng cuộn độc lập (`DetailTabs` cuộn panel trên trang fill), nội dung dài không đẩy mất header, tabs hay footer. Trang có lưới dòng riêng (PR) dùng `naturalFlow` theo COMMON-DOC-LAYOUT-001.
+- **Fixed Footer** (`DetailPageLayout.footer`): luôn ở đáy vùng làm việc, nút căn phải, hành động chính ngoài cùng phải. Create/Copy/Edit: Hủy bỏ, Lưu. View: thao tác phụ/phá hủy (Ngừng hoạt động: outlined đỏ; Kích hoạt: outlined) rồi Chỉnh sửa. Đối tượng hệ thống chỉ có thao tác được phép. Không lặp nút Quay lại ở footer.
+- **Trạng thái** hiển thị bằng Status Badge, đổi bằng action riêng + Confirm Dialog, không dùng switch disabled. Create mặc định hoạt động.
+
+## COMMON-CONFIRM-001 — Confirm Dialog
+
+`FormDialog` làm xác nhận: tiêu đề nêu thao tác, `description` nêu mã · tên đối tượng, nội dung nêu hệ quả (số người dùng bị ảnh hưởng, phần được giữ nguyên). Thao tác phá hủy (Ngừng hoạt động, Hủy) dùng `submitAction="void"` (outlined đỏ); khôi phục/xác nhận dùng primary. Thay đổi quyền cần xác nhận trước khi lưu và nêu số người dùng bị ảnh hưởng.
+
+## COMMON-PICKER-001 — Picker chọn nhiều
+
+Theo Product Picker: `FormDialog` + `FilterToolbar` (Search, Làm mới) + `DataTable` phân trang/sort **phía server** + `pickerSelectionColumn`. Lựa chọn giữ qua trang, tìm kiếm, sort và Làm mới; footer trái hiện "Đã chọn N"; mục đã gán hiển thị khóa (`isLocked`); Hủy bỏ không đổi dữ liệu; liên kết chỉ được lưu khi lưu đối tượng cha. Không có giới hạn cứng số kết quả.
+
+## COMMON-ACTIVITY-001 — Lịch sử đối tượng quản trị
+
+`ActivityHistoryTable` (shared) cho Vai trò và các đối tượng quản trị sau (Người dùng OA2, Cấu hình quy trình OA4): cột Thời gian, Người thực hiện, Hành động, Nội dung thay đổi; mới nhất trước; đọc metadata theo quy ước `before`/`after` (giá trị trước → sau), mảng mục được thêm/gỡ, `copiedFrom`. Không hiển thị JSON thô. Chứng từ có vòng duyệt tiếp tục dùng `DocumentHistoryTable`.
+
+## FE-VALIDATION-001 — Validation form và nút Lưu
+
+- Không hiện lỗi khi vừa mở form Create. Lỗi hiện sau khi rời trường (blur) hoặc bấm Lưu; dấu * chỉ là bắt buộc, không phải lỗi.
+- Label, viền và thông báo lỗi dùng cùng một trạng thái; giá trị hợp lệ thì xóa lỗi ngay.
+- Nút Lưu **không** bị disable vì validation ẩn; chỉ disable khi đang gửi hoặc không có quyền. Bấm Lưu khi chưa hợp lệ: mở tab chứa lỗi, focus trường lỗi đầu tiên.
+- Lỗi backend gắn đúng trường khi xác định được (ví dụ trùng mã); lưu thất bại giữ nguyên dữ liệu đang nhập; xung đột version nêu cách xử lý.
+
+## COMMON-UI-CHECKLIST-001
+
+Checklist bắt buộc trước khi tạo màn hình mới và khi nghiệm thu:
+
+1. List: `ListPageLayout` + `FilterToolbar` (Làm mới sau bộ lọc cuối, không có Xóa bộ lọc) + `DataTable`; trạng thái list trên URL; quay lại giữ trạng thái.
+2. Full page: COMMON-DETAIL-PAGE-001 (header không có nút lưu/thay đổi, footer cố định, panel cuộn).
+3. Readonly theo COMMON-READONLY-001, không dùng disabled cho dữ liệu chỉ đọc.
+4. Validation theo FE-VALIDATION-001; Dirty Guard khi rời trang có thay đổi.
+5. Nút theo COMMON-BUTTON-001; xác nhận theo COMMON-CONFIRM-001; kết quả bằng `ActionResultDialog` (UI-15).
+6. Picker theo COMMON-PICKER-001; lịch sử theo COMMON-ACTIVITY-001 hoặc `DocumentHistoryTable` với chứng từ.
+7. Kiểm tra trình duyệt thật ở 1920×1080 và 1366×768 theo UI-EVIDENCE-001, gồm các màn hình dùng chung component vừa sửa.
+
 ## COMMON-BUTTON-001
 
 Nút thao tác nghiệp vụ dùng `ActionButton` và mapping icon theo ngữ nghĩa, bên trái chữ và giữ icon khi disabled. Thêm dùng Add, Lưu dùng Save, Hủy bỏ dùng Close, Chỉnh sửa dùng Edit, Xác nhận dùng Check, Làm mới và Thay thế dùng Refresh, Xóa dùng Delete, Gửi duyệt dùng Send, Tải lên/xuống dùng Upload/Download, Hủy chứng từ dùng Block và Từ chối dùng CancelOutlined. Nút chính nền xanh. Nút phụ nền trắng viền xanh. Nút phá hủy nền trắng viền đỏ. `FormDialog` nhận `submitAction` và dùng mapping chung với footer thao tác và xác nhận workflow. Nút chỉ có icon dùng cho phần tử compact trong grid, file và điều khiển giao diện, kèm tooltip và tên truy cập. Tab, link điều hướng và control giao diện theo quy chuẩn riêng.
@@ -248,7 +289,7 @@ Nút thao tác nghiệp vụ dùng `ActionButton` và mapping icon theo ngữ ng
 ### Header grid, trường View và dialog
 
 - DataTable và ScrollTable dùng header #E8EEF5, chữ #334155, weight 600, viền dưới #CBD5E1 và phân cách cột nhẹ #E2E8F0. Dòng lẻ #FFFFFF, dòng chẵn #F5F7FA, hover #EDF2F7 và selected #EFF5FF. Selected ưu tiên hơn hover và nền xen kẽ. Phân cách dòng #E2E8F0. Ô sticky giữ cùng nền với dòng; ô nhập và lỗi validation vẫn dùng style hiện tại. Header và nội dung văn bản dài nằm một dòng.
-- ReadOnlyField dùng nền #F8FAFC, chữ #1E293B, viền #E2E8F0. Dữ liệu chọn và sao chép được; giá trị trống dùng dấu —. View hiển thị nhãn lựa chọn dạng văn bản và bỏ required, dropdown, clear.
+- **COMMON-READONLY-001.** `ReadOnlyField` dùng nền #F8FAFC, chữ #334155, viền #E2E8F0 (kể cả khi hover/focus). Readonly **khác** disabled: không dùng `disabled` cho dữ liệu chỉ đọc (View Mode và trường bất biến trong Edit, ví dụ mã). Dữ liệu chọn và sao chép được; giá trị trống dùng dấu —. View hiển thị nhãn lựa chọn dạng văn bản và bỏ required, mũi tên dropdown, clear. Disabled chỉ dành cho control tạm thời không thao tác được (đang gửi, thiếu quyền).
 - Header dialog nền trắng cao tối thiểu 56px, padding ngang 24px và flex căn giữa title 18px weight 600 cùng icon Đóng. Content cuộn riêng, padding 24px hoặc 12px ở biến thể compact. Footer có divider, thông tin selection ở trái khi có và nhóm nút ở phải. Dialog bo 12px. ActionResultDialog giữ trình bày riêng.
 
 ## COMMON-FILE-CELL-001

@@ -22,13 +22,12 @@ function FilterSelect({ name, empty, value, options, width, onChange }: {
   );
 }
 
-/** Search + status/sales/customer filters in the shared FilterToolbar; clearing keeps sort and page size, back to page 1. */
-export function ScListFilters({ text, onText, params, update, salesOptions, customerOptions }: {
+/** Search + status/sales/customer filters in the shared FilterToolbar; Làm mới resets them, sort and page (keeps the page size). */
+export function ScListFilters({ text, onText, params, update, salesOptions, customerOptions, onRefresh, refreshing }: {
   text: string; onText: (v: string) => void; params: URLSearchParams; update: (next: Record<string, string | null>) => void;
-  salesOptions?: Option[]; customerOptions?: Option[];
+  salesOptions?: Option[]; customerOptions?: Option[]; onRefresh: () => void; refreshing: boolean;
 }) {
   const { t } = useTranslation();
-  const active = Boolean(text || params.get('status') || params.get('responsibleSalesUserId') || params.get('customerId'));
   const filters: ReactNode[] = [
     <FilterSelect key="status" name={t('common.status')} empty={t('sc.allStatuses')} width={170} value={params.get('status') ?? ''}
       options={['DRAFT', 'ACTIVE', 'CANCELED'].map((s) => ({ value: s, label: t(`sc.status.${s}`) }))} onChange={(v) => update({ status: v })} />,
@@ -42,7 +41,11 @@ export function ScListFilters({ text, onText, params, update, salesOptions, cust
       options={customerOptions} onChange={(v) => update({ customerId: v })} />);
   }
   return (
-    <FilterToolbar active={active} onClear={() => { onText(''); update({ q: null, status: null, responsibleSalesUserId: null, customerId: null }); }}>
+    <FilterToolbar refreshing={refreshing} onRefresh={() => {
+      onText('');
+      update({ q: null, status: null, responsibleSalesUserId: null, customerId: null, sort: null, order: null });
+      onRefresh();
+    }}>
       <SearchInput label={t('common.search')} value={text} onChange={onText} placeholder={t('searchFields.contract')}
         sx={{ flex: { xs: '1 1 100%', sm: '1 1 260px' }, maxWidth: { sm: 360 } }} />
       {filters}

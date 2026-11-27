@@ -743,6 +743,27 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 - **Frontend:** 401 chỉ xóa đúng token đã gửi request (401 muộn của phiên cũ không làm mất phiên mới); nhiều 401 đồng thời chỉ phát một sự kiện; logout lỗi mạng vẫn xóa phiên cục bộ và báo chưa xác nhận được với máy chủ; thông báo "Phiên đăng nhập không còn hiệu lực…" hiện một lần, không hiện khi chủ động đăng xuất hay đổi mật khẩu; dữ liệu cache của phiên cũ bị xóa. Mỗi tab giữ token riêng (`sessionStorage`).
 - **UI:** Login rộng 420px, hiện/ẩn mật khẩu, dòng "Hệ thống quản lý doanh nghiệp" và "Quên mật khẩu? Liên hệ quản trị viên."; màn bắt buộc đổi mật khẩu cùng chiều rộng, nút Đăng xuất outlined, có hướng dẫn đăng nhập lại; menu tài khoản có chevron; dialog đổi mật khẩu 480px, hướng dẫn chính sách hiện sẵn dưới mật khẩu mới.
 
+**Chốt OA1.3 (F-OA1.3-01…14):**
+
+- **Lock graph (F-09).** Thứ tự khóa chung: admin-guard → `grants` (advisory) → dòng `users` (id tăng dần) → dòng `roles` → dòng grant/membership. Kiểm tra quyền trực tiếp (`grantRole(lock)`, PR workflow và `lockActor`) lấy `grants` dạng **shared**; mọi thao tác có thể thu hồi grant (ngừng Role, sửa quyền hoặc thành viên Role, tạo Role, vô hiệu hóa tài khoản) lấy `grants` **exclusive** trước khi chạm dòng nào. Lý do: câu `FOR SHARE` một lệnh khóa users/user_roles/roles/role_permissions theo thứ tự của plan, nên chỉ thống nhất "users trước roles" không đủ loại vòng chờ. Reset mật khẩu và mở khóa không thu hồi grant nên không lấy gate. Kiểm chứng PostgreSQL: ngừng Role và gỡ `PR.APPROVE` đồng thời với phê duyệt PR (3 vòng mỗi loại), đổi thành viên Role đồng thời với disable/reset cùng tài khoản, hai Admin gỡ nhau khỏi ADMIN, quyền người thao tác bị thu hồi khi đang chờ gate: không deadlock, không mất Admin cuối, không commit thao tác trái quyền.
+- **Version (F-10).** `PUT /admin/roles/:id` và `PATCH …/status` bắt buộc `version`; mọi thay đổi thông tin, quyền hoặc thành viên tăng `roles.version` một lần. **Quy tắc OA2:** đường thêm/gỡ Role từ màn Người dùng phải tăng `version` của từng Role bị đổi thành viên (và `users.version`), dưới cùng thứ tự khóa trên.
+- **Catalog (F-11).** 51 key khớp OA0/ADR-0018/04-PERMISSIONS. `admin_only` = `USER.*`, `ROLE.*`, `PR.CONFIGURE`, `DOSSIER_TYPE.MANAGE`, `DOSSIER_CONFIG.MANAGE` (theo BA-N-02, không theo hậu tố MANAGE: `PROCUREMENT_CATALOG.MANAGE`, `UOM.MANAGE`, `PR.REASSIGN`, `PR.DOSSIER_MANAGE`, `DOSSIER_TYPE.VIEW` cấp được cho Role nghiệp vụ). Chưa có trong catalog theo kế hoạch: `ORGANIZATION.*` (OA2), `SALES_CONTRACT.CONFIGURE` (OA4), `SN_HISTORY.VIEW` (phase kho). Key legacy `SALES_CONTRACT.PROPOSE_PRODUCT/CONFIRM_PRODUCT` gỡ ở phase HĐ. Ma trận quyền khởi tạo không đổi trước khi BA duyệt (OA3).
+- **Quyền hiệu lực ở frontend (F-12).** `/auth/me` được đọc lại khi: lưu Role/đổi trạng thái Role của chính phiên đó, cửa sổ được focus lại, màn hình mount lại, và khi một API trả 403 khác `PASSWORD_CHANGE_REQUIRED` (tối đa mỗi 2 giây). 403 không đăng xuất; 401 của token cũ vẫn bị bỏ qua (OA1.2). Giới hạn: quyền đổi bởi người khác chỉ hiện trên menu khi một trong các sự kiện trên xảy ra; backend luôn là nguồn quyết định.
+- **Copy (F-13).** `copiedFrom` được đọc lại từ DB trong transaction: không tồn tại → `COPY_SOURCE_NOT_FOUND`; Role hệ thống → `SYSTEM_ROLE_PROTECTED`; metadata audit không nhận từ client.
+- **User Picker (F-06).** `GET /admin/roles/user-options` phân trang/sort phía server (`q`, `sort`, `direction`, `page`, `size` 25/50/100).
+- **Lịch sử phía User (bắt buộc ở OA2).** Thêm/gỡ Role hiện chỉ ghi vào lịch sử Role; OA2 phải ghi thêm sự kiện tương ứng vào lịch sử từng User bị đổi Role, từ cả màn Role lẫn màn Người dùng.
+
+**Chi tiết OA1.3:**
+
+- **Quyền:** đọc cần `ROLE.VIEW`, thay đổi và User Picker cần `ROLE.MANAGE` (cả hai `admin_only`, nên chỉ ADMIN). Không có API tạo Permission key, cấp quyền trực tiếp cho User, kế thừa Role hay DENY.
+- **Một transaction cho mỗi lần lưu** gồm thông tin Role, grant, liên kết User–Role và audit. Thứ tự khóa: admin-guard (chỉ khi đổi thành viên Role hệ thống) → dòng `users` của actor và user bị thêm/gỡ theo id → dòng `roles` (`FOR UPDATE`, kiểm `version`) → grant. Cùng thứ tự u → r với kiểm tra quyền trực tiếp của PR, nên không tạo vòng chờ. Session và `ROLE.MANAGE` của actor được kiểm lại trong transaction (`lockActor`, dùng chung với quản trị tài khoản OA1.2).
+- **ADMIN:** chỉ sửa tên và mô tả; đổi quyền, ngừng hoạt động, đổi mã bị từ chối (`SYSTEM_ROLE_PROTECTED`, cộng trigger DB OA1.1); không có Copy trên UI. Gán/gỡ người dùng khỏi ADMIN được, trừ chính mình; gỡ thì kiểm `assertAdminRemains`.
+- **Tự thay đổi:** actor không được thêm hoặc gỡ chính mình khỏi bất kỳ Role nào (`SELF_CHANGE_DENIED`).
+- **Ngừng Role** giữ nguyên grant và liên kết User–Role; quyền hiệu lực mất/khôi phục từ request tiếp theo qua `v_user_grants`.
+- **Copy** là Create được điền sẵn tên, mô tả, quyền; không sao chép mã, người dùng, cấu hình workflow, lịch sử. API ghi `ROLE_COPIED` với Role nguồn (không có endpoint copy riêng).
+- **Lịch sử (target `ROLE`):** `ROLE_CREATED`, `ROLE_COPIED`, `ROLE_UPDATED` (before/after), `PERMISSIONS_ADDED/REMOVED`, `USERS_ADDED/REMOVED`, `ROLE_DEACTIVATED/ACTIVATED`. Không chứa thông tin bí mật.
+- **Tab Người dùng** chỉ hiển thị thông tin tài khoản hiện có (username, họ tên, trạng thái); thông tin nhân sự và tổ chức thuộc OA2.
+
 **Chi tiết OA1.2 so với §5:**
 
 - So khớp username **phân biệt hoa thường** như baseline; không phân biệt hoa thường (BA-USR-02) đi cùng unique index ở OA2.
@@ -752,7 +773,7 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 - `revoke_reason` chưa có `EMPLOYMENT_INACTIVE`; OA2 bổ sung cùng trạng thái nhân sự.
 - Hồ sơ cá nhân ở OA1.2 chỉ đọc (họ tên, username, vai trò); sửa email/SĐT thuộc OA2.
 - Tài khoản hiện có giữ nguyên hash và trạng thái khi migrate; user demo mới do seed tạo luôn phải đổi mật khẩu; fixture test đặt cờ riêng trong `bootTestApp`.
-| OA1.3 Role & Permission Management | Chưa triển khai |
+| **OA1.3** Role & Permission Management | **Hoàn thành.** Migration `1733616000000`: `permissions.sort_order`, `roles.updated_by`, target Activity `ROLE`; grant hiện có không đổi. API `/admin/permissions`, `/admin/roles` (list server-side, detail, create/copy, update, status, history, user-options). UI Hệ thống → Vai trò & Phân quyền: List, Full Page 4 tab, Accordion quyền, User Picker, Lịch sử |
 
 **Quyết định Architect tại OA1.1:**
 

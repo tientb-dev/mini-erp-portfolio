@@ -26,11 +26,22 @@ export async function loadGrants(m: EntityManager, userId: number, sessionId?: s
 }
 
 /**
+ * Coarse grant lock (F-OA1.3-09). A live grant check takes it shared; every administrative change that can revoke a
+ * grant (role status, role permissions, role memberships, account disable) takes it exclusive before touching any row.
+ * A single-statement FOR SHARE scan locks users/user_roles/roles/role_permissions in plan order, so without this gate a
+ * revoke that locks the same rows in another order could form a wait cycle. Lock order everywhere:
+ * admin-guard → grants → users rows (id order) → roles row → grant/membership rows.
+ */
+export const lockGrantsShared = (m: EntityManager) => m.query(`SELECT pg_advisory_xact_lock_shared(hashtext('grants'))`);
+export const lockGrantsExclusive = (m: EntityManager) => m.query(`SELECT pg_advisory_xact_lock(hashtext('grants'))`);
+
+/**
  * First active role (name) granting `permission` to an active user, or undefined.
- * `lock`: live check for workflow actions. FOR SHARE on the base rows (not the view) so a concurrent revoke of the
- * user, role membership, role status or grant waits for this transaction, and a committed revoke is seen after the wait.
+ * `lock`: live check for workflow actions. Takes the grant gate shared, then FOR SHARE on the base rows (not the view),
+ * so a concurrent revoke waits for this transaction and a revoke committed first is seen after the wait.
  */
 export async function grantRole(m: EntityManager, userId: number, permission: string, lock = false): Promise<{ role: string; fullName: string } | undefined> {
+  if (lock) await lockGrantsShared(m);
   const [grant] = lock
     ? await m.query(`SELECT r.name AS role, u.full_name AS "fullName" FROM users u JOIN user_roles ur ON ur.user_id = u.id
         JOIN roles r ON r.id = ur.role_id JOIN role_permissions rp ON rp.role_id = r.id

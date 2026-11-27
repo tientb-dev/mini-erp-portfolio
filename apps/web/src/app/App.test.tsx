@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { api, SESSION_ENDED, token } from '../services/api-client';
+import { api, PERMISSION_DENIED, SESSION_ENDED, token } from '../services/api-client';
 import { App } from './App';
 
 const json = (status: number, body: unknown) => new Response(status === 204 ? null : JSON.stringify(body), { status });
@@ -72,6 +72,23 @@ describe('Authentication state', () => {
     } finally {
       window.removeEventListener(SESSION_ENDED, ended);
     }
+  });
+
+  it('a business 403 re-reads /auth/me without signing out (F-OA1.3-12)', async () => {
+    token.set('t1');
+    let meCalls = 0;
+    serve({ '/auth/me': () => { meCalls++; return json(200, { ...forcedMe, mustChangePassword: false, permissions: [] }); },
+      '/products': () => json(403, { code: 'FORBIDDEN' }) });
+    const denied = vi.fn();
+    window.addEventListener(PERMISSION_DENIED, denied);
+    try {
+      await expect(api('/products')).rejects.toThrow();
+      expect(denied).toHaveBeenCalledTimes(1);
+      expect(token.get()).toBe('t1');
+    } finally {
+      window.removeEventListener(PERMISSION_DENIED, denied);
+    }
+    expect(meCalls).toBe(0);
   });
 
   it('concurrent 401s end the session once', async () => {

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { themes } from '../config/theme';
 import { ForcePasswordChange, Login, LoginNotice, useMe } from '../features/identity';
-import { api, PASSWORD_CHANGE_REQUIRED, SESSION_ENDED, token } from '../services/api-client';
+import { api, PASSWORD_CHANGE_REQUIRED, PERMISSION_DENIED, SESSION_ENDED, token } from '../services/api-client';
 import { ActionResult, ActionResultDialog } from '../shared/components/ActionResultDialog';
 import { AppShell } from './layouts/AppShell';
 
@@ -17,8 +17,13 @@ function SignedIn({ onEnd }: { onEnd: (ending: Ending) => void }) {
   const qc = useQueryClient();
   useEffect(() => {
     const recheck = () => void qc.invalidateQueries({ queryKey: ['me'] });
+    // F-OA1.3-12: a denied call re-reads /auth/me (at most every 2 s; /auth/me itself never returns 403), so the menu,
+    // route guards and buttons follow grant changes without signing out. Focus and remounts also refetch it.
+    let last = 0;
+    const denied = () => { if (Date.now() - last > 2000) { last = Date.now(); recheck(); } };
     window.addEventListener(PASSWORD_CHANGE_REQUIRED, recheck);
-    return () => window.removeEventListener(PASSWORD_CHANGE_REQUIRED, recheck);
+    window.addEventListener(PERMISSION_DENIED, denied);
+    return () => { window.removeEventListener(PASSWORD_CHANGE_REQUIRED, recheck); window.removeEventListener(PERMISSION_DENIED, denied); };
   }, [qc]);
   // The server revokes the session; if that cannot be confirmed the local sign-out still happens, and Login says so.
   const logout = () => void api('/auth/logout', { method: 'POST' })

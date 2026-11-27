@@ -13,7 +13,7 @@ export const LOCKOUT_MINUTES = 15;
 export const PASSWORD_MIN_LENGTH = 12; // BA-USR-05
 export const PASSWORD_MAX_LENGTH = 256; // passphrases; bounds the hashing cost per request
 
-type RevokeReason = 'LOGOUT' | 'PASSWORD_CHANGED' | 'PASSWORD_RESET' | 'ACCOUNT_DISABLED';
+export type RevokeReason = 'LOGOUT' | 'PASSWORD_CHANGED' | 'PASSWORD_RESET' | 'ACCOUNT_DISABLED' | 'EMPLOYMENT_INACTIVE';
 
 /** Security events on the USER target; metadata never carries passwords, hashes, tokens or session ids (BA-SEC-03). */
 const audit = (m: EntityManager, userId: number, action: string, actorId: number, metadata?: Record<string, unknown>) =>
@@ -65,7 +65,7 @@ export class AccountSecurityService {
       const [user] = await m.query(`SELECT id, password_hash, is_active, must_change_password,
           (locked_until IS NOT NULL AND locked_until > now()) AS locked,
           (locked_until IS NOT NULL AND locked_until <= now()) AS lock_expired
-        FROM users WHERE username = $1 FOR UPDATE`, [username]);
+        FROM users WHERE lower(username) = $1 FOR UPDATE`, [account]);
       const matches = await verifyPassword(password, user?.password_hash ?? await (this.dummyHash ??= hashPassword(randomUUID())));
       if (!user) {
         // No USER target: recorded as an authentication event keyed by a digest of the attempted name (F-OA1.2-01).
@@ -142,7 +142,7 @@ export class AccountSecurityService {
     assertPasswordPolicy(temporaryPassword);
     const hash = await hashPassword(temporaryPassword);
     await this.ds.transaction(async m => {
-      await this.lockForAdmin(m, actor, userId);
+      if (!(await this.lockForAdmin(m, actor, userId)).has_account) throw noAccount();
       await m.query(`UPDATE users SET password_hash = $2, must_change_password = true, password_changed_at = now(),
         failed_login_count = 0, locked_until = NULL, version = version + 1, updated_at = now() WHERE id = $1`, [userId, hash]);
       await audit(m, userId, 'PASSWORD_RESET', actor.id);
@@ -159,6 +159,9 @@ export class AccountSecurityService {
       await lockGrantsExclusive(m);
       const user = await this.lockForAdmin(m, actor, userId);
       if (user.is_active === isActive) return;
+      // BA-USR-04: an account opens only for an active employee that has one.
+      if (isActive && !user.has_account) throw noAccount();
+      if (isActive && user.employment_status !== 'ACTIVE') throw employmentInactive();
       await m.query('UPDATE users SET is_active = $2, version = version + 1, updated_at = now() WHERE id = $1', [userId, isActive]);
       if (!isActive) await assertAdminRemains(m);
       await audit(m, userId, isActive ? 'ACCOUNT_ENABLED' : 'ACCOUNT_DISABLED', actor.id);
@@ -197,12 +200,21 @@ export class AccountSecurityService {
  * admin standing may change) → users rows of the actor and `userIds` in id order → role/grant rows. Then re-checks the
  * actor's session and `permission` live under FOR SHARE, so a revoke that committed first stops the action (F-OA1.2-03).
  */
+export interface LockedUser {
+  id: number; is_active: boolean; failed_login_count: number; locked: boolean;
+  employment_status: 'ACTIVE' | 'INACTIVE'; has_account: boolean; version: number;
+}
+
+export const noAccount = () => new BusinessError('NO_ACCOUNT', 'This employee has no account', HttpStatus.CONFLICT);
+export const employmentInactive = () =>
+  new BusinessError('EMPLOYMENT_INACTIVE', 'The employee is inactive; reactivate the employee first', HttpStatus.CONFLICT);
+
 export async function lockActor(m: EntityManager, actor: Actor, permission: string, userIds: number[] = [], mode: 'UPDATE' | 'SHARE' = 'UPDATE') {
   // The grant gate comes before any users row (F-OA1.3-21). A caller that already holds it exclusive keeps it: a
   // transaction's own advisory locks never conflict, so this is not an upgrade.
   await lockGrantsShared(m);
-  const rows: { id: number; is_active: boolean; failed_login_count: number; locked: boolean }[] = await m.query(`SELECT id, is_active,
-      failed_login_count, (locked_until > now()) IS TRUE AS locked
+  const rows: LockedUser[] = await m.query(`SELECT id, is_active,
+      failed_login_count, (locked_until > now()) IS TRUE AS locked, employment_status, username IS NOT NULL AS has_account, version
     FROM users WHERE id = ANY($1) ORDER BY id FOR ${mode === 'SHARE' ? 'SHARE' : 'UPDATE'}`, [[...new Set([actor.id, ...userIds])]]);
   const self = rows.find(r => r.id === actor.id);
   if (!self?.is_active || !(await sessionOpen(m, actor))) throw sessionEnded();

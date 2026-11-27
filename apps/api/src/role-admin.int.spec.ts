@@ -27,7 +27,7 @@ describe('Role & Permission management OA1.3 (PostgreSQL, HTTP)', () => {
   let seq = 0;
   async function makeUser(role?: string) {
     const username = `oa13-${++seq}`;
-    const [{ id }] = await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id`,
+    const [{ id }] = await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ($1, $1, $2, $3) RETURNING id`,
       [username, await hashPassword(PW), `Role User ${seq}`]);
     if (role) await ds.query('INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = $2', [id, role]);
     return { id: id as number, username };
@@ -176,11 +176,11 @@ describe('Role & Permission management OA1.3 (PostgreSQL, HTTP)', () => {
   it('excludes the acting admin in SQL before COUNT and paging, wherever they fall in the results (F-OA1.3-19)', async () => {
     // 60 picker candidates around three acting admins placed first, in the middle and last by username.
     for (let i = 0; i < 60; i++) {
-      await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ($1, 'x', $2)`, [`pick-${String(i).padStart(3, '0')}`, `Pick ${i}`]);
+      await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ($1, $1, 'x', $2)`, [`pick-${String(i).padStart(3, '0')}`, `Pick ${i}`]);
     }
     const actors: string[] = [];
     for (const name of ['pick-000a', 'pick-030a', 'pick-zzz']) {
-      const [{ id }] = await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ($1, $2, $1) RETURNING id`, [name, await hashPassword(PW)]);
+      const [{ id }] = await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ($1, $1, $2, $1) RETURNING id`, [name, await hashPassword(PW)]);
       await ds.query(`INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = 'ADMIN'`, [id]);
       actors.push(name);
     }

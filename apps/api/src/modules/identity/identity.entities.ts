@@ -20,8 +20,9 @@ export class Role {
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn() id!: number;
-  @Column({ unique: true }) username!: string;
-  @Column({ name: 'password_hash', select: false }) passwordHash!: string;
+  @Column({ type: 'varchar', nullable: true }) username!: string | null;
+  @Column({ name: 'employee_code' }) employeeCode!: string;
+  @Column({ name: 'password_hash', type: 'varchar', nullable: true, select: false }) passwordHash!: string | null;
   @Column({ name: 'full_name' }) fullName!: string;
   @Column({ name: 'is_active', default: true }) isActive!: boolean;
   @ManyToMany(() => Role)

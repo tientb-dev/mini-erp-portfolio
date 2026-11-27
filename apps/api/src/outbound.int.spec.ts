@@ -42,7 +42,7 @@ describe('Outbound: GIR → GI (integration)', () => {
     sales = await login(app, process.env.SEED_APPROVER_USERNAME!, process.env.SEED_APPROVER_PASSWORD!);
     [{ id: hcm }] = await ds.query(`SELECT id FROM warehouses WHERE code = 'HCM'`);
     [{ id: kth }] = await ds.query(`INSERT INTO warehouses (code, name, allow_available_stock_issue) VALUES ('KTH', 'Kho hàng thừa', true) RETURNING id`);
-    [{ id: managerId }] = await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ('manager', $1, 'Quản lý KTH') RETURNING id`, [await hashPassword('pw-manager')]);
+    [{ id: managerId }] = await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ('manager', 'manager', $1, 'Quản lý KTH') RETURNING id`, [await hashPassword('pw-manager')]);
     await ds.query(`INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = 'ADMIN'`, [managerId]);
     await ds.query(`INSERT INTO user_warehouses (user_id, warehouse_id) SELECT u.id, $1 FROM users u WHERE u.username IN ($2, $3, 'manager')`, [
       kth, process.env.SEED_ADMIN_USERNAME, process.env.SEED_APPROVER_USERNAME,

@@ -47,7 +47,7 @@ describe('API foundation (integration)', () => {
 
   it('forbids a user without the permission (RBAC)', async () => {
     const { hashPassword } = await import('./modules/identity/password');
-    await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ('viewer', $1, 'Viewer')`, [
+    await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ('viewer', 'viewer', $1, 'Viewer')`, [
       await hashPassword('viewer-pass'),
     ]);
     const login = await request(app.getHttpServer()).post('/auth/login').send({ username: 'viewer', password: 'viewer-pass' }).expect(200);

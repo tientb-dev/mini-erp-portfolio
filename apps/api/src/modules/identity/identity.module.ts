@@ -5,6 +5,7 @@ import { env } from '../../database/env';
 import { AccountSecurityService } from './account-security';
 import { AttemptLimiter } from './attempt-limiter';
 import { RoleAdminController, RoleAdminService } from './role-admin';
+import { UserAdminController, UserAdminService } from './user-admin';
 import { AccountAdminController, AuthController, IdentityService } from './auth';
 import { Permission, Role, User } from './identity.entities';
 
@@ -13,8 +14,8 @@ import { Permission, Role, User } from './identity.entities';
     TypeOrmModule.forFeature([User, Role, Permission]),
     JwtModule.register({ secret: env('JWT_ACCESS_SECRET'), signOptions: { expiresIn: (process.env.JWT_ACCESS_TTL ?? '8h') as '8h' } }),
   ],
-  controllers: [AuthController, AccountAdminController, RoleAdminController],
-  providers: [IdentityService, AccountSecurityService, AttemptLimiter, RoleAdminService],
+  controllers: [AuthController, AccountAdminController, RoleAdminController, UserAdminController],
+  providers: [IdentityService, AccountSecurityService, AttemptLimiter, RoleAdminService, UserAdminService],
   exports: [IdentityService, JwtModule],
 })
 export class IdentityModule {}

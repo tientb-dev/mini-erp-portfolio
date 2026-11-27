@@ -33,7 +33,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
   let seq = 0;
   async function makeUser(role = 'SALES', password = PW) {
     const username = `oa12-${++seq}`;
-    const [{ id }] = await ds.query(`INSERT INTO users (username, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id`,
+    const [{ id }] = await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name) VALUES ($1, $1, $2, $3) RETURNING id`,
       [username, await hashPassword(password), `User ${seq}`]);
     await ds.query('INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = $2', [id, role]);
     return { id: id as number, username };
@@ -137,7 +137,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       const { seed } = await import('./database/seed');
       await ds.query(`DELETE FROM user_warehouses WHERE user_id = (SELECT id FROM users WHERE username = 'pm-head');
         DELETE FROM user_roles WHERE user_id = (SELECT id FROM users WHERE username = 'pm-head');
-        UPDATE users SET username = 'pm-head-retired' WHERE username = 'pm-head'`);
+        UPDATE users SET username = 'pm-head-retired', employee_code = 'PM_HEAD-RETIRED' WHERE username = 'pm-head'`);
       await seed(ds);
       expect(await ds.query(`SELECT must_change_password FROM users WHERE username = 'pm-head'`)).toEqual([{ must_change_password: true }]);
       const existing = await ds.query(`SELECT username, password_hash, must_change_password FROM users WHERE username <> 'pm-head' ORDER BY id`);

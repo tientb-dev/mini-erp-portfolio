@@ -308,6 +308,7 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
 
     afterAll(async () => {
       if (up?.isInitialized) await up.destroy();
+      delete process.env.EMPLOYEE_CODES;
       await ds.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     });
 
@@ -336,6 +337,9 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       const missingInCatalog = (await up.query('SELECT code FROM permissions')).length;
       expect(missingInCatalog).toBe(baselineKeys.length);
 
+      // OA2.3a preflight: the operator declares an employee code for every kept user (BA-USR-10); nothing is generated.
+      process.env.EMPLOYEE_CODES = JSON.stringify(Object.fromEntries((await up.query(`SELECT username FROM users`) as { username: string }[])
+        .map(u => [u.username, `E-${u.username}`])));
       await up.destroy();
       up = new DataSource(options(true) as never);
       await up.initialize();
@@ -356,15 +360,20 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       expect(after.roles.filter(g => !reseeded.includes(g))).toEqual([]);
 
       expect(await up.runMigrations()).toEqual([]);
-      // Revert OA2.2, OA2.1, OA1.3, OA1.2 then OA1.1.
+      // Revert OA2.3a, OA2.2, OA2.1, OA1.3, OA1.2 then OA1.1.
+      await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       expect(await roleGrants(up)).toEqual(before.roles);
+      // The seed added the approver after the first upgrade: declared before upgrading again.
+      process.env.EMPLOYEE_CODES = JSON.stringify(Object.fromEntries((await up.query(`SELECT username FROM users`) as { username: string }[])
+        .map(u => [u.username, `E-${u.username}`])));
       await up.runMigrations();
       expect(await roleGrants(up)).toEqual(reseeded);
+      expect(await up.query(`SELECT count(*)::int AS n FROM users WHERE employee_code NOT LIKE 'E-%'`)).toEqual([{ n: 0 }]);
     }, 120_000);
   });
 });

@@ -40,10 +40,11 @@ export const ROLES: Record<string, { name: string; username: string; fullName: s
  * Creates a missing user with its role and warehouse; an existing user is left exactly as administered (BA-SEC-06).
  * A new interactive account must change its password at first sign-in (BA-N-15).
  */
-async function upsertUser(ds: DataSource, username: string, password: string, fullName: string, role = 'ADMIN') {
+async function upsertUser(ds: DataSource, employeeCode: string, username: string, password: string, fullName: string, role = 'ADMIN') {
   const hash = await hashPassword(password);
-  const [created] = await ds.query(`INSERT INTO users (username, password_hash, full_name, must_change_password) VALUES ($1, $2, $3, true)
-    ON CONFLICT (username) DO NOTHING RETURNING id`, [username, hash, fullName]);
+  // Username or employee code (both unique case-insensitively) already taken: leave that user as administered.
+  const [created] = await ds.query(`INSERT INTO users (employee_code, username, password_hash, full_name, must_change_password)
+    VALUES ($1, $2, $3, $4, true) ON CONFLICT DO NOTHING RETURNING id`, [employeeCode, username, hash, fullName]);
   if (!created) return;
   await ds.query('INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = $2', [created.id, role]);
   await ds.query(`INSERT INTO user_warehouses (user_id, warehouse_id) SELECT $1, id FROM warehouses WHERE code = 'HCM'`, [created.id]);
@@ -58,13 +59,14 @@ async function upsertUser(ds: DataSource, username: string, password: string, fu
 export async function seed(ds = dataSource): Promise<void> {
   await ds.query(`INSERT INTO units_of_measure (code, name) VALUES ('PCS', 'Cái') ON CONFLICT (code) DO NOTHING`);
   await ds.query(`INSERT INTO warehouses (code, name) VALUES ('HCM', 'Kho HCM') ON CONFLICT (code) DO NOTHING`);
-  await upsertUser(ds, env('SEED_ADMIN_USERNAME'), env('SEED_ADMIN_PASSWORD'), 'Administrator');
-  await upsertUser(ds, env('SEED_APPROVER_USERNAME'), env('SEED_APPROVER_PASSWORD'), 'Quản lý kho');
+  // Employee codes (BA-USR-10, OA2.3a): admin and approver from env with a default; role users use the role code.
+  await upsertUser(ds, process.env.SEED_ADMIN_EMPLOYEE_CODE || 'ADMIN', env('SEED_ADMIN_USERNAME'), env('SEED_ADMIN_PASSWORD'), 'Administrator');
+  await upsertUser(ds, process.env.SEED_APPROVER_EMPLOYEE_CODE || 'APPROVER', env('SEED_APPROVER_USERNAME'), env('SEED_APPROVER_PASSWORD'), 'Quản lý kho');
   for (const [code, r] of Object.entries(ROLES)) {
     const [role] = await ds.query('INSERT INTO roles (code, name) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id', [code, r.name]);
     if (role) await ds.query('INSERT INTO role_permissions (role_id, permission_id) SELECT $1, id FROM permissions WHERE code = ANY($2)', [role.id, r.permissions]);
     // Role users only when a password is configured (local demo); never a hard-coded secret.
-    if (process.env.SEED_ROLE_USERS_PASSWORD) await upsertUser(ds, r.username, process.env.SEED_ROLE_USERS_PASSWORD, r.fullName, code);
+    if (process.env.SEED_ROLE_USERS_PASSWORD) await upsertUser(ds, code, r.username, process.env.SEED_ROLE_USERS_PASSWORD, r.fullName, code);
   }
 }
 

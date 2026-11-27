@@ -806,8 +806,8 @@ describe('Sales contracts and procurement documents (integration)', () => {
       const [{ id }] = await ds.query('SELECT id FROM roles WHERE code = $1', [code]);
       return (await get(admin, `/admin/roles/${id}`).expect(200)).body;
     };
-    const editable = (r: { name: string; description: string | null; permissions: string[]; users: { id: number }[]; version: number }) =>
-      ({ name: r.name, description: r.description, permissions: r.permissions, userIds: r.users.map(u => u.id), version: r.version });
+    const editable = (r: { name: string; description: string | null; permissions: string[]; scopes: Record<string, string[]>; users: { id: number }[]; version: number }) =>
+      ({ name: r.name, description: r.description, permissions: r.permissions, scopes: r.scopes, userIds: r.users.map(u => u.id), version: r.version });
     const submitted = async () => {
       const { sc, lineId } = await activeContract();
       const { id } = (await post(admin, '/purchase-requisitions', { salesContractId: sc, lines: [{ salesContractLineId: lineId, productId, quantity: 1 }] }).expect(201)).body;
@@ -821,7 +821,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
       const role = await roleOf('SALES_HEAD');
       if (!role.isActive) await http().patch(`/admin/roles/${role.id}/status`).set(as(admin)).send({ isActive: true, version: role.version }).expect(204);
       const fresh = await roleOf('SALES_HEAD');
-      if (!fresh.permissions.includes('PR.APPROVE')) await http().put(`/admin/roles/${fresh.id}`).set(as(admin)).send({ ...editable(fresh), permissions: [...fresh.permissions, 'PR.APPROVE'] }).expect(204);
+      if (!fresh.permissions.includes('PR.APPROVE')) await http().put(`/admin/roles/${fresh.id}`).set(as(admin)).send({ ...editable(fresh), permissions: [...fresh.permissions, 'PR.APPROVE'], scopes: { ...fresh.scopes, 'PR.APPROVE': ['ASSIGNED'] } }).expect(204);
     };
     try {
       for (const revoke of ['status', 'permission'] as const) for (let round = 0; round < 3; round++) {
@@ -829,7 +829,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
         const role = await roleOf('SALES_HEAD');
         const change = revoke === 'status'
           ? http().patch(`/admin/roles/${role.id}/status`).set(as(admin)).send({ isActive: false, version: role.version })
-          : http().put(`/admin/roles/${role.id}`).set(as(admin)).send({ ...editable(role), permissions: role.permissions.filter((p: string) => p !== 'PR.APPROVE') });
+          : http().put(`/admin/roles/${role.id}`).set(as(admin)).send({ ...editable(role), permissions: role.permissions.filter((p: string) => p !== 'PR.APPROVE'), scopes: { ...role.scopes, 'PR.APPROVE': undefined } });
         const [approve, admin_] = await Promise.all([post(head, `/purchase-requisitions/${id}/approve`, await prContext(ds, id)), change]);
         expect(admin_.status).toBe(204);
         const after = await state(id);

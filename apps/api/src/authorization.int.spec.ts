@@ -70,7 +70,8 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
   });
 
   it('rejects admin-only grants to business roles and protects the ADMIN role', async () => {
-    const reject = (sql: string) => expect(ds.query(sql)).rejects.toThrow(/protected|system role|defined by migrations|truncated|still granted/);
+    // TRUNCATE role_permissions is now also refused by the role_permission_scopes foreign key (OA3.1).
+    const reject = (sql: string) => expect(ds.query(sql)).rejects.toThrow(/protected|system role|defined by migrations|truncated|still granted|foreign key/);
     await reject(`INSERT INTO role_permissions (role_id, permission_id)
       SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = 'SALES' AND p.code = 'ROLE.MANAGE'`);
     await reject(`INSERT INTO roles (code, name, is_system) VALUES ('ROOT', 'Root', true)`);
@@ -360,7 +361,8 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       expect(after.roles.filter(g => !reseeded.includes(g))).toEqual([]);
 
       expect(await up.runMigrations()).toEqual([]);
-      // Revert OA2.3b, OA2.3a, OA2.2, OA2.1, OA1.3, OA1.2 then OA1.1.
+      // Revert OA3.1, OA2.3b, OA2.3a, OA2.2, OA2.1, OA1.3, OA1.2 then OA1.1.
+      await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();

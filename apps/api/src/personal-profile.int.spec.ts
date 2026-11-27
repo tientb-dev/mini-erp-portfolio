@@ -112,7 +112,7 @@ describe('Personal profile OA2.4 (PostgreSQL, HTTP)', () => {
     // From the role side: removing the user from SALES drops the permissions on the next request (BA-RBAC-09).
     expect((await get(p.token, '/auth/me').expect(200)).body.permissions).toContain('PR.CREATE');
     const role = (await get(admin, `/admin/roles/${salesRole}`).expect(200)).body;
-    await http().put(`/admin/roles/${salesRole}`).set(bearer(admin)).send({ name: role.name, description: role.description, permissions: role.permissions,
+    await http().put(`/admin/roles/${salesRole}`).set(bearer(admin)).send({ name: role.name, description: role.description, permissions: role.permissions, scopes: role.scopes,
       userIds: role.users.map((u: any) => u.id).filter((id: number) => id !== p.id), version: role.version }).expect(204);
     expect((await get(p.token, '/auth/me').expect(200)).body.permissions).not.toContain('PR.CREATE');
     me = (await get(p.token, '/me').expect(200)).body;

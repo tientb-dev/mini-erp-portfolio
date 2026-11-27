@@ -2,32 +2,35 @@ import { DataSource } from 'typeorm';
 import dataSource from './data-source';
 import { env } from './env';
 import { hashPassword } from '../modules/identity/password';
+import { activeGrants } from './oa3-grant-mapping';
 
 /**
  * Business roles for trying the flows per role (04 §2). Purchasing (PR/PO) is not named in 04 §2: assumption IM20.
- * Every role also views products and warehouses so forms can load their dropdowns.
+ * Every role also views products and warehouses so forms can load their dropdowns. HĐ/PR permissions with Data Scope come
+ * from the approved matrix (BA OA3.0, minus OA3_DEFERRED until OA3.3); HĐ access is no longer part of COMMON.
  */
-const COMMON = ['PRODUCT.VIEW', 'WAREHOUSE.VIEW', 'SALES_CONTRACT.VIEW'];
+const COMMON = ['PRODUCT.VIEW', 'WAREHOUSE.VIEW'];
+const scoped = (code: string) => Object.keys(activeGrants(code));
 export const ROLES: Record<string, { name: string; username: string; fullName: string; permissions: string[] }> = {
   SALES: {
     name: 'Sales', username: 'sales', fullName: 'Nhân viên Sales',
-    permissions: [...COMMON, 'CUSTOMER.VIEW', 'CUSTOMER.CREATE', 'SALES_CONTRACT.CREATE', 'SALES_CONTRACT.CONFIRM_PRODUCT', 'GIR.VIEW', 'GIR.SALES_CONFIRM', 'PR.CREATE'],
+    permissions: [...COMMON, 'CUSTOMER.VIEW', 'CUSTOMER.CREATE', 'SALES_CONTRACT.CONFIRM_PRODUCT', 'GIR.VIEW', 'GIR.SALES_CONFIRM', ...scoped('SALES')],
   },
   PM: {
     name: 'PM', username: 'pm', fullName: 'Quản lý dự án (PM)',
-    permissions: [...COMMON, 'SALES_CONTRACT.PROPOSE_PRODUCT', 'GIR.VIEW', 'GIR.CREATE', 'INVENTORY.VIEW', 'PR.CREATE'],
+    permissions: [...COMMON, 'SALES_CONTRACT.PROPOSE_PRODUCT', 'GIR.VIEW', 'GIR.CREATE', 'INVENTORY.VIEW', ...scoped('PM')],
   },
   PURCHASING: {
     name: 'Mua hàng', username: 'purchaser', fullName: 'Nhân viên mua hàng',
-    permissions: [...COMMON, 'SUPPLIER.VIEW', 'SUPPLIER.CREATE', 'PRODUCT.CREATE', 'PR.VIEW', 'PR.RECEIVE', 'PO.VIEW', 'PO.CREATE'],
+    permissions: [...COMMON, 'SUPPLIER.VIEW', 'SUPPLIER.CREATE', 'PRODUCT.CREATE', 'PO.VIEW', 'PO.CREATE', ...scoped('PURCHASING')],
   },
   SALES_HEAD: {
     name: 'Trưởng bộ phận Sales', username: 'sales-head', fullName: 'Trưởng bộ phận Sales',
-    permissions: [...COMMON, 'PR.APPROVE'],
+    permissions: [...COMMON, ...scoped('SALES_HEAD')],
   },
   PM_HEAD: {
     name: 'Trưởng bộ phận PM', username: 'pm-head', fullName: 'Trưởng bộ phận PM',
-    permissions: [...COMMON, 'PR.APPROVE'],
+    permissions: [...COMMON, ...scoped('PM_HEAD')],
   },
   WAREHOUSE_MANAGER: {
     name: 'Quản lý kho', username: 'warehouse', fullName: 'Quản lý kho HCM',
@@ -64,7 +67,13 @@ export async function seed(ds = dataSource): Promise<void> {
   await upsertUser(ds, process.env.SEED_APPROVER_EMPLOYEE_CODE || 'APPROVER', env('SEED_APPROVER_USERNAME'), env('SEED_APPROVER_PASSWORD'), 'Quản lý kho');
   for (const [code, r] of Object.entries(ROLES)) {
     const [role] = await ds.query('INSERT INTO roles (code, name) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id', [code, r.name]);
-    if (role) await ds.query('INSERT INTO role_permissions (role_id, permission_id) SELECT $1, id FROM permissions WHERE code = ANY($2)', [role.id, r.permissions]);
+    if (role) {
+      await ds.query('INSERT INTO role_permissions (role_id, permission_id) SELECT $1, id FROM permissions WHERE code = ANY($2)', [role.id, r.permissions]);
+      const scopes = Object.entries(activeGrants(code)).flatMap(([permission, list]) => list.map(scope => [permission, scope]));
+      await ds.query(`INSERT INTO role_permission_scopes (role_id, permission_id, scope_type)
+        SELECT $1, p.id, s.scope FROM unnest($2::text[], $3::text[]) AS s(code, scope) JOIN permissions p ON p.code = s.code`,
+      [role.id, scopes.map(s => s[0]), scopes.map(s => s[1])]);
+    }
     // Role users only when a password is configured (local demo); never a hard-coded secret.
     if (process.env.SEED_ROLE_USERS_PASSWORD) await upsertUser(ds, code, r.username, process.env.SEED_ROLE_USERS_PASSWORD, r.fullName, code);
   }

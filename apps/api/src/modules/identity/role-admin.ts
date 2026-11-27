@@ -4,7 +4,7 @@ import {
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min, MinLength,
+  ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength, Min, MinLength,
 } from 'class-validator';
 import { DataSource, EntityManager } from 'typeorm';
 import { appendActivity, documentPage } from '../document-records/document-records';
@@ -12,6 +12,7 @@ import { BusinessError } from '../workflow/workflow';
 import { Actor, assertAdminRemains, lockActor } from './account-security';
 import { lockAdminGuard, lockGrantsExclusive } from './authorization';
 import { AuthedRequest, RequirePermissions } from './auth';
+import { SCOPE_TYPES } from '../../database/migrations/1734048000000-DataScope';
 
 const CODE = /^[A-Z][A-Z0-9_]{1,49}$/;
 
@@ -20,6 +21,9 @@ class RoleInput {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) description?: string | null;
   @ApiProperty({ type: [String] }) @IsArray() @ArrayMaxSize(500) @IsString({ each: true }) permissions!: string[];
   @ApiProperty({ type: [Number] }) @IsArray() @ArrayMaxSize(1000) @IsInt({ each: true }) @Min(1, { each: true }) userIds!: number[];
+  /** Data Scope per permission (OA3.1, BA-SCP-02): required for every listed permission that supports scopes (BA-N-03). */
+  @ApiPropertyOptional({ type: 'object', additionalProperties: { type: 'array', items: { type: 'string', enum: [...SCOPE_TYPES] } } })
+  @IsOptional() @IsObject() scopes?: Record<string, string[]>;
 }
 class CreateRoleInput extends RoleInput {
   @ApiProperty() @IsString() @Matches(CODE) code!: string;
@@ -49,6 +53,9 @@ class RoleListQuery {
   @IsOptional() @Type(() => Number) @IsIn([25, 50, 100]) size?: number;
 }
 
+interface Grant { id: number; code: string; scopes: string[] }
+/** `{permission: scopes}` for the grants that carry scopes. */
+const scopeMap = (grants: Grant[]) => Object.fromEntries(grants.filter(g => g.scopes.length).map(g => [g.code, g.scopes]));
 interface RoleRow { id: number; code: string; name: string; description: string | null; is_active: boolean; is_system: boolean; version: number }
 
 const SORT: Record<string, string> = {
@@ -66,7 +73,7 @@ export class RoleAdminService {
   constructor(private readonly ds: DataSource) {}
 
   catalog() {
-    return this.ds.query(`SELECT code, module, name, description, admin_only AS "adminOnly"
+    return this.ds.query(`SELECT code, module, name, description, admin_only AS "adminOnly", supported_scopes AS "supportedScopes"
       FROM permissions ORDER BY sort_order, code`);
   }
 
@@ -90,13 +97,12 @@ export class RoleAdminService {
         version, updated_at AS "updatedAt" FROM roles WHERE id = $1`, [id]);
     if (!role) throw new NotFoundException();
     const [permissions, users, history] = await Promise.all([
-      this.ds.query(`SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
-        WHERE rp.role_id = $1 ORDER BY p.sort_order, p.code`, [id]),
+      this.held(this.ds.manager, id),
       this.ds.query(`SELECT u.id, u.username, u.full_name AS "fullName", u.is_active AS "isActive" FROM user_roles ur
         JOIN users u ON u.id = ur.user_id WHERE ur.role_id = $1 ORDER BY u.username`, [id]),
       documentPage(this.ds.manager, 'ROLE', id, 'history'),
     ]);
-    return { ...role, permissions: permissions.map((p: { code: string }) => p.code), users,
+    return { ...role, permissions: permissions.map(p => p.code), scopes: scopeMap(permissions), users,
       history: history.items, historyCursor: history.nextCursor };
   }
 
@@ -130,14 +136,15 @@ export class RoleAdminService {
       await lockActor(m, actor, 'ROLE.MANAGE', userIds, userIds.length ? 'UPDATE' : 'SHARE');
       const source = input.copiedFrom ? await this.copySource(m, input.copiedFrom) : undefined;
       await this.assertUsers(m, userIds);
-      const permissions = await this.permissionIds(m, input.permissions, false);
+      const permissions = await this.permissionIds(m, input.permissions, input.scopes, false);
       const [{ id }] = await m.query(`INSERT INTO roles (code, name, description, updated_by) VALUES ($1, $2, $3, $4) RETURNING id`,
         [input.code, input.name.trim(), input.description?.trim() || null, actor.id]);
       await m.query('INSERT INTO role_permissions (role_id, permission_id) SELECT $1, unnest($2::int[])', [id, permissions.map(p => p.id)]);
+      await this.insertScopes(m, id, permissions);
       await m.query('INSERT INTO user_roles (user_id, role_id) SELECT unnest($2::int[]), $1', [id, userIds]);
       await appendActivity(m, 'ROLE', id, source ? 'ROLE_COPIED' : 'ROLE_CREATED', actor.id, undefined, { metadata: {
         after: { code: input.code, name: input.name.trim(), description: input.description?.trim() || null },
-        permissions: permissions.map(p => p.code), users: await this.userRefs(m, userIds),
+        permissions: permissions.map(p => p.code), scopes: scopeMap(permissions), users: await this.userRefs(m, userIds),
         ...(source ? { copiedFrom: source } : {}),
       } });
       await recordUserRoleChange(m, actor.id, userIds, { id, code: input.code, name: input.name.trim() }, 'ROLES_ADDED');
@@ -162,12 +169,16 @@ export class RoleAdminService {
       await lockActor(m, actor, 'ROLE.MANAGE', changed, changed.length ? 'UPDATE' : 'SHARE');
       const role = await this.lockRole(m, id, input.version);
       await this.assertUsers(m, added);
-      const wanted = await this.permissionIds(m, input.permissions, role.is_system);
-      const held: { id: number; code: string }[] = await m.query(`SELECT p.id, p.code FROM role_permissions rp
-        JOIN permissions p ON p.id = rp.permission_id WHERE rp.role_id = $1`, [id]);
+      const wanted = await this.permissionIds(m, input.permissions, input.scopes, role.is_system);
+      const held = await this.held(m, id);
       const grant = wanted.filter(p => !held.some(h => h.id === p.id));
       const revoke = held.filter(h => !wanted.some(p => p.id === h.id));
-      if (role.is_system && (grant.length || revoke.length)) {
+      // Kept grants whose scope set changes; narrowing can revoke access, covered by the exclusive gate held above.
+      const rescope = wanted.flatMap(p => {
+        const h = held.find(x => x.id === p.id);
+        return h && h.scopes.join() !== p.scopes.join() ? [{ ...p, before: h.scopes }] : [];
+      });
+      if (role.is_system && (grant.length || revoke.length || rescope.length)) {
         throw new BusinessError('SYSTEM_ROLE_PROTECTED', 'The system role always holds every permission');
       }
       const info = { name: input.name.trim(), description: input.description?.trim() || null };
@@ -179,11 +190,23 @@ export class RoleAdminService {
       }
       if (revoke.length) {
         await m.query('DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = ANY($2)', [id, revoke.map(p => p.id)]);
-        await appendActivity(m, 'ROLE', id, 'PERMISSIONS_REMOVED', actor.id, undefined, { metadata: { permissions: revoke.map(p => p.code).sort() } });
+        // Scopes come from `held`, read before the delete: the FK cascade drops them with the grant.
+        const removedScopes = scopeMap(revoke);
+        await appendActivity(m, 'ROLE', id, 'PERMISSIONS_REMOVED', actor.id, undefined, { metadata: {
+          permissions: revoke.map(p => p.code).sort(), ...(Object.keys(removedScopes).length ? { scopes: removedScopes } : {}) } });
       }
       if (grant.length) {
         await m.query('INSERT INTO role_permissions (role_id, permission_id) SELECT $1, unnest($2::int[])', [id, grant.map(p => p.id)]);
-        await appendActivity(m, 'ROLE', id, 'PERMISSIONS_ADDED', actor.id, undefined, { metadata: { permissions: grant.map(p => p.code).sort() } });
+        await this.insertScopes(m, id, grant);
+        const added = scopeMap(grant);
+        await appendActivity(m, 'ROLE', id, 'PERMISSIONS_ADDED', actor.id, undefined, { metadata: {
+          permissions: grant.map(p => p.code).sort(), ...(Object.keys(added).length ? { scopes: added } : {}) } });
+      }
+      if (rescope.length) {
+        await m.query('DELETE FROM role_permission_scopes WHERE role_id = $1 AND permission_id = ANY($2)', [id, rescope.map(p => p.id)]);
+        await this.insertScopes(m, id, rescope);
+        await appendActivity(m, 'ROLE', id, 'SCOPES_UPDATED', actor.id, undefined, { metadata: {
+          before: Object.fromEntries(rescope.map(p => [p.code, p.before])), after: Object.fromEntries(rescope.map(p => [p.code, p.scopes])) } });
       }
       if (removed.length) {
         await m.query('DELETE FROM user_roles WHERE role_id = $1 AND user_id = ANY($2)', [id, removed]);
@@ -231,16 +254,46 @@ export class RoleAdminService {
     return role;
   }
 
-  /** Catalog keys only; admin-only keys only on the system role (BA-N-02). */
-  private async permissionIds(m: EntityManager, codes: string[], system: boolean): Promise<{ id: number; code: string }[]> {
+  /**
+   * Catalog keys only; admin-only keys only on the system role (BA-N-02). Scopes (OA3.1): each must belong to a listed
+   * permission and be supported by it; a permission that supports scopes needs at least one (BA-N-03), never ALL by
+   * default. Returned scopes are unique and sorted so they compare with the held ones.
+   */
+  private async permissionIds(m: EntityManager, codes: string[], scopes: Record<string, unknown> | undefined, system: boolean): Promise<Grant[]> {
     const unique = [...new Set(codes)];
-    const rows: { id: number; code: string; admin_only: boolean }[] = await m.query(
-      'SELECT id, code, admin_only FROM permissions WHERE code = ANY($1)', [unique]);
+    const rows: { id: number; code: string; admin_only: boolean; supported_scopes: string[] }[] = await m.query(
+      'SELECT id, code, admin_only, supported_scopes FROM permissions WHERE code = ANY($1)', [unique]);
     const unknown = unique.filter(code => !rows.some(r => r.code === code));
     if (unknown.length) throw new BusinessError('UNKNOWN_PERMISSION', `Unknown permissions: ${unknown.join(', ')}`);
     const adminOnly = rows.filter(r => r.admin_only && !system).map(r => r.code);
     if (adminOnly.length) throw new BusinessError('ADMIN_ONLY_PERMISSION', `Only the system role may hold: ${adminOnly.join(', ')}`);
-    return rows.map(({ id, code }) => ({ id, code }));
+    const input = scopes ?? {};
+    const orphan = Object.keys(input).filter(code => !unique.includes(code));
+    if (orphan.length) throw new BusinessError('SCOPE_WITHOUT_PERMISSION', `Scopes for permissions not selected: ${orphan.join(', ')}`);
+    const grants = rows.map(r => {
+      const list = input[r.code] ?? [];
+      if (!Array.isArray(list) || list.some(s => typeof s !== 'string' || !r.supported_scopes.includes(s))) {
+        throw new BusinessError('SCOPE_NOT_SUPPORTED', `Unsupported data scope for ${r.code}`);
+      }
+      return { id: r.id, code: r.code, scopes: [...new Set(list as string[])].sort(), scoped: r.supported_scopes.length > 0 };
+    });
+    const missing = grants.filter(g => g.scoped && !g.scopes.length).map(g => g.code).sort();
+    if (missing.length) throw new BusinessError('SCOPE_REQUIRED', `Select a data scope for: ${missing.join(', ')}`);
+    return grants.map(({ id, code, scopes: s }) => ({ id, code, scopes: s }));
+  }
+
+  /** Grants of a role with their scopes (sorted), in catalog order. */
+  private held(m: EntityManager, roleId: number): Promise<Grant[]> {
+    return m.query(`SELECT p.id, p.code, ARRAY(SELECT s.scope_type FROM role_permission_scopes s
+        WHERE s.role_id = rp.role_id AND s.permission_id = rp.permission_id ORDER BY s.scope_type COLLATE "C") AS scopes
+      FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id WHERE rp.role_id = $1 ORDER BY p.sort_order, p.code`, [roleId]);
+  }
+
+  private async insertScopes(m: EntityManager, roleId: number, grants: Grant[]) {
+    const rows = grants.flatMap(g => g.scopes.map(s => [g.id, s] as const));
+    if (!rows.length) return;
+    await m.query(`INSERT INTO role_permission_scopes (role_id, permission_id, scope_type)
+      SELECT $1, * FROM unnest($2::int[], $3::text[])`, [roleId, rows.map(r => r[0]), rows.map(r => r[1])]);
   }
 
   private async assertUsers(m: EntityManager, ids: number[]) {

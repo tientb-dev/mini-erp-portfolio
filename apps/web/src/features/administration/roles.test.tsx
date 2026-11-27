@@ -109,7 +109,7 @@ describe('Role detail', () => {
     expect(within(dialog).queryByText(/Tổng số người dùng/)).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu vai trò' }));
     await waitFor(() => expect(calls.some(c => c.method === 'PUT')).toBe(true));
-    expect(calls.find(c => c.method === 'PUT')!.body).toEqual({ name: 'Sales', description: 'Bán hàng', permissions: ['PRODUCT.VIEW', 'PO.VIEW'], userIds: [7, 1], version: 3 });
+    expect(calls.find(c => c.method === 'PUT')!.body).toEqual({ name: 'Sales', description: 'Bán hàng', permissions: ['PRODUCT.VIEW', 'PO.VIEW'], scopes: {}, userIds: [7, 1], version: 3 });
   });
 
   it('keeps the draft and explains a version conflict', async () => {
@@ -184,7 +184,7 @@ describe('Role detail', () => {
     expect(screen.getByLabelText(/Tên vai trò/).getAttribute('aria-invalid')).toBe('false');
     fireEvent.click(save);
     await waitFor(() => expect(calls.some(c => c.method === 'POST')).toBe(true));
-    expect(calls.find(c => c.method === 'POST')!.body).toEqual({ code: 'KT', name: 'Kế toán', description: null, permissions: [], userIds: [] });
+    expect(calls.find(c => c.method === 'POST')!.body).toEqual({ code: 'KT', name: 'Kế toán', description: null, permissions: [], scopes: {}, userIds: [] });
   });
 
   it('prefills a copy without code or users and shows a duplicate code next to the field', async () => {

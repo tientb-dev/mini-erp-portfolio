@@ -89,7 +89,9 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
 
   const save = useMutation({
     mutationFn: async () => {
-      const body = { name: value!.name.trim(), description: value!.description.trim() || null, permissions: value!.permissions, userIds: value!.users.map(u => u.id) };
+      // shortcut: scopes are carried over from the loaded (or copied) role; OA3.4 adds the scope selector per permission.
+      const scopes = Object.fromEntries(Object.entries(loaded?.scopes ?? {}).filter(([code]) => value!.permissions.includes(code)));
+      const body = { name: value!.name.trim(), description: value!.description.trim() || null, permissions: value!.permissions, scopes, userIds: value!.users.map(u => u.id) };
       if (creating) return api<{ id: number }>('/admin/roles', { method: 'POST', body: JSON.stringify({ ...body, code: value!.code, ...(copyId ? { copiedFrom: copyId } : {}) }) });
       await api(`/admin/roles/${id}`, { method: 'PUT', body: JSON.stringify({ ...body, version: loaded!.version }) });
       return { id };

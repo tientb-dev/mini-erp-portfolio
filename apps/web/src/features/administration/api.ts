@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api-client';
 
-export interface CatalogPermission { code: string; module: string; name: string; description: string | null; adminOnly: boolean }
+export interface CatalogPermission { code: string; module: string; name: string; description: string | null; adminOnly: boolean; supportedScopes: string[] }
 export interface RoleUser { id: number; username: string; fullName: string; isActive: boolean }
 export interface RoleRow {
   id: number; code: string; name: string; description: string | null; isActive: boolean; isSystem: boolean; userCount: number; permissionCount: number;
@@ -11,7 +11,7 @@ export interface RoleHistoryEntry {
 }
 export interface RoleDetail {
   id: number; code: string; name: string; description: string | null; isActive: boolean; isSystem: boolean; version: number;
-  permissions: string[]; users: RoleUser[]; history: RoleHistoryEntry[]; historyCursor: number | null;
+  permissions: string[]; scopes: Record<string, string[]>; users: RoleUser[]; history: RoleHistoryEntry[]; historyCursor: number | null;
 }
 
 export const roleKey = (id: number) => ['admin-role', id];

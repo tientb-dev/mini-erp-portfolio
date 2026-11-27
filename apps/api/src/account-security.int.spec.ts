@@ -288,7 +288,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
           setStatus(other, u.id, false, await ver(u.id)),
           unlock(admin, u.id, await ver(u.id)),
           http().put(`/admin/roles/${roleId}`).set(bearer(other)).send({ name: role.name, description: role.description,
-            permissions: role.permissions, userIds: role.users.map((x: { id: number }) => x.id).filter((x: number) => x !== u.id), version: role.version }),
+            permissions: role.permissions, scopes: role.scopes, userIds: role.users.map((x: { id: number }) => x.id).filter((x: number) => x !== u.id), version: role.version }),
         ]);
         // Never a 500 (deadlock). F01: all three account operations carry the same version, and the role save moves the
         // user version too, so the losers get 409 VERSION_CONFLICT; the account is disabled exactly when the disable won.

@@ -132,11 +132,13 @@ export class JobTitleAdminService {
 
 /**
  * BA-UI-03: a job title held by an ACTIVE membership of an ACTIVE employee cannot be deactivated (JOB_TITLE_IN_USE).
- * Runs under the job_titles row lock; OA2.3 membership writes must lock the job title row FOR SHARE so this cannot race.
- * shortcut: org_memberships does not exist until OA2.3, so nothing can hold a job title yet; add the query and its
- * integration test there.
+ * Runs under the job_titles row lock; membership writes lock the job title row FOR SHARE, so neither side can race.
  */
-export async function assertJobTitleUnused(_m: EntityManager, _id: number): Promise<void> {}
+export async function assertJobTitleUnused(m: EntityManager, id: number): Promise<void> {
+  const [used] = await m.query(`SELECT 1 FROM org_memberships om JOIN users u ON u.id = om.user_id
+    WHERE om.job_title_id = $1 AND om.status = 'ACTIVE' AND u.employment_status = 'ACTIVE' LIMIT 1`, [id]);
+  if (used) throw new BusinessError('JOB_TITLE_IN_USE', 'Active employees hold this job title', HttpStatus.CONFLICT);
+}
 
 const actorOf = (req: AuthedRequest): Actor => ({ id: req.user.id, sessionId: req.user.sessionId });
 

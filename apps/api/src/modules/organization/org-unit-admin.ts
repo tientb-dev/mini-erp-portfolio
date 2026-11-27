@@ -8,6 +8,7 @@ import { appendActivity, documentPage } from '../document-records/document-recor
 import { BusinessError } from '../workflow/workflow';
 import { Actor, lockActor } from '../identity/account-security';
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
+import { lockOrgTree } from './memberships';
 
 class OrgUnitInput {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(200) name!: string;
@@ -20,13 +21,15 @@ class CreateOrgUnitInput extends OrgUnitInput {
 }
 class UpdateOrgUnitInput extends OrgUnitInput {
   @ApiProperty() @IsInt() @Min(1) version!: number;
+  /** OA2.3b: absent keeps the head, null clears it. The head must be an ACTIVE employee with an ACTIVE membership here (BA-ORG-10). */
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) headUserId?: number | null;
 }
 class OrgUnitStatusInput {
   @ApiProperty() @IsBoolean() isActive!: boolean;
   @ApiProperty() @IsInt() @Min(1) version!: number;
 }
 
-interface OrgUnitRow { id: number; code: string; name: string; parent_id: number | null; description: string | null; status: string; version: number }
+interface OrgUnitRow { id: number; code: string; name: string; parent_id: number | null; head_user_id: number | null; description: string | null; status: string; version: number }
 interface UnitRef { id: number; code: string; name: string }
 
 const MANAGE = 'ORGANIZATION.MANAGE';
@@ -44,15 +47,17 @@ export class OrgUnitAdminService {
 
   /** The whole tree, flat in code order; the client nests it. Inactive units stay listed (BA-UI-02). */
   tree() {
-    return this.ds.query(`SELECT id, code, name, parent_id AS "parentId", status = 'ACTIVE' AS "isActive", version
-      FROM org_units ORDER BY lower(code), id`);
+    return this.ds.query(`SELECT o.id, o.code, o.name, o.parent_id AS "parentId", o.status = 'ACTIVE' AS "isActive", o.version,
+        (SELECT count(*)::int FROM org_memberships om WHERE om.org_unit_id = o.id AND om.status = 'ACTIVE') AS "memberCount"
+      FROM org_units o ORDER BY lower(o.code), o.id`);
   }
 
   async get(id: number) {
     const [row] = await this.ds.query(`SELECT o.id, o.code, o.name, o.description, o.status = 'ACTIVE' AS "isActive", o.version,
         o.updated_at AS "updatedAt", o.head_user_id AS "headUserId",
+        CASE WHEN h.id IS NULL THEN NULL ELSE json_build_object('id', h.id, 'employeeCode', h.employee_code, 'fullName', h.full_name) END AS head,
         CASE WHEN p.id IS NULL THEN NULL ELSE json_build_object('id', p.id, 'code', p.code, 'name', p.name) END AS parent
-      FROM org_units o LEFT JOIN org_units p ON p.id = o.parent_id WHERE o.id = $1`, [id]);
+      FROM org_units o LEFT JOIN org_units p ON p.id = o.parent_id LEFT JOIN users h ON h.id = o.head_user_id WHERE o.id = $1`, [id]);
     if (!row) throw new NotFoundException();
     return row;
   }
@@ -76,14 +81,28 @@ export class OrgUnitAdminService {
   /** Name, description and parent; the code is immutable (reference for imports, reports and data scope). */
   async update(actor: Actor, id: number, input: UpdateOrgUnitInput) {
     await this.ds.transaction(async m => {
-      await this.lockTree(m, actor);
+      // The new head's users row is locked before org-tree (lock graph), so their deactivation cannot race (BA-N-06).
+      const lockedUsers = await this.lockTree(m, actor, input.headUserId ? [input.headUserId] : []);
       const row = await this.lock(m, id, input.version);
       const parentId = input.parentId ?? null;
       const after = { name: input.name.trim(), description: input.description?.trim() || null };
       const moved = parentId !== row.parent_id;
-      if (!moved && after.name === row.name && after.description === row.description) return;
+      const headId = input.headUserId === undefined ? row.head_user_id : input.headUserId;
+      const headChanged = headId !== row.head_user_id;
+      if (!moved && !headChanged && after.name === row.name && after.description === row.description) return;
       const before: Record<string, unknown> = { name: row.name, description: row.description };
       const changes: Record<string, unknown> = { ...after };
+      if (headChanged) {
+        if (headId) {
+          const head = lockedUsers.find(u => u.id === headId);
+          if (!head) throw new BusinessError('HEAD_NOT_FOUND', 'The head does not exist');
+          if (head.employment_status !== 'ACTIVE') throw new BusinessError('HEAD_INACTIVE', 'The head must be an active employee', HttpStatus.CONFLICT);
+          const [member] = await m.query(`SELECT 1 FROM org_memberships WHERE user_id = $1 AND org_unit_id = $2 AND status = 'ACTIVE'`, [headId, id]);
+          if (!member) throw new BusinessError('HEAD_NOT_MEMBER', 'The head must be an active member of this unit', HttpStatus.CONFLICT);
+        }
+        before.head = await this.userRef(m, row.head_user_id);
+        changes.head = await this.userRef(m, headId);
+      }
       if (moved) {
         if (parentId === id) throw new BusinessError('ORG_UNIT_CYCLE', 'A unit cannot be its own parent');
         const parent = parentId ? await this.parent(m, parentId) : null;
@@ -96,8 +115,8 @@ export class OrgUnitAdminService {
         before.parent = ref(old);
         changes.parent = ref(parent);
       }
-      await m.query(`UPDATE org_units SET name = $2, description = $3, parent_id = $4, version = version + 1, updated_at = now(),
-        updated_by = $5 WHERE id = $1`, [id, after.name, after.description, parentId, actor.id]);
+      await m.query(`UPDATE org_units SET name = $2, description = $3, parent_id = $4, head_user_id = $6, version = version + 1, updated_at = now(),
+        updated_by = $5 WHERE id = $1`, [id, after.name, after.description, parentId, actor.id, headId]);
       await appendActivity(m, 'ORG_UNIT', id, 'ORG_UNIT_UPDATED', actor.id, undefined, { metadata: { before, after: changes } });
     });
   }
@@ -121,13 +140,35 @@ export class OrgUnitAdminService {
     });
   }
 
-  private async lockTree(m: EntityManager, actor: Actor) {
-    await lockActor(m, actor, MANAGE, [], 'SHARE');
-    await m.query(`SELECT pg_advisory_xact_lock(hashtext('org-tree'))`);
+  /**
+   * ACTIVE members of a unit for its Nhân sự tab (BA-UI-09). Same rows as `GET /admin/users?orgUnitId=`; both read
+   * org_memberships directly.
+   */
+  async members(id: number) {
+    await this.get(id);
+    return this.ds.query(`SELECT u.id, u.employee_code AS "employeeCode", u.full_name AS "fullName", u.employment_status AS "employmentStatus",
+        om.is_primary AS "isPrimary", om.started_at AS "startedAt", (o.head_user_id = u.id) IS TRUE AS "isHead",
+        json_build_object('id', jt.id, 'code', jt.code, 'name', jt.name) AS "jobTitle",
+        CASE WHEN mg.id IS NULL THEN NULL ELSE json_build_object('id', mg.id, 'employeeCode', mg.employee_code, 'fullName', mg.full_name) END AS manager
+      FROM org_memberships om JOIN users u ON u.id = om.user_id JOIN org_units o ON o.id = om.org_unit_id
+      JOIN job_titles jt ON jt.id = om.job_title_id LEFT JOIN users mg ON mg.id = om.manager_user_id
+      WHERE om.org_unit_id = $1 AND om.status = 'ACTIVE' ORDER BY lower(u.employee_code), u.id`, [id]);
+  }
+
+  private async lockTree(m: EntityManager, actor: Actor, userIds: number[] = []) {
+    const rows = await lockActor(m, actor, MANAGE, userIds, 'SHARE');
+    await lockOrgTree(m);
+    return rows;
+  }
+
+  private async userRef(m: EntityManager, id: number | null) {
+    if (!id) return null;
+    const [u] = await m.query('SELECT id, employee_code AS "employeeCode", full_name AS "fullName" FROM users WHERE id = $1', [id]);
+    return u ?? null;
   }
 
   private async lock(m: EntityManager, id: number, version: number): Promise<OrgUnitRow> {
-    const [row] = await m.query('SELECT id, code, name, parent_id, description, status, version FROM org_units WHERE id = $1 FOR UPDATE', [id]);
+    const [row] = await m.query('SELECT id, code, name, parent_id, head_user_id, description, status, version FROM org_units WHERE id = $1 FOR UPDATE', [id]);
     if (!row) throw new NotFoundException();
     if (row.version !== version) {
       throw new BusinessError('VERSION_CONFLICT', 'The unit was changed by someone else. Reload it and apply your change again', HttpStatus.CONFLICT);
@@ -146,9 +187,12 @@ export class OrgUnitAdminService {
 
 /**
  * §4.3: a unit with ACTIVE memberships cannot be deactivated (ORG_UNIT_IN_USE). Runs under `org-tree` and the unit row lock.
- * shortcut: org_memberships does not exist until OA2.3; add the query, the head check and their concurrency test there.
+ * Membership writes take `org-tree` too, so a membership cannot be added while this check runs.
  */
-export async function assertOrgUnitUnused(_m: EntityManager, _id: number): Promise<void> {}
+export async function assertOrgUnitUnused(m: EntityManager, id: number): Promise<void> {
+  const [used] = await m.query(`SELECT 1 FROM org_memberships WHERE org_unit_id = $1 AND status = 'ACTIVE' LIMIT 1`, [id]);
+  if (used) throw new BusinessError('ORG_UNIT_IN_USE', 'End the active memberships of this unit first', HttpStatus.CONFLICT);
+}
 
 const actorOf = (req: AuthedRequest): Actor => ({ id: req.user.id, sessionId: req.user.sessionId });
 
@@ -163,6 +207,9 @@ export class OrgUnitAdminController {
 
   @Get(':id') @RequirePermissions('ORGANIZATION.VIEW')
   get(@Param('id', ParseIntPipe) id: number) { return this.units.get(id); }
+
+  @Get(':id/members') @RequirePermissions('ORGANIZATION.VIEW')
+  members(@Param('id', ParseIntPipe) id: number) { return this.units.members(id); }
 
   @Get(':id/history') @RequirePermissions('ORGANIZATION.VIEW')
   history(@Param('id', ParseIntPipe) id: number, @Query('before') before?: string) {

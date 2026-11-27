@@ -127,7 +127,7 @@ export class RoleAdminService {
       const userIds = sorted(input.userIds);
       if (userIds.includes(actor.id)) throw selfChange();
       await lockGrantsExclusive(m);
-      await lockActor(m, actor, 'ROLE.MANAGE', [], 'SHARE');
+      await lockActor(m, actor, 'ROLE.MANAGE', userIds, userIds.length ? 'UPDATE' : 'SHARE');
       const source = input.copiedFrom ? await this.copySource(m, input.copiedFrom) : undefined;
       await this.assertUsers(m, userIds);
       const permissions = await this.permissionIds(m, input.permissions, false);
@@ -140,6 +140,7 @@ export class RoleAdminService {
         permissions: permissions.map(p => p.code), users: await this.userRefs(m, userIds),
         ...(source ? { copiedFrom: source } : {}),
       } });
+      await recordUserRoleChange(m, actor.id, userIds, { id, code: input.code, name: input.name.trim() }, 'ROLES_ADDED');
       return { id: id as number };
     });
   }
@@ -147,16 +148,18 @@ export class RoleAdminService {
   async update(actor: Actor, id: number, input: UpdateRoleInput) {
     await this.ds.transaction(async m => {
       const before = await this.peek(m, id);
+      // Admin standing can only change through the system role's memberships (is_system never changes).
+      if (before.is_system) await lockAdminGuard(m);
+      await lockGrantsExclusive(m);
+      // Memberships are read under the exclusive gate: every writer of user_roles holds it, so the diff is stable.
       const current: number[] = (await m.query('SELECT user_id FROM user_roles WHERE role_id = $1', [id])).map((r: { user_id: number }) => r.user_id);
       const next = sorted(input.userIds);
       const added = next.filter(u => !current.includes(u));
       const removed = current.filter(u => !next.includes(u));
       if ([...added, ...removed].includes(actor.id)) throw selfChange();
-      // Admin standing can only change through the system role's memberships.
-      if (before.is_system && (added.length || removed.length)) await lockAdminGuard(m);
-      await lockGrantsExclusive(m);
-      // The actor row is only read: FOR SHARE keeps account operations on other users free.
-      await lockActor(m, actor, 'ROLE.MANAGE', [], 'SHARE');
+      // Users rows of changed members FOR UPDATE (their version moves, acceptance 8); otherwise the actor row only FOR SHARE.
+      const changed = sorted([...added, ...removed]);
+      await lockActor(m, actor, 'ROLE.MANAGE', changed, changed.length ? 'UPDATE' : 'SHARE');
       const role = await this.lockRole(m, id, input.version);
       await this.assertUsers(m, added);
       const wanted = await this.permissionIds(m, input.permissions, role.is_system);
@@ -190,6 +193,9 @@ export class RoleAdminService {
         await m.query('INSERT INTO user_roles (user_id, role_id) SELECT unnest($2::int[]), $1', [id, added]);
         await appendActivity(m, 'ROLE', id, 'USERS_ADDED', actor.id, undefined, { metadata: { users: await this.userRefs(m, added) } });
       }
+      const roleRef = { id, code: role.code, name: info.name };
+      await recordUserRoleChange(m, actor.id, removed, roleRef, 'ROLES_REMOVED');
+      await recordUserRoleChange(m, actor.id, added, roleRef, 'ROLES_ADDED');
       if (role.is_system && removed.length) await assertAdminRemains(m);
     });
   }
@@ -254,6 +260,17 @@ export class RoleAdminService {
     if (role.is_system) throw new BusinessError('SYSTEM_ROLE_PROTECTED', 'The system role cannot be copied');
     return { id: role.id, code: role.code, name: role.name };
   }
+}
+
+/**
+ * User side of a role membership change made from the Role screen (acceptance 7, 8): one USER event per changed user
+ * and one `users.version` bump. Caller holds those users rows FOR UPDATE.
+ */
+async function recordUserRoleChange(m: EntityManager, actorId: number, userIds: number[], role: { id: number; code: string; name: string },
+  action: 'ROLES_ADDED' | 'ROLES_REMOVED') {
+  if (!userIds.length) return;
+  await m.query('UPDATE users SET version = version + 1, updated_at = now(), updated_by = $2 WHERE id = ANY($1)', [userIds, actorId]);
+  for (const userId of userIds) await appendActivity(m, 'USER', userId, action, actorId, undefined, { metadata: { roles: [role] } });
 }
 
 const actorOf = (req: AuthedRequest): Actor => ({ id: req.user.id, sessionId: req.user.sessionId });

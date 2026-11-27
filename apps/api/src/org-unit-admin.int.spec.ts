@@ -40,7 +40,7 @@ describe('Organization units OA2.2 (PostgreSQL, HTTP)', () => {
     const tree = (await get(admin, '/admin/org-units/tree').expect(200)).body as { id: number; parentId: number | null; isActive: boolean }[];
     expect([root, l1, l2, l3].map(id => tree.find(n => n.id === id)!).map(n => [n.parentId, n.isActive]))
       .toEqual([[null, true], [root, true], [l1, true], [l2, false]]);
-    expect(Object.keys(tree[0]!).sort()).toEqual(['code', 'id', 'isActive', 'name', 'parentId', 'version']);
+    expect(Object.keys(tree[0]!).sort()).toEqual(['code', 'id', 'isActive', 'memberCount', 'name', 'parentId', 'version']);
     expect((await create({ code: 'OA22-UNDER-OFF', name: 'x', parentId: l3 }).expect(422)).body.code).toBe('ORG_UNIT_PARENT_INACTIVE');
   });
 

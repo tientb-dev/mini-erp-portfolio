@@ -844,16 +844,22 @@ describe('Sales contracts and procurement documents (integration)', () => {
       const [{ id: target }] = await ds.query(`SELECT id FROM users WHERE username = 'pm-head'`);
       for (const op of ['disable', 'reset'] as const) {
         const role = await roleOf('PM_HEAD');
+        const [{ version }] = await ds.query('SELECT version FROM users WHERE id = $1', [target]);
         const [membership, account] = await Promise.all([
           http().put(`/admin/roles/${role.id}`).set(as(admin)).send({ ...editable(role), userIds: role.users.map((u: { id: number }) => u.id).filter((u: number) => u !== target) }),
           op === 'disable'
-            ? http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: false })
-            : http().post(`/admin/users/${target}/reset-password`).set(as(admin)).send({ temporaryPassword: 'role-users-test' }),
+            ? http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: false, version })
+            : http().post(`/admin/users/${target}/reset-password`).set(as(admin)).send({ temporaryPassword: 'role-users-test', version }),
         ]);
-        expect([membership.status, account.status]).toEqual([204, 204]);
+        // Both serialize without deadlock; the role save moves the user version (OA2.3b), so the account call may lose with 409.
+        expect(membership.status).toBe(204);
+        expect([204, 409]).toContain(account.status);
         const back = await roleOf('PM_HEAD');
         await http().put(`/admin/roles/${back.id}`).set(as(admin)).send({ ...editable(back), userIds: [...back.users.map((u: { id: number }) => u.id), target] }).expect(204);
-        if (op === 'disable') await http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: true }).expect(204);
+        if (op === 'disable') {
+          const [{ version: now }] = await ds.query('SELECT version FROM users WHERE id = $1', [target]);
+          await http().patch(`/admin/users/${target}/account-status`).set(as(admin)).send({ isActive: true, version: now }).expect(204);
+        }
       }
       await ds.query(`UPDATE users SET must_change_password = false WHERE username = 'pm-head'`);
       expect((await roleOf('PM_HEAD')).users.map((u: { id: number }) => u.id)).toContain(target);

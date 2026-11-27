@@ -20,10 +20,14 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
   const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
   const signIn = (username: string, password: string) => http().post('/auth/login').send({ username, password });
   const me = (t: string) => http().get('/auth/me').set(bearer(t));
-  const reset = (t: string, id: number, temporaryPassword = 'temporary passphrase') =>
-    http().post(`/admin/users/${id}/reset-password`).set(bearer(t)).send({ temporaryPassword });
-  const setStatus = (t: string, id: number, isActive: boolean) =>
-    http().patch(`/admin/users/${id}/account-status`).set(bearer(t)).send({ isActive });
+  // F01 (OA2.3b): account operations carry the employee version; `ver` reads the current one.
+  const ver = async (id: number) => (await ds.query('SELECT version FROM users WHERE id = $1', [id]))[0]?.version ?? 1;
+  const reset = (t: string, id: number, version: number, temporaryPassword = 'temporary passphrase') =>
+    http().post(`/admin/users/${id}/reset-password`).set(bearer(t)).send({ temporaryPassword, version });
+  const setStatus = (t: string, id: number, isActive: boolean, version: number) =>
+    http().patch(`/admin/users/${id}/account-status`).set(bearer(t)).send({ isActive, version });
+  const unlock = (t: string, id: number, version: number) =>
+    http().post(`/admin/users/${id}/unlock`).set(bearer(t)).send({ version });
   const change = (t: string, currentPassword: string, newPassword: string) =>
     http().post('/auth/change-password').set(bearer(t)).send({ currentPassword, newPassword });
   const events = async (id: number) => (await ds.query(`SELECT action, metadata FROM approval_histories
@@ -57,7 +61,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       await http().post('/auth/logout').set(bearer(a)).expect(204);
       await me(a).expect(401);
       await me(b).expect(200);
-      await reset(admin, u.id).expect(204);
+      await reset(admin, u.id, await ver(u.id)).expect(204);
       await me(b).expect(401);
       expect(await actions(u.id)).toEqual(['LOGIN_SUCCEEDED', 'LOGIN_SUCCEEDED', 'LOGOUT', 'PASSWORD_RESET', 'SESSIONS_REVOKED']);
       expect((await events(u.id)).at(-1)!.metadata).toEqual({ reason: 'PASSWORD_RESET', count: 1 });
@@ -66,10 +70,10 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
     it('does not revive old tokens when a disabled account is enabled again', async () => {
       const u = await makeUser();
       const t = await tokenOf(u.username);
-      await setStatus(admin, u.id, false).expect(204);
+      await setStatus(admin, u.id, false, await ver(u.id)).expect(204);
       await me(t).expect(401);
       await signIn(u.username, PW).expect(401);
-      await setStatus(admin, u.id, true).expect(204);
+      await setStatus(admin, u.id, true, await ver(u.id)).expect(204);
       await me(t).expect(401);
       await me(await tokenOf(u.username)).expect(200);
       expect(await actions(u.id)).toEqual(['LOGIN_SUCCEEDED', 'ACCOUNT_DISABLED', 'SESSIONS_REVOKED', 'LOGIN_FAILED', 'ACCOUNT_ENABLED', 'LOGIN_SUCCEEDED']);
@@ -114,7 +118,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
 
     it('forces a change after reset and blocks business APIs until then', async () => {
       const u = await makeUser('PURCHASING');
-      await reset(admin, u.id, 'admin temporary pass').expect(204);
+      await reset(admin, u.id, await ver(u.id), 'admin temporary pass').expect(204);
       const login1 = (await signIn(u.username, 'admin temporary pass').expect(200)).body;
       expect(login1).toEqual({ accessToken: expect.any(String), mustChangePassword: true });
       const t = login1.accessToken;
@@ -127,7 +131,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       expect(fresh.mustChangePassword).toBe(false);
       await http().get('/purchase-requisitions').set(bearer(fresh.accessToken)).expect(200);
       // The logout path stays open while a change is required.
-      await reset(admin, u.id, 'admin temporary pass').expect(204);
+      await reset(admin, u.id, await ver(u.id), 'admin temporary pass').expect(204);
       const forced = await tokenOf(u.username, 'admin temporary pass');
       await http().post('/auth/logout').set(bearer(forced)).expect(204);
       await me(forced).expect(401);
@@ -148,7 +152,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
     it('never exposes passwords, hashes, tokens or session ids', async () => {
       const u = await makeUser();
       const t = await tokenOf(u.username);
-      await reset(admin, u.id, 'secret temporary one').expect(204);
+      await reset(admin, u.id, await ver(u.id), 'secret temporary one').expect(204);
       const state = (await http().get(`/admin/users/${u.id}/account`).set(bearer(admin)).expect(200)).body;
       const audit = JSON.stringify(await ds.query(`SELECT * FROM approval_histories WHERE document_type = 'USER' AND document_id = $1`, [u.id]));
       const [{ hash }] = await ds.query('SELECT password_hash AS hash FROM users WHERE id = $1', [u.id]);
@@ -180,13 +184,13 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       await signIn(u.username, PW).expect(200);
       for (let i = 0; i < 5; i++) await signIn(u.username, BAD).expect(401);
       await signIn(u.username, PW).expect(401);
-      await http().post(`/admin/users/${u.id}/unlock`).set(bearer(admin)).expect(204);
+      await unlock(admin, u.id, await ver(u.id)).expect(204);
       await signIn(u.username, PW).expect(200);
       expect((await actions(u.id)).filter(a => a.startsWith('ACCOUNT_'))).toEqual(['ACCOUNT_LOCKED', 'ACCOUNT_LOCKED', 'ACCOUNT_UNLOCKED']);
 
       // Unknown user, bad password, locked and disabled accounts all fail the same way.
       const disabled = await makeUser();
-      await setStatus(admin, disabled.id, false).expect(204);
+      await setStatus(admin, disabled.id, false, await ver(disabled.id)).expect(204);
       const bad = failure(await signIn(u.username, BAD));
       expect(failure(await signIn('no-such-user', PW))).toEqual(bad);
       expect(lockedResponse).toEqual(bad);
@@ -198,7 +202,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
     it('a reset clears the lockout', async () => {
       const u = await makeUser();
       for (let i = 0; i < 5; i++) await signIn(u.username, BAD).expect(401);
-      await reset(admin, u.id, 'fresh temporary pass').expect(204);
+      await reset(admin, u.id, await ver(u.id), 'fresh temporary pass').expect(204);
       await signIn(u.username, 'fresh temporary pass').expect(200);
     });
   });
@@ -216,7 +220,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
     it('never leaves a usable session created with credentials that were reset or disabled concurrently', async () => {
       for (let round = 0; round < 4; round++) {
         const u = await makeUser();
-        const [signed] = await Promise.all([signIn(u.username, PW), round % 2 ? setStatus(admin, u.id, false).expect(204) : reset(admin, u.id).expect(204)]);
+        const [signed] = await Promise.all([signIn(u.username, PW), round % 2 ? setStatus(admin, u.id, false, await ver(u.id)).expect(204) : reset(admin, u.id, await ver(u.id)).expect(204)]);
         if (signed.status === 200) {
           await me(signed.body.accessToken).expect(401);
           expect(await actions(u.id)).toEqual(expect.arrayContaining(['LOGIN_SUCCEEDED', 'SESSIONS_REVOKED']));
@@ -280,16 +284,17 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
         const [{ id: roleId }] = await ds.query(`SELECT id FROM roles WHERE code = 'SALES'`);
         const role = (await http().get(`/admin/roles/${roleId}`).set(bearer(admin)).expect(200)).body;
         const results = await Promise.all([
-          reset(admin, u.id),
-          setStatus(other, u.id, false),
-          http().post(`/admin/users/${u.id}/unlock`).set(bearer(admin)),
+          reset(admin, u.id, await ver(u.id)),
+          setStatus(other, u.id, false, await ver(u.id)),
+          unlock(admin, u.id, await ver(u.id)),
           http().put(`/admin/roles/${roleId}`).set(bearer(other)).send({ name: role.name, description: role.description,
             permissions: role.permissions, userIds: role.users.map((x: { id: number }) => x.id).filter((x: number) => x !== u.id), version: role.version }),
         ]);
-        // Never a 500 (deadlock); the role save may only lose to another save of the same role (409).
-        expect(results.map(r => r.status)).toEqual([204, 204, 204, expect.any(Number)]);
-        expect([204, 409]).toContain(results[3].status);
-        expect(await ds.query('SELECT is_active FROM users WHERE id = $1', [u.id])).toEqual([{ is_active: false }]);
+        // Never a 500 (deadlock). F01: all three account operations carry the same version, and the role save moves the
+        // user version too, so the losers get 409 VERSION_CONFLICT; the account is disabled exactly when the disable won.
+        expect(results.every(r => r.status === 204 || (r.status === 409 && r.body.code === 'VERSION_CONFLICT'))).toBe(true);
+        expect(results.some(r => r.status === 204)).toBe(true);
+        expect(await ds.query('SELECT is_active FROM users WHERE id = $1', [u.id])).toEqual([{ is_active: results[1].status !== 204 }]);
       }
     });
 
@@ -302,7 +307,7 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
         JOIN roles r ON r.id = ur.role_id WHERE r.code = 'ADMIN' AND u.is_active AND u.id <> ALL($1)`, [[a.id, b.id]]);
       await ds.query('UPDATE users SET is_active = false WHERE id = ANY($1)', [others.map(o => o.id)]);
       try {
-        const results = await Promise.all([setStatus(ta, b.id, false), setStatus(tb, a.id, false)]);
+        const results = await Promise.all([setStatus(ta, b.id, false, await ver(b.id)), setStatus(tb, a.id, false, await ver(a.id))]);
         // The loser's own session was revoked by the winner; the live re-check stops it (Last Admin is the backstop below).
         expect(results.map(r => r.status).sort()).toEqual([204, 401]);
         const active = await ds.query('SELECT id FROM users WHERE id = ANY($1) AND is_active', [[a.id, b.id]]);
@@ -314,9 +319,9 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
         const survivor = active[0].id === a.id ? { id: a.id, t: ta } : { id: b.id, t: tb };
         const c = await makeUser('ADMIN');
         await ds.query(`UPDATE users SET locked_until = now() + interval '15 minutes' WHERE id = $1`, [survivor.id]);
-        await setStatus(survivor.t, c.id, false).expect(204);
-        expect((await setStatus(survivor.t, survivor.id, false).expect(403)).body.code).toBe('SELF_CHANGE_DENIED');
-        expect((await reset(survivor.t, survivor.id).expect(403)).body.code).toBe('SELF_CHANGE_DENIED');
+        await setStatus(survivor.t, c.id, false, await ver(c.id)).expect(204);
+        expect((await setStatus(survivor.t, survivor.id, false, await ver(survivor.id)).expect(403)).body.code).toBe('SELF_CHANGE_DENIED');
+        expect((await reset(survivor.t, survivor.id, await ver(survivor.id)).expect(403)).body.code).toBe('SELF_CHANGE_DENIED');
         await ds.query(`UPDATE users SET locked_until = NULL WHERE id = $1`, [survivor.id]);
       } finally {
         await ds.query('UPDATE users SET is_active = true WHERE id = ANY($1)', [others.map(o => o.id)]);
@@ -394,9 +399,9 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       await tokenOf(actor.username);
       const [{ id: sid }] = await ds.query('SELECT id FROM user_sessions WHERE user_id = $1', [actor.id]);
       await ds.query(`UPDATE user_sessions SET revoked_at = now(), revoke_reason = 'LOGOUT' WHERE id = $1`, [sid]);
-      for (const call of [() => service.resetPassword({ id: actor.id, sessionId: sid }, target.id, 'temporary passphrase'),
-        () => service.setAccountStatus({ id: actor.id, sessionId: sid }, target.id, false),
-        () => service.unlock({ id: actor.id, sessionId: sid }, target.id)]) {
+      for (const call of [() => service.resetPassword({ id: actor.id, sessionId: sid }, target.id, 'temporary passphrase', 1),
+        () => service.setAccountStatus({ id: actor.id, sessionId: sid }, target.id, false, 1),
+        () => service.unlock({ id: actor.id, sessionId: sid }, target.id, 1)]) {
         await expect(call()).rejects.toMatchObject({ status: 401 });
       }
       const self = await makeUser();
@@ -409,8 +414,8 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       const token = await tokenOf(fresh.username);
       const [{ id: freshSid }] = await ds.query('SELECT id FROM user_sessions WHERE user_id = $1', [fresh.id]);
       await ds.query(`DELETE FROM user_roles WHERE user_id = $1`, [fresh.id]);
-      await expect(service.unlock({ id: fresh.id, sessionId: freshSid }, target.id)).rejects.toMatchObject({ status: 403 });
-      await reset(token, target.id).expect(403);
+      await expect(service.unlock({ id: fresh.id, sessionId: freshSid }, target.id, 1)).rejects.toMatchObject({ status: 403 });
+      await reset(token, target.id, await ver(target.id)).expect(403);
       expect(await actions(target.id)).toEqual([]);
     });
 
@@ -426,8 +431,8 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
           BEGIN IF NEW.action = 'SESSIONS_REVOKED' THEN RAISE EXCEPTION 'oa12 rollback fixture'; END IF; RETURN NEW; END $$;
         CREATE TRIGGER oa12_fail_revoke BEFORE INSERT ON approval_histories FOR EACH ROW EXECUTE FUNCTION oa12_fail_revoke()`);
       try {
-        await reset(admin, u.id).expect(500);
-        await setStatus(admin, u.id, false).expect(500);
+        await reset(admin, u.id, await ver(u.id)).expect(500);
+        await setStatus(admin, u.id, false, await ver(u.id)).expect(500);
         await change(t, PW, 'long enough passphrase').expect(500);
       } finally {
         await ds.query('DROP TRIGGER oa12_fail_revoke ON approval_histories; DROP FUNCTION oa12_fail_revoke()');
@@ -443,11 +448,11 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
     const sales = await login(app, 'sales', 'role-users-test');
     for (const res of [
       await http().get(`/admin/users/${u.id}/account`).set(bearer(sales)),
-      await reset(sales, u.id),
-      await setStatus(sales, u.id, false),
-      await http().post(`/admin/users/${u.id}/unlock`).set(bearer(sales)),
+      await reset(sales, u.id, await ver(u.id)),
+      await setStatus(sales, u.id, false, await ver(u.id)),
+      await unlock(sales, u.id, await ver(u.id)),
     ]) expect(res.status).toBe(403);
-    await http().post('/admin/users/999999/unlock').set(bearer(admin)).expect(404);
+    await http().post('/admin/users/999999/unlock').set(bearer(admin)).send({ version: 1 }).expect(404);
     expect((await me(admin).expect(200)).body.id).toBe(adminId);
   });
 });

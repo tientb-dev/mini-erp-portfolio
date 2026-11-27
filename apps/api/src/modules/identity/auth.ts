@@ -5,7 +5,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsString, MaxLength, Min } from 'class-validator';
 import { Request } from 'express';
 import { DataSource } from 'typeorm';
 import { BusinessError } from '../workflow/workflow';
@@ -95,10 +95,16 @@ class ChangePasswordDto {
 
 class ResetPasswordDto {
   @ApiProperty() @IsString() @MaxLength(PASSWORD_MAX_LENGTH) temporaryPassword!: string;
+  @ApiProperty() @IsInt() @Min(1) version!: number;
 }
 
 class AccountStatusDto {
   @ApiProperty() @IsBoolean() isActive!: boolean;
+  @ApiProperty() @IsInt() @Min(1) version!: number;
+}
+
+class VersionDto {
+  @ApiProperty() @IsInt() @Min(1) version!: number;
 }
 
 @ApiTags('auth')
@@ -158,20 +164,20 @@ export class AccountAdminController {
   @HttpCode(204)
   @RequirePermissions('USER.MANAGE')
   resetPassword(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: ResetPasswordDto) {
-    return this.accounts.resetPassword(actor(req), id, dto.temporaryPassword);
+    return this.accounts.resetPassword(actor(req), id, dto.temporaryPassword, dto.version);
   }
 
   @Patch('account-status')
   @HttpCode(204)
   @RequirePermissions('USER.MANAGE')
   setStatus(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: AccountStatusDto) {
-    return this.accounts.setAccountStatus(actor(req), id, dto.isActive);
+    return this.accounts.setAccountStatus(actor(req), id, dto.isActive, dto.version);
   }
 
   @Post('unlock')
   @HttpCode(204)
   @RequirePermissions('USER.MANAGE')
-  unlock(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.accounts.unlock(actor(req), id);
+  unlock(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: VersionDto) {
+    return this.accounts.unlock(actor(req), id, dto.version);
   }
 }

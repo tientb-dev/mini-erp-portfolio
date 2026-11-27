@@ -21,8 +21,9 @@ describe('User management OA2.3a (PostgreSQL, HTTP)', () => {
     http().patch(`/admin/users/${id}/employment-status`).set(bearer(t)).send({ status, version });
   const account = (t: string, id: number, username: string, version: number, initialPassword = PW) =>
     http().post(`/admin/users/${id}/account`).set(bearer(t)).send({ username, initialPassword, version });
-  const accountStatus = (t: string, id: number, isActive: boolean) =>
-    http().patch(`/admin/users/${id}/account-status`).set(bearer(t)).send({ isActive });
+  const ver = async (id: number) => (await ds.query('SELECT version FROM users WHERE id = $1', [id]))[0].version as number;
+  const accountStatus = (t: string, id: number, isActive: boolean, version: number) =>
+    http().patch(`/admin/users/${id}/account-status`).set(bearer(t)).send({ isActive, version });
   const signIn = (username: string, password = PW) => http().post('/auth/login').send({ username, password });
   const detail = async (id: number) => (await get(admin, `/admin/users/${id}`).expect(200)).body;
   const events = async (id: number) => (await ds.query(`SELECT action, metadata FROM approval_histories
@@ -58,8 +59,8 @@ describe('User management OA2.3a (PostgreSQL, HTTP)', () => {
       const e = await employee();
       let d = await detail(e.id);
       expect(d).toMatchObject({ employeeCode: e.code, username: null, accountStatus: 'NONE', employmentStatus: 'ACTIVE', accountActive: false, roles: [] });
-      await accountStatus(admin, e.id, true).expect(409).expect(r => expect(r.body.code).toBe('NO_ACCOUNT'));
-      await http().post(`/admin/users/${e.id}/reset-password`).set(bearer(admin)).send({ temporaryPassword: PW }).expect(409);
+      await accountStatus(admin, e.id, true, await ver(e.id)).expect(409).expect(r => expect(r.body.code).toBe('NO_ACCOUNT'));
+      await http().post(`/admin/users/${e.id}/reset-password`).set(bearer(admin)).send({ temporaryPassword: PW, version: await ver(e.id) }).expect(409);
       await account(admin, e.id, e.username, d.version, 'short').expect(400).expect(r => expect(r.body.code).toBe('PASSWORD_POLICY'));
       await account(admin, e.id, e.username, d.version).expect(204);
       d = await detail(e.id);
@@ -136,13 +137,13 @@ describe('User management OA2.3a (PostgreSQL, HTTP)', () => {
         .toEqual([{ revoke_reason: 'EMPLOYMENT_INACTIVE' }]);
       d = await detail(e.id);
       expect(d).toMatchObject({ employmentStatus: 'INACTIVE', accountStatus: 'INACTIVE' });
-      await accountStatus(admin, e.id, true).expect(409).expect(r => expect(r.body.code).toBe('EMPLOYMENT_INACTIVE'));
+      await accountStatus(admin, e.id, true, await ver(e.id)).expect(409).expect(r => expect(r.body.code).toBe('EMPLOYMENT_INACTIVE'));
 
       await employment(admin, e.id, 'ACTIVE', d.version).expect(204);
       d = await detail(e.id);
       expect(d).toMatchObject({ employmentStatus: 'ACTIVE', accountStatus: 'INACTIVE' });
       await get(t, '/auth/me').expect(401);
-      await accountStatus(admin, e.id, true).expect(204);
+      await accountStatus(admin, e.id, true, await ver(e.id)).expect(204);
       await get(t, '/auth/me').expect(401);
       await signIn(e.username, 'changed passphrase').expect(200);
       const ev = (await events(e.id)).filter(x => /^EMPLOYEE_(DE)?ACTIVATED$/.test(x.action));
@@ -215,12 +216,14 @@ describe('User management OA2.3a (PostgreSQL, HTTP)', () => {
         const e = await employee(true);
         const results = await Promise.all([
           employment(admin, e.id, 'INACTIVE', 1),
-          http().post(`/admin/users/${e.id}/reset-password`).set(bearer(admin)).send({ temporaryPassword: 'temporary passphrase' }),
-          http().post(`/admin/users/${e.id}/unlock`).set(bearer(admin)),
-          accountStatus(admin, e.id, false),
+          http().post(`/admin/users/${e.id}/reset-password`).set(bearer(admin)).send({ temporaryPassword: 'temporary passphrase', version: 1 }),
+          http().post(`/admin/users/${e.id}/unlock`).set(bearer(admin)).send({ version: 1 }),
+          accountStatus(admin, e.id, false, 1),
         ]);
         expect(results.map(r => r.status).every(s => s === 204 || s === 409)).toBe(true);
-        expect(await ds.query('SELECT is_active FROM users WHERE id = $1', [e.id])).toEqual([{ is_active: false }]);
+        // F01: one shared version, so only the first writer wins; the account is off exactly when a disabling call won.
+        const disabled = results[0].status === 204 || results[3].status === 204;
+        expect(await ds.query('SELECT is_active FROM users WHERE id = $1', [e.id])).toEqual([{ is_active: !disabled }]);
         expect(await ds.query('SELECT 1 FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL', [e.id])).toEqual([]);
       }
     }, 60_000);
@@ -247,7 +250,7 @@ describe('User management OA2.3a (PostgreSQL, HTTP)', () => {
       const base = dataSourceOptions();
       const migrations = base.migrations as Function[];
       const at = migrations.findIndex(mig => mig.name === 'EmployeeProfiles1733875200000');
-      up = new DataSource({ ...base, migrations: all ? migrations : migrations.slice(0, at), extra: { options: `-c search_path=${schema}` } } as never);
+      up = new DataSource({ ...base, migrations: migrations.slice(0, all ? at + 1 : at), extra: { options: `-c search_path=${schema}` } } as never);
       await up.initialize();
       return up;
     };

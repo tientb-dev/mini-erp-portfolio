@@ -1,3 +1,4 @@
+import { OrgMemberships1733961600000 } from './migrations/1733961600000-OrgMemberships';
 import { EmployeeProfiles1733875200000 } from './migrations/1733875200000-EmployeeProfiles';
 import { OrgUnits1733788800000 } from './migrations/1733788800000-OrgUnits';
 import { JobTitles1733702400000 } from './migrations/1733702400000-JobTitles';
@@ -37,7 +38,7 @@ export function dataSourceOptions(url = env('DATABASE_URL')): DataSourceOptions 
     type: 'postgres',
     url,
     entities: ENTITIES,
-    migrations: [Foundation1731456000000, InboundChain1731542400000, OutboundChain1731628800000, SalesContractEditing1731715200000, ResponsibleSales1731801600000, PoReceiptProgress1731888000000, InventoryLots1731974400000, LotAllocations1732060800000, GirPurchaseRequisitionLines1732147200000, GirAvailableStockSource1732233600000, SalesContractLineUom1732320000000, PrWorkflow1732406400000, CommonDocumentRecords1732492800000, PrCandidatePools1732579200000, PrNotificationTasks1732665600000, PrCreateRequest1732752000000, PrMasterData1732838400000, RequireProductBrand1732924800000, MasterDataStatus1733011200000, PurchaseRequisitionDetails1733097600000, DocumentDossier1733184000000, PrDossierStaging1733270400000, MasterDataDescription1733356800000, AuthorizationFoundation1733443200000, AccountSecurity1733529600000, RoleManagement1733616000000, JobTitles1733702400000, OrgUnits1733788800000, EmployeeProfiles1733875200000],
+    migrations: [Foundation1731456000000, InboundChain1731542400000, OutboundChain1731628800000, SalesContractEditing1731715200000, ResponsibleSales1731801600000, PoReceiptProgress1731888000000, InventoryLots1731974400000, LotAllocations1732060800000, GirPurchaseRequisitionLines1732147200000, GirAvailableStockSource1732233600000, SalesContractLineUom1732320000000, PrWorkflow1732406400000, CommonDocumentRecords1732492800000, PrCandidatePools1732579200000, PrNotificationTasks1732665600000, PrCreateRequest1732752000000, PrMasterData1732838400000, RequireProductBrand1732924800000, MasterDataStatus1733011200000, PurchaseRequisitionDetails1733097600000, DocumentDossier1733184000000, PrDossierStaging1733270400000, MasterDataDescription1733356800000, AuthorizationFoundation1733443200000, AccountSecurity1733529600000, RoleManagement1733616000000, JobTitles1733702400000, OrgUnits1733788800000, EmployeeProfiles1733875200000, OrgMemberships1733961600000],
     migrationsTransactionMode: 'each',
     synchronize: false,
   };

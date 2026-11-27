@@ -137,12 +137,12 @@ export class AccountSecurityService {
   }
 
   /** Admin reset: temporary password, forced change at next sign-in, lockout cleared, every session ended. */
-  async resetPassword(actor: Actor, userId: number, temporaryPassword: string) {
+  async resetPassword(actor: Actor, userId: number, temporaryPassword: string, version: number) {
     if (actor.id === userId) throw selfChange();
     assertPasswordPolicy(temporaryPassword);
     const hash = await hashPassword(temporaryPassword);
     await this.ds.transaction(async m => {
-      if (!(await this.lockForAdmin(m, actor, userId)).has_account) throw noAccount();
+      if (!(await this.lockForAdmin(m, actor, userId, version)).has_account) throw noAccount();
       await m.query(`UPDATE users SET password_hash = $2, must_change_password = true, password_changed_at = now(),
         failed_login_count = 0, locked_until = NULL, version = version + 1, updated_at = now() WHERE id = $1`, [userId, hash]);
       await audit(m, userId, 'PASSWORD_RESET', actor.id);
@@ -151,13 +151,13 @@ export class AccountSecurityService {
   }
 
   /** Disable ends every session in the same transaction; enabling never revives an old session (BA-USR-13). */
-  async setAccountStatus(actor: Actor, userId: number, isActive: boolean) {
+  async setAccountStatus(actor: Actor, userId: number, isActive: boolean, version: number) {
     if (actor.id === userId) throw selfChange();
     await this.ds.transaction(async m => {
       await lockAdminGuard(m);
       // Disabling revokes every grant of the account: same gate as role changes (F-OA1.3-09).
       await lockGrantsExclusive(m);
-      const user = await this.lockForAdmin(m, actor, userId);
+      const user = await this.lockForAdmin(m, actor, userId, version);
       if (user.is_active === isActive) return;
       // BA-USR-04: an account opens only for an active employee that has one.
       if (isActive && !user.has_account) throw noAccount();
@@ -169,11 +169,11 @@ export class AccountSecurityService {
     });
   }
 
-  async unlock(actor: Actor, userId: number) {
+  async unlock(actor: Actor, userId: number, version: number) {
     await this.ds.transaction(async m => {
-      const user = await this.lockForAdmin(m, actor, userId);
+      const user = await this.lockForAdmin(m, actor, userId, version);
       if (!user.locked && !user.failed_login_count) return;
-      await m.query('UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = now() WHERE id = $1', [userId]);
+      await m.query('UPDATE users SET failed_login_count = 0, locked_until = NULL, version = version + 1, updated_at = now() WHERE id = $1', [userId]);
       await audit(m, userId, 'ACCOUNT_UNLOCKED', actor.id);
     });
   }
@@ -188,9 +188,13 @@ export class AccountSecurityService {
     return state;
   }
 
-  private async lockForAdmin(m: EntityManager, actor: Actor, userId: number) {
+  /** F01 (OA2.3b): every account change carries the employee version and moves it once. */
+  private async lockForAdmin(m: EntityManager, actor: Actor, userId: number, version: number) {
     const user = (await lockActor(m, actor, 'USER.MANAGE', [userId])).find(r => r.id === userId);
     if (!user) throw new NotFoundException();
+    if (user.version !== version) {
+      throw new BusinessError('VERSION_CONFLICT', 'The employee was changed by someone else. Reload it and apply your change again', HttpStatus.CONFLICT);
+    }
     return user;
   }
 }

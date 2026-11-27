@@ -10,8 +10,8 @@ import { grantRole } from './modules/identity/authorization';
 import { hashPassword } from './modules/identity/password';
 import { listCandidates } from './modules/procurement/pr-eligibility';
 
-const ADMIN_ONLY = ['DOSSIER_CONFIG.MANAGE', 'DOSSIER_TYPE.MANAGE', 'PR.CONFIGURE', 'ROLE.MANAGE', 'ROLE.VIEW', 'USER.MANAGE', 'USER.VIEW'];
-const NEW_KEYS = ['ROLE.MANAGE', 'ROLE.VIEW', 'USER.MANAGE', 'USER.VIEW'];
+const ADMIN_ONLY = ['DOSSIER_CONFIG.MANAGE', 'DOSSIER_TYPE.MANAGE', 'ORGANIZATION.MANAGE', 'ORGANIZATION.VIEW', 'PR.CONFIGURE', 'ROLE.MANAGE', 'ROLE.VIEW', 'USER.MANAGE', 'USER.VIEW'];
+const NEW_KEYS = ['ORGANIZATION.MANAGE', 'ORGANIZATION.VIEW', 'ROLE.MANAGE', 'ROLE.VIEW', 'USER.MANAGE', 'USER.VIEW'];
 
 const roleGrants = (ds: DataSource): Promise<string[]> => ds.query(`SELECT r.code || '>' || p.code AS g FROM role_permissions rp
   JOIN roles r ON r.id = rp.role_id JOIN permissions p ON p.id = rp.permission_id ORDER BY 1`).then(rows => rows.map((r: { g: string }) => r.g));
@@ -356,7 +356,8 @@ describe('Authorization foundation OA1.1 (PostgreSQL)', () => {
       expect(after.roles.filter(g => !reseeded.includes(g))).toEqual([]);
 
       expect(await up.runMigrations()).toEqual([]);
-      // Revert OA1.3, OA1.2 then OA1.1.
+      // Revert OA2.1, OA1.3, OA1.2 then OA1.1.
+      await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();
       await up.undoLastMigration();

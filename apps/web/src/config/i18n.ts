@@ -77,6 +77,12 @@ const vi = {
     logoutUnconfirmed: 'Đã đăng xuất trên trình duyệt này nhưng chưa xác nhận được với máy chủ. Nếu dùng máy dùng chung, hãy báo quản trị viên.',
   },
   activity: { title: 'Lịch sử hoạt động', empty: 'Chưa có lịch sử.', time: 'Thời gian', actor: 'Người thực hiện', action: 'Hành động', change: 'Nội dung thay đổi', copiedFrom: 'Sao chép từ {{source}}' },
+  jobTitles: {
+    entity: 'chức danh', code: 'Mã chức danh', name: 'Tên chức danh', create: 'Thêm chức danh',
+    codeFormat: 'Tối đa 50 ký tự: chữ, số, gạch dưới, gạch ngang hoặc dấu chấm; bắt đầu bằng chữ hoặc số.',
+    disableTitle: 'Xác nhận ngừng sử dụng',
+    disableHint: 'Sau khi ngừng, chức danh không còn được chọn khi gán nhân sự vào đơn vị. Không thể ngừng chức danh đang được nhân sự hoạt động sử dụng; lịch sử phân công đã kết thúc được giữ nguyên.',
+  },
   roles: {
     code: 'Mã vai trò', name: 'Tên vai trò', description: 'Mô tả', userCount: 'Số người dùng', permissionCount: 'Số quyền',
     create: 'Thêm vai trò', edit: 'Sửa', copy: 'Sao chép', save: 'Lưu vai trò', searchHint: 'Mã hoặc tên vai trò', empty: 'Chưa có vai trò phù hợp.',
@@ -216,7 +222,7 @@ const vi = {
   },
   nav: {
     temporaryProducts: "Mã tạm", brands: "Hãng", unitsOfMeasure: "Đơn vị tính", currencies: "Tiền tệ", taxRates: "Thuế suất",
-    dossierTypes: 'Loại hồ sơ', dossierConfigurations: 'Cấu hình hồ sơ chứng từ', system: 'Hệ thống', roles: 'Vai trò & Phân quyền',
+    dossierTypes: 'Loại hồ sơ', dossierConfigurations: 'Cấu hình hồ sơ chứng từ', system: 'Hệ thống', jobTitles: 'Chức danh', roles: 'Vai trò & Phân quyền',
     label: 'Điều hướng chính', open: 'Mở menu', masterData: 'Danh mục', warehouseOps: 'Kho vận',
     sales: 'Bán hàng', purchasing: 'Mua hàng', salesContracts: 'Hợp đồng bán', purchaseRequisitions: 'Đề nghị mua hàng (PR)', purchaseOrders: 'Đơn đặt hàng (PO)',
     goodsReceiptRequests: 'Đề nghị nhập kho', customers: 'Khách hàng', suppliers: 'Nhà cung cấp',
@@ -317,7 +323,7 @@ const vi = {
     SOURCE_NOT_APPROVED: 'Chứng từ nguồn không còn ở trạng thái Đã duyệt.',
     QUANTITY_LIMIT_EXCEEDED: 'Vượt số lượng còn lại của dòng nguồn.',
     GRR_LINE_UOM_MISMATCH: 'ĐVT dòng đề nghị nhập khác ĐVT của mã hàng.',
-    DUPLICATE_VALUE: 'Giá trị này đã tồn tại.',
+    DUPLICATE_VALUE: 'Giá trị này đã tồn tại.', JOB_TITLE_IN_USE: 'Chức danh đang được nhân sự hoạt động sử dụng.',
     FORBIDDEN: 'Bạn không có quyền thực hiện thao tác này.',
     REASON_REQUIRED: 'Cần nhập lý do.',
     SALES_CONTRACT_QUOTA_EXCEEDED: 'Vượt số lượng còn được đề nghị của dòng HĐ.',
@@ -549,6 +555,12 @@ const en: typeof vi = {
     logoutUnconfirmed: 'Signed out in this browser, but the server could not confirm it. On a shared computer, tell your administrator.',
   },
   activity: { title: 'Activity history', empty: 'No history yet.', time: 'Time', actor: 'By', action: 'Action', change: 'Change', copiedFrom: 'Copied from {{source}}' },
+  jobTitles: {
+    entity: 'job title', code: 'Job title code', name: 'Job title name', create: 'Add job title',
+    codeFormat: 'Up to 50 characters: letters, digits, underscore, hyphen or dot; starts with a letter or digit.',
+    disableTitle: 'Confirm deactivation',
+    disableHint: 'Once deactivated, the job title can no longer be selected when assigning employees to units. A job title used by active employees cannot be deactivated; ended assignments stay in history.',
+  },
   roles: {
     code: 'Role code', name: 'Role name', description: 'Description', userCount: 'Users', permissionCount: 'Permissions',
     create: 'Add role', edit: 'Edit', copy: 'Copy', save: 'Save role', searchHint: 'Role code or name', empty: 'No matching roles.',
@@ -688,7 +700,7 @@ const en: typeof vi = {
   },
   nav: {
     temporaryProducts: "Temporary products", brands: "Brands", unitsOfMeasure: "Units of measure", currencies: "Currencies", taxRates: "Tax rates",
-    dossierTypes: 'Dossier types', dossierConfigurations: 'Document dossier configuration', system: 'System', roles: 'Roles & permissions',
+    dossierTypes: 'Dossier types', dossierConfigurations: 'Document dossier configuration', system: 'System', jobTitles: 'Job titles', roles: 'Roles & permissions',
     label: 'Main navigation', open: 'Open menu', masterData: 'Master data', warehouseOps: 'Warehouse',
     sales: 'Sales', purchasing: 'Purchasing', salesContracts: 'Sales contracts', purchaseRequisitions: 'Purchase requisitions', purchaseOrders: 'Purchase orders',
     goodsReceiptRequests: 'Receipt requests', customers: 'Customers', suppliers: 'Suppliers',
@@ -789,7 +801,7 @@ const en: typeof vi = {
     SOURCE_NOT_APPROVED: 'The source document is no longer approved.',
     QUANTITY_LIMIT_EXCEEDED: 'Exceeds the remaining quantity of the source line.',
     GRR_LINE_UOM_MISMATCH: 'The receipt request line UoM differs from the product UoM.',
-    DUPLICATE_VALUE: 'This value already exists.',
+    DUPLICATE_VALUE: 'This value already exists.', JOB_TITLE_IN_USE: 'The job title is used by active employees.',
     FORBIDDEN: 'You do not have permission for this action.',
     REASON_REQUIRED: 'A reason is required.',
     SALES_CONTRACT_QUOTA_EXCEEDED: 'Exceeds the remaining quantity of the contract line.',

@@ -15,7 +15,7 @@ export function CreatePoDialog({ onClose, onCreated, edit }: CreateProps) {
   const [qty, setQty] = useState<Record<number, string>>(() => editQty(edit));
   const suppliers = useQuery({ queryKey: ['suppliers', 'selection', edit?.supplierId], queryFn: () => api<{ id: number; code: string; name: string }[]>(catalogSelectionPath('/suppliers', edit?.supplierId)) });
   const lines = useQuery({ queryKey: ['pr-lines-for-po'], queryFn: () => api<SourceLine[]>('/purchase-requisition-lines/available-for-po') });
-  const picked = withEditLines(pickedLines(lines.data, qty), edit, lines.data);
+  const picked = withEditLines(pickedLines(lines.data, qty), edit, lines.data, qty);
   const create = useMutation({
     mutationFn: () => saveDoc('purchase-orders', edit, { supplierId: Number(supplierId), lines: picked }),
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['po'] }); void qc.invalidateQueries({ queryKey: ['pr-lines-for-po'] }); onCreated(r.id); },
@@ -28,7 +28,12 @@ export function CreatePoDialog({ onClose, onCreated, edit }: CreateProps) {
         helperText={suppliers.data?.length === 0 ? t('po.noSupplier') : undefined}>
         {(suppliers.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code}: {s.name}</MenuItem>)}
       </TextField>
-      {lines.data?.length === 0 && <Typography variant="body2" color="text.secondary">{t('po.noLines')}</Typography>}
+      {lines.data?.length === 0 && !edit?.lines.some(line => line.sourceLineId == null) && <Typography variant="body2" color="text.secondary">{t('po.noLines')}</Typography>}
+      {edit?.lines.filter(line => line.sourceLineId == null).map(line => (
+        <TextField key={line.id} type="number" label={`${line.partNumber}: ${line.productName} · ${t('gr.quantity')}`}
+          value={qty[-line.id] ?? ''} slotProps={{ htmlInput: { min: 0 } }}
+          onChange={event => setQty({ ...qty, [-line.id]: event.target.value })} />
+      ))}
       <SourceLinesPicker lines={lines.data ?? []} qty={qty} setQty={setQty} />
     </FormDialog>
   );

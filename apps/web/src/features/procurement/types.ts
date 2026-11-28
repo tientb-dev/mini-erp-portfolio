@@ -7,7 +7,7 @@ export interface DocRow {
   id: number; documentNumber: string; approvalStatus: string; version: number; createdBy: number; createdByName: string;
   assignedApproverId: number | null; assignedApproverName: string | null; createdAt: string; [extra: string]: unknown;
 }
-export interface DocLine { id: number; sourceLineId: number; productId?: number; ref: string; partNumber: string; productName: string; uom: string; quantity: string; usedQuantity?: string; receivedQuantity?: string }
+export interface DocLine { id: number; sourceLineId: number | null; productId?: number; ref: string | null; partNumber: string; productName: string; uom: string; quantity: string; usedQuantity?: string; receivedQuantity?: string }
 export interface PrNote { id: number; authorName: string; body: string; createdAt: string }
 export interface PrNode {
   step: 'APPROVAL' | 'RECEIPT'; round: number; department: string; result: 'APPROVED' | 'REJECTED' | null;

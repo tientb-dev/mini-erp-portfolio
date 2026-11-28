@@ -1,9 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Header, HttpCode, Param, ParseBoolPipe, ParseEnumPipe, ParseFilePipe, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, Max, IsDateString, Matches, IsIn, IsInt, IsOptional, IsNotEmpty, IsPositive, IsString, IsUUID, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
-import { DataSource } from 'typeorm';
 import { OptionalReasonDto, ReasonDto, SourceLineDto, SubmitDto } from "../../common/dto";
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { ProcurementService, PR_SORT } from './procurement.service';
@@ -130,7 +128,16 @@ class UpdatePrDto extends PrDraftSelection {
   @ApiProperty({ type: [PrLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PrLineDto) lines!: PrLineDto[];
   @ApiPropertyOptional({ type: DossierUpdate }) @IsOptional() @ValidateNested() @Type(() => DossierUpdate) dossier?: DossierUpdate;
 }
-class UpdatePoDto extends CreatePoDto {
+class UpdatePoLineDto {
+  @ApiPropertyOptional() @IsOptional() @IsInt() @IsPositive() id?: number;
+  @ApiPropertyOptional({ description: 'Required for a new PO line; optional on a retained line' })
+  @ValidateIf((line: UpdatePoLineDto) => line.id === undefined || line.sourceLineId !== undefined)
+  @IsInt() @IsPositive() sourceLineId?: number;
+  @ApiProperty() @IsPositive() quantity!: number;
+}
+class UpdatePoDto {
+  @ApiProperty() @IsInt() supplierId!: number;
+  @ApiProperty({ type: [UpdatePoLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => UpdatePoLineDto) lines!: UpdatePoLineDto[];
   @ApiProperty() @IsInt() version!: number;
 }
 class SubmitEditedPrDto extends UpdatePrDto {
@@ -143,7 +150,7 @@ class SubmitEditedPrDto extends UpdatePrDto {
 @ApiBearerAuth()
 @Controller()
 export class ProcurementController {
-  constructor(private readonly svc: ProcurementService, @InjectDataSource() private readonly ds: DataSource) {}
+  constructor(private readonly svc: ProcurementService) {}
 
   /** PR.VIEW with its Data Scope (filtered in the service); `salesContractId` only narrows the list. */
   @Get('purchase-requisitions')
@@ -224,8 +231,8 @@ export class ProcurementController {
 
   @Get('purchase-requisition-lines/available-for-po')
   @RequirePermissions('PO.CREATE')
-  prLinesForPo() {
-    return this.svc.prLinesAvailableForPo();
+  prLinesForPo(@Req() req: AuthedRequest) {
+    return this.svc.prLinesAvailableForPo(req.user);
   }
 
   @Get('purchase-requisitions/catalog/contracts')
@@ -249,6 +256,12 @@ export class ProcurementController {
     return this.svc.listPrSuppliers(req.user, contractId, brandId, route);
   }
 
+  @Get('purchase-requisitions/:id/catalog/suppliers')
+  @RequirePermissions('PR.CREATE')
+  prEditSuppliers(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Query('brandId', ParseIntPipe) brandId: number) {
+    return this.svc.listPrEditSuppliers(req.user, id, brandId);
+  }
+
   @Get('purchase-orders')
   @RequirePermissions('PO.VIEW')
   listPos(@Req() req: AuthedRequest, @Query('assignedToMe', new ParseBoolPipe({ optional: true })) mine?: boolean) {
@@ -257,8 +270,8 @@ export class ProcurementController {
 
   @Get('purchase-orders/:id')
   @RequirePermissions('PO.VIEW')
-  getPo(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.getPo(id);
+  getPo(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.getPo(req.user, id);
   }
 
   @Post('purchase-requisitions')
@@ -308,8 +321,8 @@ export class ProcurementController {
 
   @Get('purchase-orders/:id/lines')
   @RequirePermissions('PO.VIEW')
-  poLines(@Param('id', ParseIntPipe) id: number) {
-    return this.ds.query(`SELECT id, purchase_requisition_line_id AS "purchaseRequisitionLineId", quantity FROM purchase_order_lines WHERE purchase_order_id = $1 ORDER BY id`, [id]);
+  poLines(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.poLines(req.user, id);
   }
 
   @Put('pr-workflow/routes/:route')
@@ -341,8 +354,8 @@ export class ProcurementController {
   @Put('pr-workflow/contracts/:id/responsible-pm')
   @HttpCode(204)
   @RequirePermissions('PR.CONFIGURE')
-  assignPm(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignPmDto) {
-    return this.svc.assignResponsiblePm(id, dto.userId);
+  assignPm(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Body() dto: AssignPmDto) {
+    return this.svc.assignResponsiblePm(req.user, id, dto.userId);
   }
 
   @Post('purchase-requisitions/:id/notes')
@@ -378,8 +391,8 @@ export class ProcurementController {
 
   @Get('purchase-orders/:id/approvers')
   @RequirePermissions('PO.CREATE')
-  poApprovers(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.approvers('PO', id);
+  poApprovers(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.poApprovers(req.user, id);
   }
 
   @Post('purchase-requisitions/:id/submit')

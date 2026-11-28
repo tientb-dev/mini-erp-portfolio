@@ -1,9 +1,10 @@
+import { loadDataScope } from '../identity/data-scope';
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { InventoryFacade, normalizeSerial } from '../inventory/inventory.service';
 import { ProcurementFacade } from '../procurement/procurement.service';
-import { SalesContractFacade } from '../sales-contracts/sales-contracts.service';
+import { SalesContractFacade, readSnapshot } from '../sales-contracts/sales-contracts.service';
 import { CatalogFacade } from '../master-data/catalog.facade';
 import { ProductUsage } from '../master-data/product-usage';
 import * as wf from '../workflow/workflow';
@@ -496,53 +497,65 @@ export class InboundService {
     );
   }
 
-  async getGrr(id: number, user: CurrentUser) {
-    const [grr] = await this.ds.query(
-      `SELECT ${wf.DOC_COLUMNS}, d.warehouse_id AS "warehouseId", d.purchase_order_id AS "purchaseOrderId", po.document_number AS "poNumber", sp.name AS "supplierName", w.code AS "warehouseCode"
-         FROM goods_receipt_requests d JOIN purchase_orders po ON po.id = d.purchase_order_id
-         JOIN suppliers sp ON sp.id = po.supplier_id JOIN warehouses w ON w.id = d.warehouse_id
-        WHERE d.id = $1`,
-      [id],
-    );
-    if (!grr) throw new NotFoundException();
-    if (!user.warehouseIds.includes(grr.warehouseId) && grr.createdBy !== user.id && grr.assignedApproverId !== user.id) {
-      throw new ForbiddenException('Warehouse is outside your scope');
-    }
-    const lines = await this.ds.query(
-      `SELECT l.id, l.purchase_order_line_id AS "sourceLineId", pr.document_number AS "ref", p.part_number AS "partNumber",
-              p.name AS "productName", u.code AS uom, l.quantity
-         FROM goods_receipt_request_lines l
-         JOIN purchase_order_lines pol ON pol.id = l.purchase_order_line_id
-         JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
-         JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id
-         JOIN products p ON p.id = prl.product_id
-         JOIN units_of_measure u ON u.id = l.unit_of_measure_id
-        WHERE l.goods_receipt_request_id = $1 ORDER BY l.id`,
-      [id],
-    );
-    const children = await this.ds.query(
-      `SELECT id, document_number AS "documentNumber", approval_status AS "approvalStatus" FROM goods_receipts WHERE goods_receipt_request_id = $1 ORDER BY id`,
-      [id],
-    );
-    return { ...grr, lines, children, history: await wf.history(this.ds.manager, 'GRR', id) };
-  }
-
-  /** PO lines with quantity not yet covered by WAITING/APPROVED GRRs, for the GRR form (APPROVED POs only). */
-  poLinesAvailableForGrr(purchaseOrderId: number) {
-    return this.ds.query(
-      `SELECT * FROM (
-         SELECT l.id, pr.document_number AS "prNumber", p.part_number AS "partNumber", p.name AS "productName", u.code AS uom, l.quantity,
-                l.quantity - COALESCE((SELECT SUM(gl.quantity) FROM goods_receipt_request_lines gl JOIN goods_receipt_requests g ON g.id = gl.goods_receipt_request_id
-                                        WHERE gl.purchase_order_line_id = l.id AND g.approval_status IN ('WAITING_FOR_APPROVE', 'APPROVED')), 0) AS remaining
-           FROM purchase_order_lines l
-           JOIN purchase_orders po ON po.id = l.purchase_order_id
-           JOIN purchase_requisition_lines prl ON prl.id = l.purchase_requisition_line_id
+  getGrr(id: number, user: CurrentUser) {
+    return readSnapshot(this.ds, async m => {
+      const [grr] = await m.query(
+        `SELECT ${wf.DOC_COLUMNS}, d.warehouse_id AS "warehouseId", d.purchase_order_id AS "purchaseOrderId", po.document_number AS "poNumber", sp.name AS "supplierName", w.code AS "warehouseCode"
+           FROM goods_receipt_requests d JOIN purchase_orders po ON po.id = d.purchase_order_id
+           JOIN suppliers sp ON sp.id = po.supplier_id JOIN warehouses w ON w.id = d.warehouse_id
+          WHERE d.id = $1`,
+        [id],
+      );
+      if (!grr) throw new NotFoundException();
+      if (!user.warehouseIds.includes(grr.warehouseId) && grr.createdBy !== user.id && grr.assignedApproverId !== user.id) {
+        throw new ForbiddenException('Warehouse is outside your scope');
+      }
+      const lines = await m.query(
+        `SELECT l.id, l.purchase_order_line_id AS "sourceLineId", pr.document_number AS "ref", prl.id AS "prLineId", p.part_number AS "partNumber",
+                p.name AS "productName", u.code AS uom, l.quantity
+           FROM goods_receipt_request_lines l
+           JOIN purchase_order_lines pol ON pol.id = l.purchase_order_line_id
+           JOIN purchase_requisition_lines prl ON prl.id = pol.purchase_requisition_line_id
            JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id
            JOIN products p ON p.id = prl.product_id
            JOIN units_of_measure u ON u.id = l.unit_of_measure_id
-          WHERE l.purchase_order_id = $1 AND po.approval_status = 'APPROVED') x
-        WHERE remaining > 0 ORDER BY id`,
-      [purchaseOrderId],
-    );
+          WHERE l.goods_receipt_request_id = $1 ORDER BY l.id`,
+        [id],
+      );
+      const children = await m.query(
+        `SELECT id, document_number AS "documentNumber", approval_status AS "approvalStatus" FROM goods_receipts WHERE goods_receipt_request_id = $1 ORDER BY id`,
+        [id],
+      );
+      const visibleLines = await this.withVisiblePrReferences(m, user, lines, 'ref');
+      return { ...grr, lines: visibleLines, children, history: await wf.history(m, 'GRR', id) };
+    });
+  }
+
+  /** PO lines with quantity not yet covered by WAITING/APPROVED GRRs, for the GRR form (APPROVED POs only). */
+  poLinesAvailableForGrr(user: CurrentUser, purchaseOrderId: number) {
+    return readSnapshot(this.ds, async m => {
+      const lines = await m.query(
+        `SELECT * FROM (
+           SELECT l.id, pr.document_number AS "prNumber", prl.id AS "prLineId", p.part_number AS "partNumber", p.name AS "productName", u.code AS uom, l.quantity,
+                  l.quantity - COALESCE((SELECT SUM(gl.quantity) FROM goods_receipt_request_lines gl JOIN goods_receipt_requests g ON g.id = gl.goods_receipt_request_id
+                                          WHERE gl.purchase_order_line_id = l.id AND g.approval_status IN ('WAITING_FOR_APPROVE', 'APPROVED')), 0) AS remaining
+             FROM purchase_order_lines l
+             JOIN purchase_orders po ON po.id = l.purchase_order_id
+             JOIN purchase_requisition_lines prl ON prl.id = l.purchase_requisition_line_id
+             JOIN purchase_requisitions pr ON pr.id = prl.purchase_requisition_id
+             JOIN products p ON p.id = prl.product_id
+             JOIN units_of_measure u ON u.id = l.unit_of_measure_id
+            WHERE l.purchase_order_id = $1 AND po.approval_status = 'APPROVED') x
+          WHERE remaining > 0 ORDER BY id`,
+        [purchaseOrderId],
+      );
+      return this.withVisiblePrReferences(m, user, lines, 'prNumber');
+    });
+  }
+
+  private async withVisiblePrReferences<T extends { prLineId: number }>(m: EntityManager, user: CurrentUser, lines: T[], key: 'ref' | 'prNumber') {
+    const scope = await loadDataScope(m, user.id);
+    const readable = await ProcurementFacade.readableLines(m, scope, lines.map(line => line.prLineId));
+    return lines.map(({ prLineId, ...line }) => readable.has(prLineId) ? line : { ...line, [key]: null });
   }
 }

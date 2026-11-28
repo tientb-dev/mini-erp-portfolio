@@ -108,9 +108,9 @@ export function PrLineTable({ lines, scale = 0, currency = 'VND', official, sele
   </Stack>;
 }
 
-export function PrLineEditor({ initial, contract, route, contractLines, currency, scale, strict, salesGoods, backendMessage, fieldIssue, onClose, onConfirm }: {
+export function PrLineEditor({ initial, contract, route, prId, contractLines, currency, scale, strict, salesGoods, backendMessage, fieldIssue, onClose, onConfirm }: {
   initial: PrLine[]; contract: string; route: string; contractLines: ContractLine[]; currency: string; scale: number;
-  strict: boolean; salesGoods: boolean; backendMessage?: string; fieldIssue?: { index: number; field: string }; onClose: () => void; onConfirm: (lines: PrLine[]) => void;
+  prId?: number; strict: boolean; salesGoods: boolean; backendMessage?: string; fieldIssue?: { index: number; field: string }; onClose: () => void; onConfirm: (lines: PrLine[]) => void;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -126,11 +126,13 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
   const taxes = useQuery({ queryKey: ['tax','pr-active'], queryFn: () => api<Choice[]>('/tax-rates?activeOnly=true') });
   const brandIds = [...new Set(lines.flatMap(line => line.brandId ? [line.brandId] : []))];
   const supplierQuery = (id: number) => ({
-    queryKey: ['pr-suppliers', contract, route, id], queryFn: () => api<Choice[]>(
-      `/purchase-requisitions/catalog/suppliers?salesContractId=${contract}&brandId=${id}${route ? '&route=' + route : ''}`),
+    queryKey: ['pr-suppliers', contract, route, prId, id], enabled: Boolean(contract || prId), queryFn: () => api<Choice[]>(
+      contract
+        ? `/purchase-requisitions/catalog/suppliers?salesContractId=${contract}&brandId=${id}${route ? '&route=' + route : ''}`
+        : `/purchase-requisitions/${prId}/catalog/suppliers?brandId=${id}`),
   });
   const suppliers = useQueries({ queries: brandIds.map(supplierQuery) });
-  const errors = new Map(lines.map(line => [line.key, validated ? prLineErrors(line, strict, salesGoods) : {}]));
+  const errors = new Map(lines.map(line => [line.key, validated ? prLineErrors(line, strict, salesGoods, !contract) : {}]));
   const serverLine = serverIssue && initial[serverIssue.index];
   if (serverLine && serverIssue) (errors.get(serverLine.key) as RowErrors)[serverIssue.field as Field] = 'server';
   const count = [...errors.values()].reduce((sum, values) => sum + Object.keys(values).length, 0);
@@ -196,7 +198,7 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
         break;
       case 'salesContractLineId':
         input = select(line.salesContractLineId, contractLines.map((c, i) => ({ id: c.id, name: `${i + 1} · ${c.itemCode} · ${c.itemName}${c.itemDescription ? ' · ' + c.itemDescription : ''} · ${trimDecimal(c.quantity ?? '')}` })),
-          c => patch(line, { salesContractLineId: c?.id ?? null, ref: c?.name ?? '' }));
+          c => patch(line, { salesContractLineId: c?.id ?? null, ref: c?.name ?? '' }), !contract);
         break;
       default: return undefined;
     }
@@ -206,7 +208,7 @@ export function PrLineEditor({ initial, contract, route, contractLines, currency
   }
   function confirm() {
     setValidated(true);
-    if (!lines.length || serverIssue || lines.some(line => Object.keys(prLineErrors(line, strict, salesGoods)).length)) {
+    if (!lines.length || serverIssue || lines.some(line => Object.keys(prLineErrors(line, strict, salesGoods, !contract)).length)) {
       requestFocus(previous => previous + 1);
       return;
     }

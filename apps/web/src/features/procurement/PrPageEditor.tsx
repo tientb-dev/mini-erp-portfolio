@@ -118,7 +118,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
           ...(manual && { exchangeRate: rate }), ...(refreshRate && { refreshCatalogExchangeRate: true }) }),
         ...(candidates.data && { approverId: Number(validApprover) || null, receiverId: Number(validReceiver) || null }),
         lines: lines.map(line => ({ id: line.id, productId: line.productId, temporaryProductId: line.temporaryProductId,
-          salesContractLineId: line.salesContractLineId ?? null, requirementDescription: line.requirementDescription,
+          salesContractLineId: detail && line.id && !contract ? undefined : line.salesContractLineId ?? null, requirementDescription: line.requirementDescription,
           brandId: line.brandId, supplierId: line.supplierId, unitOfMeasureId: line.unitOfMeasureId,
           quantity: line.quantity, unitPrice: line.unitPrice, taxRateId: line.taxRateId })),
         ...(dossier.payload && { dossier: dossier.payload }),
@@ -188,15 +188,15 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
       return false;
     }
     setNameRequired(submit);
-    const headerInvalid = !contract || !category || (dual && !route) || (submit && !name.trim())
+    const headerInvalid = (!detail && !contract) || !category || (dual && !route) || (submit && !name.trim())
       || validDates.includes(false) || (manual && (!decimalInput(rate, 8) || !positiveDecimal(rate)));
-    const invalidLines = lines.filter(line => Object.keys(prLineErrors(line, submit, category === 'SALES_GOODS')).length);
+    const invalidLines = lines.filter(line => Object.keys(prLineErrors(line, submit, category === 'SALES_GOODS', Boolean(detail && !contract))).length);
     if (!headerInvalid && invalidLines.length) {
       setTab('general');
       setEditing({ lines, strict: submit });
       return false;
     }
-    const field = !contract || !category ? 'general' : !lines.length ? 'lines' : headerInvalid ? 'general' :
+    const field = (!detail && !contract) || !category ? 'general' : !lines.length ? 'lines' : headerInvalid ? 'general' :
       submit && (!validApprover || !validReceiver) ? 'approvers' : '';
     setInvalid(field);
     if (!field) return true;
@@ -313,7 +313,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
             {t('pr.editGoods')} ({selectedLines.size})
           </ActionButton>
           <Tooltip title={!contract || !category ? t('prPhase.chooseHeader') : ''}><span><ActionButton action="add"
-            disabled={!contract || !category || (dual && !route) || save.isPending || contractLines.isFetching} onClick={() => setPicker(true)}>{t('pr.addGoods')}</ActionButton></span></Tooltip>
+            disabled={(!contract && !detail) || !category || (dual && !route) || save.isPending || contractLines.isFetching} onClick={() => setPicker(true)}>{t('pr.addGoods')}</ActionButton></span></Tooltip>
         </Stack>} />{invalid === 'lines' && <Typography role="alert" color="error">{t('prPhase.needsLine')}</Typography>}</>,
       footer: <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
         <ActionButton action="save" variant="outlined" disabled={busy} onClick={() => { if (validate(false)) save.mutate(false); }}>{t('pr.saveDraft')}</ActionButton>
@@ -332,7 +332,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
     }} />}
     {editing && <PrLineEditor initial={editing.lines} strict={editing.strict} salesGoods={category === 'SALES_GOODS'}
       backendMessage={editing.backendMessage} fieldIssue={editing.fieldIssue} contract={contract} route={route || String(detail?.creatorRoute ?? '')}
-      contractLines={contractLines.data ?? []} scale={scale} currency={currencyCode}
+      prId={detail?.id} contractLines={contractLines.data ?? []} scale={scale} currency={currencyCode}
       onClose={() => setEditing(undefined)} onConfirm={updated => change(() => {
         const initialKeys = new Set(editing.lines.map(line => line.key));
         const changed = new Map(updated.map(line => [line.key, line]));

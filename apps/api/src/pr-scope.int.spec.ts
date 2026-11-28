@@ -51,7 +51,7 @@ describe('PR data scope OA3.3b (PostgreSQL)', () => {
   };
   /** PR creator: may be responsible Sales (SALES_CONTRACT.CREATE) and create PRs; VIEW/CREATE scopes as given. */
   const creatorRole = (view: string[], create: string[] = ['CREATOR']) =>
-    role(['SALES_CONTRACT.CREATE', VIEW, CREATE], { 'SALES_CONTRACT.CREATE': ['CREATOR'], [VIEW]: view, [CREATE]: create });
+    role(['SALES_CONTRACT.CREATE', 'SALES_CONTRACT.VIEW', VIEW, CREATE], { 'SALES_CONTRACT.CREATE': ['CREATOR'], 'SALES_CONTRACT.VIEW': ['RESPONSIBLE'], [VIEW]: view, [CREATE]: create });
   /** ACTIVE HĐ (created by admin, owner NULL) with `salesId` as responsible Sales. */
   const contract = async (salesId: number) => {
     const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: salesId,
@@ -122,6 +122,24 @@ describe('PR data scope OA3.3b (PostgreSQL)', () => {
     productId = (await post(admin, '/products', { brandId: 1, partNumber: 'PN-P33', name: 'Switch', unitOfMeasureId: pcs, isSerialTracked: false }).expect(201)).body.id;
   }, 120_000);
   afterAll(async () => app?.close());
+
+  it('OA3.3c retains an opaque saved HĐ line after VIEW revocation and blocks a new link', async () => {
+    const roleId = await creatorRole(['CREATOR']);
+    const creator = await employee([roleId]);
+    const { id, lineId } = await newPr(creator);
+    await ds.query(`DELETE FROM role_permissions WHERE role_id = $1
+      AND permission_id = (SELECT id FROM permissions WHERE code = 'SALES_CONTRACT.VIEW')`, [roleId]);
+    const path = `/purchase-requisitions/${id}`;
+    const view = (await get(creator.token, path).expect(200)).body;
+    expect(view).toMatchObject({ salesContractId: null, canEdit: true, lines: [{ salesContractLineId: null, sourceLineId: null }] });
+    const payload = await editBody(id);
+    const retained = payload.lines.map(({ salesContractLineId, ...line }: { salesContractLineId: number }) => line);
+    await patch(creator.token, path, { ...payload, lines: retained }).expect(204);
+    const [saved] = await ds.query('SELECT sales_contract_line_id FROM purchase_requisition_lines WHERE purchase_requisition_id = $1', [id]);
+    expect(saved.sales_contract_line_id).toBe(lineId);
+    const after = await editBody(id);
+    await patch(creator.token, path, { ...after, lines: [...after.lines, { productId, salesContractLineId: lineId, quantity: '1' }] }).expect(403);
+  });
 
   it('owner unit: primary by default, another ACTIVE membership on request, NULL without membership; not inherited, immutable', async () => {
     const [a, b, c] = [await unit(), await unit(), await unit()];
@@ -388,8 +406,8 @@ describe('PR data scope OA3.3b (PostgreSQL)', () => {
     const roleVersion = async (id: number) => (await ds.query('SELECT version FROM roles WHERE id = $1', [id]))[0].version as number;
     /** Real role writer (role-admin.update: gate exclusive before lockActor). VIEW ASSIGNED revokes: the actor is never assigned. */
     const setScope = async (roleId: number, userId: number, view: string) => put(admin, `/admin/roles/${roleId}`, {
-      name: 'Scoped', permissions: ['SALES_CONTRACT.CREATE', VIEW, CREATE], userIds: [userId], version: await roleVersion(roleId),
-      scopes: { 'SALES_CONTRACT.CREATE': ['CREATOR'], [VIEW]: [view], [CREATE]: ['ORG_UNIT'] } });
+      name: 'Scoped', permissions: ['SALES_CONTRACT.CREATE', 'SALES_CONTRACT.VIEW', VIEW, CREATE], userIds: [userId], version: await roleVersion(roleId),
+      scopes: { 'SALES_CONTRACT.CREATE': ['CREATOR'], 'SALES_CONTRACT.VIEW': ['RESPONSIBLE'], [VIEW]: [view], [CREATE]: ['ORG_UNIT'] } });
     const hold = async (sql: string, params: unknown[] = []) => {
       const r = ds.createQueryRunner();
       await r.connect();

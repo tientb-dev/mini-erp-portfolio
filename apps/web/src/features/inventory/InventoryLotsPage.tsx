@@ -11,7 +11,7 @@ import { DataTable, ErrorAlert, PageHeader } from '../../shared/components';
 
 export interface LotRow {
   id: number; warehouseId: number; warehouseCode: string; productId: number; partNumber: string; productName: string; isSerialTracked: boolean;
-  sourceSalesContractId: number; sourceSalesContractNumber: string; ownerUserId: number; ownerName: string;
+  sourceSalesContractId: number | null; sourceSalesContractNumber: string | null; ownerUserId: number | null; ownerName: string | null;
   goodsReceiptId: number; goodsReceiptNumber: string; approvedAt: string;
   receivedQuantity: string; onHandQuantity: string; reservedQuantity: string; availableQuantity: string;
   serialsInStock: number | null; serialsReserved: number | null; serialsIssued: number | null;
@@ -20,7 +20,7 @@ export interface LotRow {
 const FILTERS = ['warehouseId', 'productId', 'sourceSalesContractId', 'ownerUserId', 'goodsReceiptId'] as const;
 type Filter = (typeof FILTERS)[number];
 /** Label of each filter value, taken from the rows themselves (only what the user may see). */
-const label: Record<Filter, (r: LotRow) => string> = {
+const label: Record<Filter, (r: LotRow) => string | null> = {
   warehouseId: (r) => r.warehouseCode,
   productId: (r) => `${r.partNumber}: ${r.productName}`,
   sourceSalesContractId: (r) => r.sourceSalesContractNumber,
@@ -47,8 +47,11 @@ export function InventoryLotsPage() {
     { field: 'warehouseCode', headerName: t('inventory.warehouse'), width: 90 },
     {
       field: 'sourceSalesContractNumber', headerName: t('lots.sourceContract'), width: 160,
-      renderCell: (p) => (can('SALES_CONTRACT.VIEW')
-        ? <Link component="button" onClick={() => open('salesContracts', p.row.sourceSalesContractId)}>{p.value}</Link> : p.value),
+      renderCell: ({ row, value }) => {
+        const id = row.sourceSalesContractId;
+        return id != null && value && can('SALES_CONTRACT.VIEW')
+          ? <Link component="button" onClick={() => open('salesContracts', id)}>{value}</Link> : value;
+      },
     },
     { field: 'ownerName', headerName: t('lots.sourceSales'), width: 160 },
     {
@@ -65,7 +68,11 @@ export function InventoryLotsPage() {
       valueGetter: (_v, r) => (r.isSerialTracked ? t('lots.serialStates', { inStock: r.serialsInStock, reserved: r.serialsReserved, issued: r.serialsIssued }) : '—'),
     },
   ];
-  const options = (f: Filter) => [...new Map((lots.data ?? []).map((r) => [String(r[f]), label[f](r)])).entries()];
+  const options = (f: Filter) => [...new Map((lots.data ?? []).flatMap(row => {
+    const value = row[f];
+    const name = label[f](row);
+    return value != null && name ? [[String(value), name] as const] : [];
+  })).entries()];
   return (
     <>
       <PageHeader title={t('nav.inventoryLots')} />

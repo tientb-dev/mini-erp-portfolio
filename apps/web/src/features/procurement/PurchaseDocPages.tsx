@@ -11,7 +11,7 @@ const PR: DocConfig = {
     { field: 'salesContractNumber', headerName: t('gir.salesContract'), width: 160 },
     { field: 'customerName', headerName: t('sc.customer'), flex: 1, minWidth: 160 },
   ],
-  fields: (d, t) => [[t('gir.salesContract'), `${String(d.salesContractNumber)}: ${String(d.customerName)}`], [t('pr.category'), t(`category.${String(d.category)}`)]],
+  fields: (d, t) => [[t('gir.salesContract'), [d.salesContractNumber, d.customerName].filter(Boolean).join(" · ")], [t('pr.category'), t(`category.${String(d.category)}`)]],
 };
 const PO: DocConfig = {
   key: 'po', perm: 'PO', path: 'purchase-orders', Create: CreatePoDialog,

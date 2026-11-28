@@ -149,6 +149,9 @@ describe('Document editing (integration)', () => {
     await patch(pm, `/sales-contracts/${sc}`, { version: before.version, customerId, lines: [scLine(1)] }).expect(403); // PM cannot edit HĐ (04 §2)
 
     // A proposal on line B blocks deleting it (its id is referenced).
+    const actor = (await get(pm, '/auth/me').expect(200)).body.id;
+    await http().put(`/pr-workflow/contracts/${sc}/responsible-pm`).set(as(admin)).send({ userId: actor }).expect(204);
+    before.version += 1;
     await post(pm, `/sales-contract-lines/${b.id}/product-proposals`, { productId: p1, reason: 'x' }).expect(201);
     expect((await patch(sales, `/sales-contracts/${sc}`, { version: before.version, customerId, lines: [{ ...scLine(5, 'A'), id: a.id }] }).expect(409)).body.code)
       .toBe('RECORD_IN_USE');

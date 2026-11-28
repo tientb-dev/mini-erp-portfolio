@@ -45,4 +45,17 @@ describe('Lot traceability (UAT-2, C71)', () => {
     expect(openDoc).toHaveBeenCalledWith('salesContracts', 11);
     expect(screen.queryByRole('button', { name: 'GR-2026-000021' })).toBeNull();
   });
+  it('retains out-of-scope lot quantities without an HĐ link or a null filter value', async () => {
+    const hidden = lot(3, { sourceSalesContractId: null, sourceSalesContractNumber: null, ownerUserId: null, ownerName: null });
+    mockApi({ '/auth/me': me(['INVENTORY.VIEW', 'SALES_CONTRACT.VIEW']), '/inventories/lots': [hidden, lots[1]] });
+    const openDoc = vi.fn();
+    wrap(<NavContext.Provider value={openDoc}><InventoryLotsPage /></NavContext.Provider>);
+    expect(await screen.findByText('SW-24P')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'SC-2026-000012' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'SC-2026-000011' })).toBeNull();
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'HĐ nguồn' }));
+    expect(screen.queryByRole('option', { name: 'null' })).toBeNull();
+    expect(openDoc).not.toHaveBeenCalled();
+  });
+
 });

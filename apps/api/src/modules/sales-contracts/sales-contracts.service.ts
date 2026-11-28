@@ -3,7 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
 import { grantRole } from '../identity/authorization';
-import { DataScope, ScopeSource, assertCanAct, assertCanRead, canAccessDraft, inScope, loadDataScope, ownerOrgUnit, scopeFilter } from '../identity/data-scope';
+import { DataScope, ScopeSource, assertCanAct, assertCanRead, canAccessDraft, hasPermission, inScope, loadDataScope, ownerOrgUnit, scopeFilter } from '../identity/data-scope';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -34,6 +34,20 @@ export const readSnapshot = <T>(ds: DataSource, run: (m: EntityManager) => Promi
 export class SalesContractFacade {
   static canRead(m: EntityManager, scope: DataScope, id: number) {
     return inScope(m, scope, VIEW, SC_SOURCE, id);
+  }
+
+  /** Predicate for projections joined to the owning contract as s. */
+  static readFilter(scope: DataScope, first: number) {
+    return scopeFilter(scope, VIEW, SC_SOURCE.cols, first);
+  }
+
+  static assertReadable(m: EntityManager, scope: DataScope, id: number) {
+    return assertCanRead(m, scope, VIEW, SC_SOURCE, id);
+  }
+
+  static async lockReadable(m: EntityManager, scope: DataScope, ids: number[]) {
+    await m.query('SELECT id FROM sales_contracts WHERE id = ANY($1) ORDER BY id FOR SHARE', [ids]);
+    for (const id of new Set(ids)) await this.assertReadable(m, scope, id);
   }
 
   /** PR source picker: responsible Sales/PM invariant plus SALES_CONTRACT.VIEW scope (§7). Call inside `readSnapshot`. */
@@ -68,13 +82,12 @@ export class SalesContractFacade {
    */
   static async responsibleSales(m: EntityManager, salesContractIds: number[]): Promise<Map<number, number>> {
     const ids = [...new Set(salesContractIds)].sort((a, b) => a - b);
-    const rows: { id: number; document_number: string; responsible_sales_user_id: number | null }[] = await m.query(
-      `SELECT id, document_number, responsible_sales_user_id FROM sales_contracts WHERE id = ANY($1) ORDER BY id FOR SHARE`,
+    const rows: { id: number; responsible_sales_user_id: number | null }[] = await m.query(
+      `SELECT id, responsible_sales_user_id FROM sales_contracts WHERE id = ANY($1) ORDER BY id FOR SHARE`,
       [ids],
     );
-    const missing = rows.filter((r) => r.responsible_sales_user_id === null).map((r) => r.document_number);
-    if (missing.length) {
-      throw new BusinessError('SOURCE_RESPONSIBLE_SALES_MISSING', `Source sales contracts without responsible sales: ${missing.join(', ')}`, HttpStatus.CONFLICT);
+    if (rows.some(row => row.responsible_sales_user_id === null)) {
+      throw new BusinessError('SOURCE_RESPONSIBLE_SALES_MISSING', 'A stock source has no responsible sales', HttpStatus.CONFLICT);
     }
     return new Map(rows.map((r) => [r.id, r.responsible_sales_user_id!]));
   }
@@ -85,7 +98,10 @@ export class SalesContractFacade {
     return r;
   }
 
-  static async assignResponsiblePm(m: EntityManager, contractId: number, userId: number) {
+  static async assignResponsiblePm(m: EntityManager, scope: DataScope, contractId: number, userId: number) {
+    if (!hasPermission(scope, 'PR.CONFIGURE')) throw new ForbiddenException();
+    await m.query('SELECT id FROM sales_contracts WHERE id = $1 FOR UPDATE', [contractId]);
+    await this.assertReadable(m, scope, contractId);
     if (!(await grantRole(m, userId, 'PR.CREATE'))) throw new BusinessError('PR_PM_NOT_ELIGIBLE', 'Select an active PM');
     const [, updated] = await m.query(`UPDATE sales_contracts SET responsible_pm_user_id = $2,
       version = version + 1, updated_at = now() WHERE id = $1`, [contractId, userId]);
@@ -93,9 +109,11 @@ export class SalesContractFacade {
   }
 
   /** Number and status of contracts, for pickers. */
-  static async summaries(m: EntityManager, ids: number[]): Promise<Map<number, { documentNumber: string; status: string }>> {
+  static async summaries(m: EntityManager, scope: DataScope, ids: number[]): Promise<Map<number, { documentNumber: string; status: string }>> {
+    const filter = scopeFilter(scope, VIEW, SC_SOURCE.cols, 2);
+    if (!filter) return new Map<number, { documentNumber: string; status: string }>();
     const rows: { id: number; documentNumber: string; status: string }[] = await m.query(
-      `SELECT id, document_number AS "documentNumber", status FROM sales_contracts WHERE id = ANY($1)`, [ids]);
+      `SELECT id, document_number AS "documentNumber", status FROM sales_contracts s WHERE id = ANY($1) AND ${filter.sql}`, [ids, ...filter.params]);
     return new Map(rows.map((r) => [r.id, r]));
   }
 
@@ -420,11 +438,14 @@ export class SalesContractsService {
   /** PM proposes a product (incl. substitutes) for a HĐ line, with a reason (03 §9.2). */
   propose(user: CurrentUser, salesContractLineId: number, productId: number, reason: string) {
     return this.ds.transaction(async (m) => {
+      const scope = await loadDataScope(m, user.id, true);
+      if (!hasPermission(scope, VIEW) || !hasPermission(scope, 'SALES_CONTRACT.PROPOSE_PRODUCT')) throw new ForbiddenException();
       const [line] = await m.query(
-        `SELECT s.status FROM sales_contract_lines l JOIN sales_contracts s ON s.id = l.sales_contract_id WHERE l.id = $1`,
+        `SELECT s.id, s.status FROM sales_contract_lines l JOIN sales_contracts s ON s.id = l.sales_contract_id WHERE l.id = $1 FOR SHARE OF s`,
         [salesContractLineId],
       );
-      if (!line) throw new NotFoundException('Sales contract line not found');
+      if (!line) throw new NotFoundException();
+      await assertCanAct(m, scope, VIEW, 'SALES_CONTRACT.PROPOSE_PRODUCT', SC_SOURCE, line.id);
       if (line.status === 'CANCELED') throw new BusinessError('SALES_CONTRACT_CANCELED', 'The sales contract is canceled');
       const [p] = await m.query(`SELECT 1 FROM products WHERE id = $1 AND is_active FOR SHARE`, [productId]);
       if (!p) throw new BusinessError('PRODUCT_NOT_FOUND', `Product ${productId} not found or inactive`);
@@ -439,6 +460,14 @@ export class SalesContractsService {
   /** Sales approves/rejects a PENDING proposal; stores who, when and the note/appendix number. */
   decide(user: CurrentUser, proposalId: number, approve: boolean, note: string | undefined) {
     return this.ds.transaction(async (m) => {
+      const scope = await loadDataScope(m, user.id, true);
+      if (!hasPermission(scope, VIEW) || !hasPermission(scope, 'SALES_CONTRACT.CONFIRM_PRODUCT')) throw new ForbiddenException();
+      const [parent] = await m.query(
+        `SELECT s.id FROM sales_contract_line_products p JOIN sales_contract_lines l ON l.id = p.sales_contract_line_id
+          JOIN sales_contracts s ON s.id = l.sales_contract_id WHERE p.id = $1 FOR SHARE OF s`, [proposalId],
+      );
+      if (!parent) throw new NotFoundException();
+      await assertCanAct(m, scope, VIEW, 'SALES_CONTRACT.CONFIRM_PRODUCT', SC_SOURCE, parent.id);
       const [x] = await m.query(`SELECT status, product_id FROM sales_contract_line_products WHERE id = $1 FOR UPDATE`, [proposalId]);
       if (!x) throw new NotFoundException('Proposal not found');
       if (x.status !== 'PENDING') throw new BusinessError('INVALID_STATUS', `Proposal is ${x.status}`, HttpStatus.CONFLICT);

@@ -56,8 +56,8 @@ export class InboundController {
 
   @Get('purchase-orders/:id/lines-available-for-grr')
   @RequirePermissions('GRR.CREATE')
-  poLinesForGrr(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.poLinesAvailableForGrr(id);
+  poLinesForGrr(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.poLinesAvailableForGrr(req.user, id);
   }
 
   @Get('goods-receipt-requests/available-for-gr')

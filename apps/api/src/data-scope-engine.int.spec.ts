@@ -1,3 +1,4 @@
+import { waitForBlockedBackend } from './oa3-test-locks';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource, EntityManager } from 'typeorm';
@@ -263,15 +264,9 @@ describe('Data Scope engine OA3.2 (PostgreSQL)', () => {
       await r.connect();
       await r.startTransaction();
       const before = await loadDataScope(r.manager, userId, true);
-      return { before, r, done: async () => { await r.commitTransaction(); await r.release(); } };
+      const [{ pid }] = await r.query('SELECT pg_backend_pid() AS pid');
+      return { before, r, pid, done: async () => { try { await r.rollbackTransaction(); } finally { await r.release(); } } };
     };
-    const waitingOnGate = async () => (await ds.query(`SELECT count(*)::int AS n FROM pg_locks
-      WHERE locktype = 'advisory' AND NOT granted`))[0].n as number;
-    const until = async (cond: () => Promise<boolean>) => {
-      for (let i = 0; i < 100; i++) { if (await cond()) return; await new Promise(res => setTimeout(res, 20)); }
-      throw new Error('condition not reached');
-    };
-
     const writers: [string, (ctx: { userId: number; units: number[]; roleId: number }) => Promise<request.Response>, (s: DataScope, ctx: { units: number[] }) => boolean][] = [
       ['membership API add', async ({ userId, units }) => http().post('/admin/memberships').set(bearer())
         .send({ userId, orgUnitId: units[2], jobTitleId: titleId, isPrimary: false, version: await version('users', userId) }),
@@ -299,9 +294,12 @@ describe('Data Scope engine OA3.2 (PostgreSQL)', () => {
       const pending = http().patch(`/admin/org-units/${units[1]}/status`).set(bearer()).send({ isActive: false, version: await version('org_units', units[1]) });
       let finished = false;
       void pending.then(() => { finished = true; });
-      await until(async () => (await waitingOnGate()) > 0);
-      expect(finished).toBe(false);
-      await reader.done();
+      try {
+        await waitForBlockedBackend(ds, reader.pid, 'grant-write');
+        expect(finished).toBe(false);
+      } finally {
+        await reader.done();
+      }
       expect((await pending).status).toBe(204);
     });
 
@@ -314,11 +312,14 @@ describe('Data Scope engine OA3.2 (PostgreSQL)', () => {
       const pending = write({ userId, units, roleId });
       let finished = false;
       void pending.then(() => { finished = true; });
-      await until(async () => (await waitingOnGate()) > 0);
-      // Still inside the reader's transaction: its view is unchanged and the writer has not committed.
-      expect(changed(await loadDataScope(reader.r.manager, userId), { units })).toBe(false);
-      expect(finished).toBe(false);
-      await reader.done();
+      try {
+        await waitForBlockedBackend(ds, reader.pid, 'grant-write');
+        // Still inside the reader's transaction: its view is unchanged and the writer has not committed.
+        expect(changed(await loadDataScope(reader.r.manager, userId), { units })).toBe(false);
+        expect(finished).toBe(false);
+      } finally {
+        await reader.done();
+      }
       const res = await pending;
       expect(res.status).toBeLessThan(300);
       expect(changed(await load(userId), { units })).toBe(true);

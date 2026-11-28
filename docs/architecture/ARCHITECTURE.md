@@ -1,11 +1,15 @@
 # Kiến trúc hệ thống
 
-**Trạng thái:** ĐÃ PHÊ DUYỆT ở mức kiến trúc (2026-11-12). Chưa có code, entity, migration hay schema.
+**Trạng thái.** Kiến trúc gốc được duyệt ngày 12/11/2026. Các quyết định OA3 được ghi trong ADR-0018 và hồ sơ Organization & Authorization.
 Các quyết định đã chốt được ghi trong [`decisions/`](decisions/). Câu hỏi còn mở: [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md).
 
 Căn cứ nghiệp vụ cao nhất: [`docs/01`–`05`](../). Tài liệu này không ghi đè tài liệu nghiệp vụ.
 
 ---
+
+## Nguyên tắc kiến trúc đích
+
+Dữ liệu thử nghiệm có vòng đời riêng. Hệ thống dùng một schema, API, mô hình permission và bộ quy tắc nghiệp vụ đích. Không xây lớp tương thích ngược, fallback, adapter, auto-mapping hoặc backfill chỉ để giữ fixture. BA có thể duyệt reset Dev/Test sau khi xác minh đích DB và storage. Dev seed dữ liệu nền và Test giữ fixture. Migration có đường rollback phù hợp. Thao tác nghiệp vụ giữ transaction, audit và ràng buộc toàn vẹn. [Runbook Clean Reset](../runbooks/oa3-migration-deployment.md)
 
 ## 1. Technology stack đã chốt — [ADR-0001](decisions/ADR-0001-technology-stack.md)
 
@@ -200,7 +204,7 @@ PR phối hợp thao tác lưu chứng từ và Gửi duyệt trong cùng transa
 - Dòng nhận đúng một trong `productId` và `temporaryProductId`, cùng số lượng và các trường `salesContractLineId`, `requirementDescription`, `brandId`, `supplierId`, `unitOfMeasureId`, `unitPrice`, `taxRateId`. Gửi `unitPrice` dưới dạng chuỗi thập phân. PATCH gửi toàn bộ danh sách dòng và ID của dòng giữ lại. Danh sách PR và chi tiết trả snapshot tiền tệ, tỷ giá và tổng tiền. Chi tiết trả nguồn từng dòng, snapshot danh mục và tiền từng dòng. Giá trị tiền trong JSON là chuỗi thập phân hoặc `null`.
 - Picker dùng API Products, Temporary Products, Brands, Units of Measure, Currencies và Tax Rates. `GET /purchase-requisitions/catalog/suppliers?salesContractId=…&brandId=…` trả NCC Active liên kết với Hãng sau khi kiểm tra `PR.CREATE` và phạm vi HĐ như khi tạo PR. Có thể thêm `route=SALES` hoặc `route=PM` khi người dùng có cả hai vai trò trên HĐ. Baseline còn trả hai FK catalog để gợi ý legacy. Thiết kế HĐ mới bỏ FK này và PR liên kết bằng ID dòng theo DEC-19-02.
 
-**HĐ bán · Phase 5.2.3.** Sales Contracts sở hữu kiểm tra quyền/phạm vi, trạng thái, ghi đầu/dòng, liên kết file, audit và lịch sử trong một transaction nghiệp vụ. Áp dụng hủy chỉ từ DRAFT theo 03 §9.1. Procurement và Outbound tiếp tục dùng facade để kiểm trạng thái nguồn, ID dòng. Kiểm kê dependency kiểm tra mã giao của Outbound trước khi loại API/schema legacy. Phương án khóa/version, replay request và staged upload được đề xuất trong [assessment Phase A](../runbooks/pr19-phase-5.2.3a-sales-contract-assessment.md#f-migration-atomic-save-và-file--đề-xuất-kỹ-thuật).
+**HĐ bán · Phase 5.2.3.** Sales Contracts sở hữu kiểm tra quyền/phạm vi, trạng thái, ghi đầu/dòng, liên kết file, audit và lịch sử trong một transaction nghiệp vụ. Hủy DRAFT hoặc ACTIVE theo 03 §9.1 và OA3.3a F01. Procurement và Outbound tiếp tục dùng facade để kiểm trạng thái nguồn, ID dòng. Kiểm kê dependency kiểm tra mã giao của Outbound trước khi loại API/schema legacy. Phương án khóa/version, replay request và staged upload được đề xuất trong [assessment Phase A](../runbooks/pr19-phase-5.2.3a-sales-contract-assessment.md#f-migration-atomic-save-và-file--đề-xuất-kỹ-thuật).
 - Migration `1733097600000` bổ sung snapshot vào `purchase_requisitions` và `purchase_requisition_lines`. CHECK và FK bảo đảm đúng một nguồn. Các cột mới cho phép đọc chứng từ cũ khi dữ liệu lịch sử thiếu căn cứ. Gửi duyệt kiểm tra các trường còn thiếu. Số tiền được tính từ snapshot bằng PostgreSQL `numeric`; xem [ADR-0017](decisions/ADR-0017-pr-business-completion.md).
 
 #### Tính tiền dùng chung cho chứng từ ERP

@@ -1,3 +1,4 @@
+import { holdLock, waitForBlockedBackend } from './oa3-test-locks';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
@@ -217,11 +218,6 @@ describe('Sales contract data scope OA3.3a (PostgreSQL)', () => {
   });
 
   describe('F02 concurrency on real HĐ endpoints: scope writers and HĐ actions serialize on the grants gate', () => {
-    const waiting = async () => (await ds.query(`SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted`))[0].n as number;
-    const until = async (cond: () => Promise<boolean>) => {
-      for (let i = 0; i < 250; i++) { if (await cond()) return; await new Promise(res => setTimeout(res, 20)); }
-      throw new Error('condition not reached');
-    };
     const roleVersion = async (id: number) => (await ds.query('SELECT version FROM roles WHERE id = $1', [id]))[0].version as number;
     /** Real role writer (role-admin.update: gate exclusive before lockActor). */
     const setScope = async (roleId: number, userId: number, scope: string) => http().put(`/admin/roles/${roleId}`).set(as(admin))
@@ -236,24 +232,21 @@ describe('Sales contract data scope OA3.3a (PostgreSQL)', () => {
       const sc = (await create(actor.token, { ownerOrgUnitId: u }).expect(201)).body.id as number;
       return { u, roleId, actor, sc };
     };
-    const hold = async (sql: string, params: unknown[] = []) => {
-      const r = ds.createQueryRunner();
-      await r.connect();
-      await r.startTransaction();
-      await r.query(sql, params);
-      return async () => { await r.commitTransaction(); await r.release(); };
-    };
 
     it('revocation first: the HĐ action queues behind the role writer and, after its commit, writes nothing (404)', async () => {
       const { roleId, actor, sc } = await setup();
       const before = await detail(sc);
       // An in-flight reader holds the gate shared, so the writer queues (exclusive) and the action queues behind it.
-      const release = await hold(`SELECT pg_advisory_xact_lock_shared(hashtext('grants'))`);
-      const writer = setScope(roleId, actor.id, 'RESPONSIBLE');
-      await until(async () => (await waiting()) >= 1);
-      const action = patch(actor.token, `/sales-contracts/${sc}`, { version: before.version, customerId }).then(r => r);
-      await until(async () => (await waiting()) >= 2);
-      await release();
+      const held = await holdLock(ds, `SELECT pg_advisory_xact_lock_shared(hashtext('grants'))`);
+      const writer = setScope(roleId, actor.id, 'RESPONSIBLE').then(r => r);
+      let action: PromiseLike<request.Response>;
+      try {
+        const writerPid = await waitForBlockedBackend(ds, held.pid, 'grant-write');
+        action = patch(actor.token, `/sales-contracts/${sc}`, { version: before.version, customerId }).then(r => r);
+        await waitForBlockedBackend(ds, writerPid, 'grant-read');
+      } finally {
+        await held.release();
+      }
       expect((await writer).status).toBe(204);
       expect((await action).status).toBe(404);
       expect((await detail(sc)).version).toBe(before.version);
@@ -263,13 +256,17 @@ describe('Sales contract data scope OA3.3a (PostgreSQL)', () => {
       const { u, actor, sc } = await setup();
       const before = await detail(sc);
       // Hold the HĐ row: the action takes the gate shared, then blocks on FOR UPDATE while holding it.
-      const release = await hold('SELECT 1 FROM sales_contracts WHERE id = $1 FOR UPDATE', [sc]);
+      const held = await holdLock(ds, 'SELECT 1 FROM sales_contracts WHERE id = $1 FOR UPDATE', [sc]);
       const action = patch(actor.token, `/sales-contracts/${sc}`, { version: before.version, customerId }).then(r => r);
-      await until(async () => (await waiting()) >= 1);
-      const m = await membershipOf(actor.id, u);
-      const writer = post(admin, `/admin/memberships/${m.id}/end`, { version: m.version }).then(r => r);
-      await until(async () => (await waiting()) >= 2);
-      await release();
+      let writer: PromiseLike<request.Response>;
+      try {
+        const actionPid = await waitForBlockedBackend(ds, held.pid, 'sales_contracts');
+        const m = await membershipOf(actor.id, u);
+        writer = post(admin, `/admin/memberships/${m.id}/end`, { version: m.version }).then(r => r);
+        await waitForBlockedBackend(ds, actionPid, 'grant-write');
+      } finally {
+        await held.release();
+      }
       expect((await action).status).toBe(204); // checked under a scope that was still valid
       expect((await writer).status).toBe(204);
       expect((await detail(sc)).version).toBe(before.version + 1);

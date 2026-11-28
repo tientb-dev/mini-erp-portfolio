@@ -20,6 +20,8 @@ async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   try {
     const ds = app.get(DataSource);
+    const [{ database }] = await ds.query('SELECT current_database() AS database');
+    if (database !== 'mini_erp_test') throw new Error('Demo fixtures require mini_erp_test');
     const identity = app.get(IdentityService);
     const proc = app.get(ProcurementService);
     const inbound = app.get(InboundService);

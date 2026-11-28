@@ -3,11 +3,11 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, login } from './test-utils';
 import { dataSourceOptions } from './database/data-source';
-import { OA3_GRANTS, planGrantMapping } from './database/oa3-grant-mapping';
+import { OA3_DEFAULT_SCOPES } from './database/oa3-default-scopes';
 import { SUPPORTED_SCOPES } from './database/migrations/1734048000000-DataScope';
 import { seed } from './database/seed';
 
-/** OA3.1 Data Scope schema and Role API (ADR-0018 §4.1). The scope engine is not active on business reads yet. */
+/** OA3.1 Data Scope schema and Role API (ADR-0018 §4.1).  */
 describe('Data Scope schema & Role API OA3.1 (PostgreSQL, HTTP)', () => {
   let app: INestApplication;
   let ds: DataSource;
@@ -132,35 +132,22 @@ describe('Data Scope schema & Role API OA3.1 (PostgreSQL, HTTP)', () => {
   });
 
   it('seeds the approved matrix, removes HĐ access from COMMON and leaves administered roles alone', async () => {
-    for (const code of Object.keys(OA3_GRANTS)) expect(await roleScopes(code)).toEqual(sortedScopes(OA3_GRANTS[code]));
+    for (const code of Object.keys(OA3_DEFAULT_SCOPES)) expect(await roleScopes(code)).toEqual(sortedScopes(OA3_DEFAULT_SCOPES[code]));
     const scToRoles = (await ds.query(`SELECT r.code FROM role_permissions rp JOIN roles r ON r.id = rp.role_id
       JOIN permissions p ON p.id = rp.permission_id WHERE p.code = 'SALES_CONTRACT.VIEW' ORDER BY 1`)).map((r: { code: string }) => r.code);
     expect(scToRoles).toEqual(['ADMIN', 'PM', 'SALES']);
-    // OA3.3b: the full matrix is seeded (no deferred grants), so a fresh seed needs no mapping.
-    expect(await planGrantMapping(ds.manager)).toEqual({ add: [], remove: [], rescope: [], unmapped: [] });
-    const before = await roleScopes('SALES');
-    await seed(ds);
-    expect(await roleScopes('SALES')).toEqual(before);
-  });
-
-  it('plans the grant mapping read-only: rescope, remove, add and custom roles left as administered', async () => {
-    const qr = ds.createQueryRunner();
-    await qr.startTransaction();
+    await ds.query(`DELETE FROM role_permission_scopes s USING roles r, permissions p
+      WHERE s.role_id = r.id AND s.permission_id = p.id AND r.code = 'SALES'
+        AND p.code = 'PR.CREATE' AND s.scope_type = 'RESPONSIBLE'`);
     try {
-      const sales = `(SELECT id FROM roles WHERE code = 'SALES')`;
-      const perm = (code: string) => `(SELECT id FROM permissions WHERE code = '${code}')`;
-      await qr.query(`DELETE FROM role_permission_scopes WHERE role_id = ${sales} AND permission_id = ${perm('PR.CREATE')} AND scope_type = 'RESPONSIBLE'`);
-      await qr.query(`INSERT INTO role_permissions VALUES ((SELECT id FROM roles WHERE code = 'WAREHOUSE_MANAGER'), ${perm('SALES_CONTRACT.VIEW')})`);
-      await qr.query(`DELETE FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE code = 'PURCHASING') AND permission_id = ${perm('PR.RECEIVE')}`);
-      await qr.query(`INSERT INTO roles (code, name) VALUES ('OA31_CUSTOM', 'Custom')`);
-      await qr.query(`INSERT INTO role_permissions VALUES ((SELECT id FROM roles WHERE code = 'OA31_CUSTOM'), ${perm('PR.VIEW')})`);
-      expect(await planGrantMapping(qr.manager)).toEqual({
-        add: expect.arrayContaining([{ role: 'PURCHASING', permission: 'PR.RECEIVE', scopes: ['ASSIGNED'] }]),
-        remove: [{ role: 'WAREHOUSE_MANAGER', permission: 'SALES_CONTRACT.VIEW' }],
-        rescope: [{ role: 'SALES', permission: 'PR.CREATE', before: ['CREATOR'], after: ['CREATOR', 'RESPONSIBLE'] }],
-        unmapped: [{ role: 'OA31_CUSTOM', permission: 'PR.VIEW' }],
-      });
-    } finally { await qr.rollbackTransaction(); await qr.release(); }
+      const before = await roleScopes('SALES');
+      expect(before['PR.CREATE']).toEqual(['CREATOR']);
+      await seed(ds);
+      expect(await roleScopes('SALES')).toEqual(before);
+    } finally {
+      await ds.query(`INSERT INTO role_permission_scopes SELECT r.id, p.id, 'RESPONSIBLE'
+        FROM roles r CROSS JOIN permissions p WHERE r.code = 'SALES' AND p.code = 'PR.CREATE'`);
+    }
   });
 
   it('blocks a role save with a missing, unsupported or orphan scope; never defaults to ALL', async () => {

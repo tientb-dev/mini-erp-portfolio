@@ -1,3 +1,4 @@
+import { waitForBlockedBackend } from './oa3-test-locks';
 import { lockGrantsExclusive } from './modules/identity/authorization';
 import { pricedPr } from './test-utils';
 import { INestApplication } from '@nestjs/common';
@@ -787,17 +788,7 @@ describe('Sales contracts and procurement documents (integration)', () => {
       const [{ pid }] = await writer.query('SELECT pg_backend_pid() AS pid');
       await writer.query('DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2', [grant.role_id, grant.permission_id]);
       pending = post(purchaser, '/purchase-orders', { supplierId, lines: [{ sourceLineId, quantity: 1 }] }).then(response => response);
-      let waiting = false;
-      for (let i = 0; i < 100 && !waiting; i++) {
-        const [{ blocked }] = await ds.query(`SELECT EXISTS (
-          SELECT 1 FROM pg_locks l WHERE l.locktype = 'advisory' AND l.mode = 'ShareLock' AND NOT l.granted
-            AND l.classid::bigint = ((hashtext('grants')::bigint >> 32) & 4294967295)
-            AND l.objid::bigint = (hashtext('grants')::bigint & 4294967295)
-            AND l.objsubid = 1 AND $1 = ANY(pg_blocking_pids(l.pid))) AS blocked`, [pid]);
-        waiting = blocked;
-        if (!waiting) await new Promise(resolve => setTimeout(resolve, 20));
-      }
-      expect(waiting).toBe(true);
+      await waitForBlockedBackend(ds, pid, 'grant-read');
       await writer.commitTransaction();
       expect((await pending).status).toBe(404);
       expect(await ds.query('SELECT 1 FROM purchase_order_lines WHERE purchase_requisition_line_id = $1', [sourceLineId])).toEqual([]);

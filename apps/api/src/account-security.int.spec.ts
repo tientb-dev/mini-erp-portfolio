@@ -142,10 +142,10 @@ describe('Account security OA1.2 (PostgreSQL, HTTP)', () => {
       await ds.query(`DELETE FROM user_warehouses WHERE user_id = (SELECT id FROM users WHERE username = 'pm-head');
         DELETE FROM user_roles WHERE user_id = (SELECT id FROM users WHERE username = 'pm-head');
         UPDATE users SET username = 'pm-head-retired', employee_code = 'PM_HEAD-RETIRED' WHERE username = 'pm-head'`);
-      await seed(ds);
+      await seed(ds, true);
       expect(await ds.query(`SELECT must_change_password FROM users WHERE username = 'pm-head'`)).toEqual([{ must_change_password: true }]);
       const existing = await ds.query(`SELECT username, password_hash, must_change_password FROM users WHERE username <> 'pm-head' ORDER BY id`);
-      await seed(ds);
+      await seed(ds, true);
       expect(await ds.query(`SELECT username, password_hash, must_change_password FROM users WHERE username <> 'pm-head' ORDER BY id`)).toEqual(existing);
     });
 

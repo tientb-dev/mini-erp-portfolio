@@ -23,7 +23,7 @@ const OLD_GRANT_NEW_PERMISSION = `CREATE OR REPLACE FUNCTION grant_new_permissio
 
 /**
  * OA3.1 (ADR-0018 §4.1, §4.4): permission metadata `supported_scopes`, Role–Permission scopes, and the responsible unit of
- * HĐ/PR. Schema only: no business role grant changes (mapping is applied at OA3.5 after dry-run and snapshot), no backfill.
+ * HĐ/PR. Business role grants are initialized by seed on a clean database.
  * The system role gets ALL when supported, otherwise every supported scope (BA OA3.0); triggers keep that fixed.
  */
 export class DataScope1734048000000 implements MigrationInterface {

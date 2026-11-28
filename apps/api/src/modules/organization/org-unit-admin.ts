@@ -38,9 +38,8 @@ const ref = (u?: UnitRef | null) => (u ? { id: u.id, code: u.code, name: u.name 
 
 /**
  * Organization units (OA2.2, ADR-0018 §4.3, BA-ORG-01/09, BA-UI-02): a tree of any depth, no hard delete.
- * Lock order: lockActor (gate `grants` shared → actor users row) → advisory `org-tree` → org_units rows. Every write takes
- * `org-tree`, so cycle and active-children checks see a stable tree; OA2.3 membership writes take it after users rows too.
- * Units never grant permissions (BA-ORG-08), so no write takes the gate exclusive.
+ * Lock order: grants exclusive → lockActor/users row → org-tree → org_units rows.
+ * Unit writes can change scope evaluation, so the gate is held through commit (BA-ORG-08, OA3.2).
  */
 @Injectable()
 export class OrgUnitAdminService {

@@ -226,7 +226,8 @@ Thiết kế Phase 5.2.3 đã được BA chốt và áp dụng khi Phase B tri�
 - Chỉ HĐ `ACTIVE` được tham chiếu khi tạo PR/GIR.
 - HĐ `ACTIVE` khóa nội dung nghiệp vụ. HĐ đã được PR/GIR tham chiếu khóa khách hàng, PN, UoM, số lượng và điều khoản liên quan, kể cả khi chưa chốt.
 - HĐ không quay lại `DRAFT` sau khi `ACTIVE`.
-- Hủy chỉ từ `DRAFT` sang `CANCELED`, bắt buộc lý do và ghi lịch sử. `ACTIVE` và `CANCELED` khóa thông tin chung, hàng hóa và file. File tải theo quyền xem; PR không kế thừa file. Người có quyền xem được thêm ghi chú append-only ở mọi trạng thái.
+- Hủy chuyển `DRAFT` hoặc `ACTIVE` sang `CANCELED` khi người thao tác có VIEW và CREATE khớp scope và HĐ không còn PR/GIR chưa hủy tham chiếu. Với `DRAFT`, H-01 yêu cầu người tạo hoặc Sales phụ trách. HĐ đã hủy trả `INVALID_STATUS` khi yêu cầu hủy lại. `ACTIVE` và `CANCELED` khóa thông tin chung, hàng hóa và file. File tải theo quyền xem; PR không kế thừa file. Người có quyền xem được thêm ghi chú append-only ở mọi trạng thái.
+- Lý do và lịch sử hủy là yêu cầu tài liệu Phase 5.2.3. Endpoint hủy ở OA3 chỉ đổi trạng thái. BA chuyển việc bổ sung lý do và lịch sử sang OA6.
 - Ngoài MVP: phụ lục, điều chỉnh HĐ đã chốt, versioning.
 
 ### 9.2 Dòng HĐ

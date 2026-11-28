@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Box, Button, Paper, Stack, Typography } from '@mui/material';
 import EditOutlined from '@mui/icons-material/EditOutlined';
-import { api } from '../../services/api-client';
+import { api, ApiError } from '../../services/api-client';
 import { ActionResultDialog, DetailPageLayout, DetailTabs, PageBreadcrumbs } from '../../shared/components';
 import { fmtDate } from '../../shared/utils/format';
 import type { ActionResult } from '../../shared/components/ActionResultDialog';
@@ -41,7 +41,8 @@ export function ScDetailView({ id }: { id: number }) {
   const [result, setResult] = useState<ActionResult>();
   const closeResult = useCallback(() => setResult(undefined), []);
   const sc = useQuery({ queryKey: ['sc', id], queryFn: () => api<ScDetail>(`/sales-contracts/${id}`) });
-  const d = sc.data;
+  const scopeDenied = sc.error instanceof ApiError && [403, 404].includes(sc.error.status);
+  const d = scopeDenied ? undefined : sc.data;
   const can = (p: string) => Boolean(me.data?.permissions.includes(p));
   const close = () => setDialog(null);
   const done = () => { close(); void qc.invalidateQueries({ queryKey: ['sc', id] }); void qc.invalidateQueries({ queryKey: ['scs'] }); };
@@ -49,7 +50,8 @@ export function ScDetailView({ id }: { id: number }) {
   const breadcrumbs = (
     <PageBreadcrumbs items={[{ label: t('common.home'), to: '/' }, { label: t('nav.sales') }, { label: t('nav.salesContracts'), to: listUrl() }, { label: d?.documentNumber ?? '…' }]} />
   );
-  const manage = can('SALES_CONTRACT.CREATE');
+  const canAct = (permission: string) => can(permission) && Boolean(d?.actionPermissions?.includes(permission));
+  const manage = canAct('SALES_CONTRACT.CREATE');
   // Header keeps only secondary actions; the decision (Chốt) sits in the bottom bar.
   // Header: only Sửa thông tin (DRAFT). Decisions (Hủy, Chốt) share the bottom bar, right-aligned.
   const actions = d && manage && d.status === 'DRAFT' && (
@@ -71,8 +73,6 @@ export function ScDetailView({ id }: { id: number }) {
       </Stack>
     </Stack>
   );
-  // PR tab: PR.VIEW, or read-only for the responsible sales of this contract (ADR-0014; the API checks the same rule).
-  const seesPrs = Boolean(d && me.data && (can('PR.VIEW') || (can('SALES_CONTRACT.VIEW') && d.responsibleSalesUserId === me.data.id)));
   return (
     <DetailPageLayout title={d?.documentNumber ?? t('sc.title')} loading={!d || !me.data} error={sc.error ?? me.error}
       status={d && <ScStatusChip status={d.status} />} subtitle={t('sc.title')}
@@ -85,11 +85,12 @@ export function ScDetailView({ id }: { id: number }) {
               <InfoItem label={t('sc.responsibleSales')} value={d.responsibleSalesName ?? t('sc.noResponsibleSales')} muted={!d.responsibleSalesName} />
               <InfoItem label={t('gr.createdBy')} value={d.createdByName} detail={fmtDate(d.createdAt)} />
               <InfoItem label={t('sc.updatedBy')} value={(d.updatedAt && d.updatedByName) || '—'} detail={d.updatedAt ? fmtDate(d.updatedAt) : undefined} />
+              <InfoItem label={t('scope.owner')} value={d.ownerOrgUnitName ?? t('scope.noOwner')} />
             </Box>
           </Paper>
           <DetailTabs tabs={[
-            { key: 'lines', label: `${t('sc.tabLines')} (${d.lines.length})`, content: <ScLinesTab d={d} can={can} onAction={setDialog} /> },
-            { key: 'prs', label: t('sc.tabPrs'), hidden: !seesPrs, content: <ScPrsTab contractId={d.id} /> },
+            { key: 'lines', label: `${t('sc.tabLines')} (${d.lines.length})`, content: <ScLinesTab d={d} can={canAct} onAction={setDialog} /> },
+            { key: 'prs', label: t('sc.tabPrs'), hidden: !can('PR.VIEW'), content: <ScPrsTab contractId={d.id} /> },
           ]} />
           {result && <ActionResultDialog result={result} onClose={closeResult} />}
           {(dialog?.kind === 'activate' || dialog?.kind === 'cancel') && <ScStatusDialog id={id} kind={dialog.kind} onClose={close} onDone={done} />}

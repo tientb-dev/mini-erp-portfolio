@@ -36,9 +36,7 @@ export function DocListPage({ cfg, initialId }: { cfg: DocConfig; initialId?: nu
   const page = { page: Number.isSafeInteger(currentPage) && currentPage > 0 ? currentPage : 0,
     pageSize: [10, 25, 50, 100].includes(pageSize) ? pageSize : 25 };
   const assigned = isPr ? params.get('mine') === 'true' : mine;
-  // Opened through a narrower read scope (no list permission, ADR-0014): no list query; Back returns to where the user came from.
-  const listAllowed = Boolean(me.data?.permissions.includes(`${cfg.perm}.VIEW`)
-    || (cfg.key === 'pr' && me.data?.permissions.some(permission => ['PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE'].includes(permission))));
+  const listAllowed = Boolean(me.data?.permissions.includes(`${cfg.perm}.VIEW`));
   const list = useQuery({ queryKey: [cfg.key, 'list', assigned], queryFn: () => api<DocRow[]>(`/${cfg.path}?assignedToMe=${assigned}`), enabled: listAllowed && openId === null });
   if (openId !== null) return <DocDetailView key={openId} cfg={cfg} id={openId} onBack={() => {
     if (!listAllowed) navigate(-1);

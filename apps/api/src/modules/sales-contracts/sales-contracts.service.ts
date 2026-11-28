@@ -3,7 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { CurrentUser } from '../identity/auth';
 import { ProductUsage } from '../master-data/product-usage';
 import { grantRole } from '../identity/authorization';
-import { DataScope, ScopeSource, assertCanAct, assertCanRead, canAccessDraft, hasPermission, inScope, loadDataScope, ownerOrgUnit, scopeFilter } from '../identity/data-scope';
+import { DataScope, ScopeSource, assertCanAct, assertCanRead, canAccessDraft, hasPermission, inScope, loadDataScope, matchesDraft, ownerOrgUnit, scopeFilter } from '../identity/data-scope';
 import * as wf from '../workflow/workflow';
 import { BusinessError } from '../workflow/workflow';
 
@@ -19,6 +19,14 @@ export interface ScListQuery {
 
 const VIEW = 'SALES_CONTRACT.VIEW';
 const CREATE = 'SALES_CONTRACT.CREATE';
+
+interface ScActionScope {
+  status: string;
+  createdBy: number;
+  ownerOrgUnitId: number | null;
+  responsibleSalesUserId: number | null;
+  responsiblePmUserId: number | null;
+}
 /** HĐ scope columns (§5.3): creator, responsible Sales/PM, owner unit. */
 const SC_SOURCE: ScopeSource = { from: 'sales_contracts s', id: 's.id',
   cols: { creator: 's.created_by', responsible: ['s.responsible_sales_user_id', 's.responsible_pm_user_id'], orgUnit: 's.owner_org_unit_id' } };
@@ -363,7 +371,8 @@ export class SalesContractsService {
   private async listIn(m: EntityManager, user: CurrentUser, f: ScListQuery) {
     const where: string[] = [];
     const params: unknown[] = [];
-    const scope = scopeFilter(await loadDataScope(m, user.id), VIEW, SC_SOURCE.cols, 1);
+    const access = await loadDataScope(m, user.id);
+    const scope = scopeFilter(access, VIEW, SC_SOURCE.cols, 1);
     if (!scope) return f.page ? { items: [], total: 0 } : [];
     where.push(scope.sql);
     params.push(...scope.params);
@@ -374,11 +383,13 @@ export class SalesContractsService {
     if (f.responsibleSalesUserId) add((n) => `s.responsible_sales_user_id = ${n}`, f.responsibleSalesUserId);
     if (f.customerId) add((n) => `s.customer_id = ${n}`, f.customerId);
     const from = `FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
-         LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
+         LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id LEFT JOIN org_units ou ON ou.id = s.owner_org_unit_id ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
     const order = `${f.sort === 'documentNumber' ? 's.document_number' : 's.created_at'} ${f.order === 'asc' ? 'ASC' : 'DESC'}, s.id DESC`;
     const size = f.pageSize ?? 25;
-    const items = await m.query(
+    const rows = await m.query<(ScActionScope & Record<string, unknown>)[]>(
       `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId", c.name AS "customerName", s.created_at AS "createdAt",
+              s.created_by AS "createdBy", s.owner_org_unit_id AS "ownerOrgUnitId",
+              ou.code || ' · ' || ou.name AS "ownerOrgUnitName",
               u.full_name AS "createdByName", s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName", s.responsible_pm_user_id AS "responsiblePmUserId",
               (SELECT COUNT(*)::int FROM sales_contract_lines l WHERE l.sales_contract_id = s.id) AS "lineCount",
               (SELECT COUNT(*)::int FROM sales_contract_line_products x JOIN sales_contract_lines l ON l.id = x.sales_contract_line_id
@@ -386,27 +397,40 @@ export class SalesContractsService {
          ${from} ORDER BY ${order} ${f.page ? `LIMIT ${size} OFFSET ${(f.page - 1) * size}` : ''}`,
       params,
     );
+    const items = rows.map(({ createdBy, ownerOrgUnitId, ...row }) => ({
+      ...row, actionPermissions: this.actionPermissions(access, { ...row, createdBy, ownerOrgUnitId }),
+    }));
     if (!f.page) return items;
     const [{ total }] = await m.query(`SELECT COUNT(*)::int AS total ${from}`, params);
     return { items, total };
   }
 
+  private actionPermissions(access: DataScope, sc: ScActionScope) {
+    const draftOwner = sc.createdBy === access.userId || sc.responsibleSalesUserId === access.userId;
+    return [CREATE, 'SALES_CONTRACT.PROPOSE_PRODUCT', 'SALES_CONTRACT.CONFIRM_PRODUCT'].filter(permission =>
+      (permission !== CREATE || sc.status !== 'DRAFT' || draftOwner) && matchesDraft(access, permission, {
+        creatorId: sc.createdBy, orgUnitId: sc.ownerOrgUnitId,
+        responsibleIds: [sc.responsibleSalesUserId, sc.responsiblePmUserId],
+      }));
+  }
+
   get(user: CurrentUser, id: number) {
     return readSnapshot(this.ds, async (m) => {
-      await assertCanRead(m, await loadDataScope(m, user.id), VIEW, SC_SOURCE, id);
+      const access = await loadDataScope(m, user.id);
+      await assertCanRead(m, access, VIEW, SC_SOURCE, id);
       const [sc] = await m.query(
         `SELECT s.id, s.document_number AS "documentNumber", s.status, s.version, s.customer_id AS "customerId",
                 c.code AS "customerCode", c.name AS "customerName",
                 s.created_by AS "createdBy", u.full_name AS "createdByName", s.created_at AS "createdAt",
                 s.responsible_sales_user_id AS "responsibleSalesUserId", rs.full_name AS "responsibleSalesName", s.responsible_pm_user_id AS "responsiblePmUserId",
                 s.updated_at AS "updatedAt", (SELECT full_name FROM users WHERE id = s.updated_by) AS "updatedByName",
-                s.owner_org_unit_id AS "ownerOrgUnitId"
+                s.owner_org_unit_id AS "ownerOrgUnitId", (SELECT code || ' · ' || name FROM org_units WHERE id = s.owner_org_unit_id) AS "ownerOrgUnitName"
            FROM sales_contracts s JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
            LEFT JOIN users rs ON rs.id = s.responsible_sales_user_id WHERE s.id = $1`,
         [id],
       );
       if (!sc) throw new NotFoundException();
-      return { ...sc, lines: await this.linesIn(m, id) };
+      return { ...sc, actionPermissions: this.actionPermissions(access, sc), lines: await this.linesIn(m, id) };
     });
   }
 

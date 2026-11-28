@@ -1,3 +1,4 @@
+import { defaultOwnerOrgUnit, OwnerOrgUnitField, type Me } from '../identity';
 import { ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { UNSAFE_DataRouterContext } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -45,13 +46,17 @@ export function PrReadonlyField({ label, value, multiline }: { label: string; va
 }
 
 export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier, children }: {
-  detail?: DocDetail; user: { id: number; fullName?: string }; onBack: () => void;
+  detail?: DocDetail; user: Pick<Me, 'id' | 'fullName' | 'ownerOrgUnits'>; onBack: () => void;
   onSaved: (id: number, number: string, submit: boolean) => void;
   onResult: (result: ActionResult) => void; children: (model: PrEditorModel) => ReactNode;
   dossier: PrDossierModel;
 }) {
   const { t } = useTranslation();
   const router = useContext(UNSAFE_DataRouterContext);
+  const units = user.ownerOrgUnits ?? [];
+  const [owner, setOwner] = useState<number>();
+  const defaultOwner = defaultOwnerOrgUnit(units);
+  const ownerOrgUnitId = owner ?? defaultOwner;
   const [contract, setContract] = useState(String(detail?.salesContractId ?? ''));
   const [route, setRoute] = useState('');
   const [category, setCategory] = useState(String(detail?.category ?? ''));
@@ -85,7 +90,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
   const requestKey = useRef<{ payload: string; key: string } | undefined>(undefined);
   const submittedVersion = useRef(detail?.version);
   const submittedRound = useRef(detail?.approvalRound ?? 0);
-  const dirty = state !== initial.current || dossier.dirty;
+  const dirty = state !== initial.current || ownerOrgUnitId !== defaultOwner || dossier.dirty;
   const [selected, setSelected] = useState<ContractOption | null>(null);
   const [contractText, setContractText] = useState('');
   const [contractInput, setContractInput] = useState('');
@@ -124,7 +129,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
         ...(dossier.payload && { dossier: dossier.payload }),
       };
       if (!detail) {
-        const create = { ...payload, category, salesContractId: Number(contract), route: route || undefined, submit };
+        const create = { ...payload, ownerOrgUnitId, category, salesContractId: Number(contract), route: route || undefined, submit };
         const serialized = JSON.stringify(create);
         if (requestKey.current?.payload !== serialized) requestKey.current = { payload: serialized, key: crypto.randomUUID() };
         return api<{ id: number; documentNumber: string }>('/purchase-requisitions/save-new', {
@@ -233,7 +238,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
         {['SALES_GOODS', 'MATERIAL'].map(value => <MenuItem key={value} value={value}>{t(`category.${value}`)}</MenuItem>)}
       </TextField></span></Tooltip>}</DocumentFormCell>
     <DocumentFormCell span={5}>{detail ? <PrReadonlyField label={t('gir.salesContract')} value={[detail.salesContractNumber, detail.customerName].filter(Boolean).join(' · ')} /> :
-      <Tooltip title={locked ? lockHint : ''}><span><Autocomplete id="pr-contract" disabled={locked} value={selected} inputValue={contractInput} clearText={t('common.clearSearch')}
+      <Tooltip title={locked ? lockHint : ''}><span><Autocomplete id="pr-contract" noOptionsText={t('scope.noSource')} disabled={locked} value={selected} inputValue={contractInput} clearText={t('common.clearSearch')}
         options={selected && !contracts.data?.some(item => item.id === selected.id) ? [selected, ...(contracts.data ?? [])] : contracts.data ?? []}
         isOptionEqualToValue={(a,b) => a.id === b.id} getOptionLabel={contractLabel}
         filterOptions={options => options} loading={contracts.isFetching || contractText !== contractQuery}
@@ -248,7 +253,7 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
           error={invalid === 'general' && !contract} />} /></span></Tooltip>}</DocumentFormCell>
     <DocumentFormCell span={2}>{dateField('requisitionDate', requisitionDate, setRequisitionDate, 0)}</DocumentFormCell>
     <DocumentFormCell span={2}>{dateField('requiredDate', requiredDate, setRequiredDate, 1)}</DocumentFormCell>
-    <DocumentFormCell><Stack direction="row" useFlexGap spacing={1.5} sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+    <DocumentFormCell span={8}><Stack direction="row" useFlexGap spacing={1.5} sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
       <Tooltip title={locked ? lockHint : ''}><span style={{ width: 168 }}><TextField size="small" select disabled={locked}
       label={t('prPhase.currency')} value={currency?.id ?? ''} onChange={e => change(() => {
         const chosen = currencyOptions.data?.find(item => item.id === Number(e.target.value));
@@ -266,6 +271,8 @@ export function PrPageEditor({ detail, user, onBack, onSaved, onResult, dossier,
       error={manual && invalid === 'general' && (!decimalInput(rate, 8) || !positiveDecimal(rate))}
       onChange={value => change(() => { setRate(value); setCurrencyTouched(true); })} />
     </Stack></DocumentFormCell>
+    <DocumentFormCell span={4}><OwnerOrgUnitField invalid={save.error instanceof ApiError && save.error.code === 'OWNER_ORG_UNIT_INVALID'} name={detail?.ownerOrgUnitName} units={detail ? [] : units} value={ownerOrgUnitId}
+      onChange={detail ? undefined : value => change(() => setOwner(value))} /></DocumentFormCell>
     <DocumentFormCell span={6}><TextField label={t('prPhase.purpose')} multiline minRows={2} value={purpose} onChange={e => change(() => setPurpose(e.target.value))} /></DocumentFormCell>
     <DocumentFormCell span={6}><TextField label={t('prPhase.description')} multiline minRows={2} value={description} onChange={e => change(() => setDescription(e.target.value))} /></DocumentFormCell>
     {dual && <DocumentFormCell span={3}><TextField id="pr-route" select required label={t('pr.route')} value={route} error={invalid === 'general' && !route}

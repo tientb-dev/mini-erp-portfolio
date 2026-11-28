@@ -6,7 +6,7 @@ import { PrNotifications, PurchaseOrdersPage, PurchaseRequisitionsPage } from '.
 
 it('PR18: the assigned receiver can receive, and goods stay visible across tabs', async () => {
   const pr = {
-    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_RECEIPT', version: 3, approvalRound: 1,
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_RECEIPT', actionPermissions: ['PR.RECEIVE'], version: 3, approvalRound: 1,
     createdBy: 2, createdByName: 'Sales', assignedApproverId: 1, assignedApproverName: 'Purchaser',
     createdAt: '2026-11-13T00:00:00Z', category: 'SALES_GOODS', salesContractNumber: 'SC-5', customerName: 'Customer',
     children: [], history: [], notesCursor: 2,
@@ -34,7 +34,7 @@ it('PR18: the assigned receiver can receive, and goods stay visible across tabs'
 
 it.each([false, true])('keeps the PR submit context after refresh (hidden source: %s)', async (hiddenSource) => {
   const pr = {
-    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', canEdit: true, actionPermissions: ['PR.CREATE'], version: 2, approvalRound: 0,
     createdBy: 1, createdByName: 'Sales', assignedApproverId: null, salesContractNumber: hiddenSource ? null : 'SC-5',
     createdAt: '2026-11-13T00:00:00Z', category: hiddenSource ? 'SALES_GOODS' : 'MATERIAL', salesContractId: hiddenSource ? null : 9, children: [], history: [], notes: [],
     draftApproverId: 2, draftReceiverId: 2, name: 'PR fixture',
@@ -72,7 +72,7 @@ it.each([false, true])('keeps the PR submit context after refresh (hidden source
 
 it('keeps deletion local, allows cancellation, and blocks save and submit after deleting the last row', async () => {
   const pr = {
-    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', canEdit: true, actionPermissions: ['PR.CREATE'], version: 2, approvalRound: 0,
     createdBy: 1, createdByName: 'Sales', salesContractId: 9, salesContractNumber: 'SC-5', category: 'MATERIAL',
     children: [], history: [], lines: [{ id: 8, productId: 4, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
   };
@@ -105,7 +105,7 @@ it('deletes selected PR line IDs locally, preserves order, and saves only retain
     { id: 11, partNumber: 'PN-7', productName: 'Retained item', quantity: '4' },
   ].map(line => ({ ...line, productId: 4, uom: 'PCS', unitPrice: '100', taxRate: '0' }));
   const pr = {
-    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', canEdit: true, actionPermissions: ['PR.CREATE'], version: 2, approvalRound: 0,
     createdBy: 1, createdByName: 'Sales', salesContractId: 9, salesContractNumber: 'SC-5', category: 'MATERIAL',
     children: [], history: [], lines,
   };
@@ -144,7 +144,7 @@ it('deletes selected PR line IDs locally, preserves order, and saves only retain
 
 it('blocks save and submit after deleting all selected rows', async () => {
   const pr = {
-    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', version: 2, approvalRound: 0,
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DRAFT', canEdit: true, actionPermissions: ['PR.CREATE'], version: 2, approvalRound: 0,
     createdBy: 1, createdByName: 'Sales', salesContractId: 9, salesContractNumber: 'SC-5', category: 'MATERIAL',
     children: [], history: [], lines: [{ id: 8, productId: 4, partNumber: 'PN-5', productName: 'Switch', uom: 'PCS', quantity: '2' }],
   };
@@ -180,7 +180,7 @@ it('clears only the PR search keyword and resets the page', async () => {
 
 it('shows Reassign only on the pending card and requires a replacement and a reason', async () => {
   const pr = {
-    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_APPROVE', version: 2, approvalRound: 1,
+    id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'WAITING_FOR_APPROVE', actionPermissions: ['PR.CREATE'], version: 2, approvalRound: 1,
     createdBy: 1, createdByName: 'Sales', assignedApproverId: 2, assignedApproverName: 'Original',
     createdAt: '2026-11-13T00:00:00Z', category: 'MATERIAL', children: [], history: [], notes: [], lines: [],
     canReassign: true, nodes: [{ step: 'APPROVAL', round: 1, assigneeName: 'Original' }],

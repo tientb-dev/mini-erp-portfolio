@@ -745,7 +745,7 @@ export class ProcurementService {
       `SELECT ${wf.DOC_COLUMNS}, d.approval_round AS "approvalRound", d.sales_contract_id AS "salesContractId", s.responsible_pm_user_id AS "responsiblePmUserId",
         d.creator_route AS "creatorRoute", d.draft_approver_id AS "draftApproverId", d.draft_receiver_id AS "draftReceiverId",
         s.responsible_sales_user_id AS "responsibleSalesUserId", s.status AS "contractStatus", d.category, ${PR_DETAILS},
-        s.document_number AS "salesContractNumber", c.name AS "customerName", d.owner_org_unit_id AS "ownerOrgUnitId"
+        s.document_number AS "salesContractNumber", c.name AS "customerName", d.owner_org_unit_id AS "ownerOrgUnitId", (SELECT code || ' · ' || name FROM org_units WHERE id = d.owner_org_unit_id) AS "ownerOrgUnitName"
          FROM purchase_requisitions d JOIN sales_contracts s ON s.id = d.sales_contract_id JOIN customers c ON c.id = s.customer_id
          JOIN users requester ON requester.id = d.created_by
          ${PR_TOTALS}
@@ -881,7 +881,7 @@ export class ProcurementService {
     const canCancel = header.createdBy === user.id && scoped.includes(CREATE)
       && (['DRAFT', 'REJECTED'].includes(header.approvalStatus)
         || (header.approvalStatus === 'DONE' && children.every((po: { approvalStatus: string }) => po.approvalStatus === 'CANCELED')));
-    return { ...header, canCancel, canEdit, creatorRole: creatorRole?.role ?? null, rejection: !canViewContract && rejection ? this.prHistoryEntry(rejection) : rejection, canReassign,
+    return { ...header, actionPermissions: scoped, canCancel, canEdit, creatorRole: creatorRole?.role ?? null, rejection: !canViewContract && rejection ? this.prHistoryEntry(rejection) : rejection, canReassign,
       lines: canViewPo ? lines : lines.map(({ usedQuantity, ...line }: { usedQuantity: string }) => line),
       children: canViewPo ? children : [], history: canViewContract ? history.items : history.items.map(entry => this.prHistoryEntry(entry)), historyCursor: history.nextCursor,
       nodes: await m.query(`SELECT n.step, n.round, n.department, n.result, n.assignee_id AS "assigneeId",

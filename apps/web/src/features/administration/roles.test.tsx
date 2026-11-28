@@ -8,6 +8,8 @@ const catalog = [
   { code: 'PO.VIEW', module: 'PO', name: 'Xem đơn mua hàng', description: null, adminOnly: false },
   { code: 'ROLE.MANAGE', module: 'ADMINISTRATION', name: 'Quản trị vai trò', description: null, adminOnly: true },
 ];
+const scopedPermission = { code: 'PR.VIEW', module: 'PR', name: 'Xem đề nghị mua hàng', description: null,
+  adminOnly: false, supportedScopes: ['ALL', 'CREATOR', 'ASSIGNED'] };
 const sales = { id: 5, code: 'SALES', name: 'Sales', description: 'Bán hàng', isActive: true, isSystem: false, version: 3,
   permissions: ['PRODUCT.VIEW'], users: [{ id: 7, username: 'an', fullName: 'Nguyễn An', isActive: true }, { id: 1, username: 'me', fullName: 'Tôi', isActive: true }],
   history: [
@@ -64,6 +66,30 @@ describe('Roles list', () => {
 });
 
 describe('Role detail', () => {
+  it('requires an explicit scope, supports a union and saves ALL by itself', async () => {
+    const calls = serve({ ...base, 'GET /admin/permissions': () => [200, [...catalog, scopedPermission]],
+      'GET /admin/roles/5': () => [200, sales], 'PUT /admin/roles/5': () => [204] });
+    wrap(<RolesPage initialId={5} />, '/roles/5?mode=edit');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Phân quyền' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /PR\.VIEW/ }));
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Lưu vai trò' }));
+    expect(screen.getByText('Chọn phạm vi cho quyền PR.VIEW.')).toBeTruthy();
+    expect(calls.some(call => call.method === 'PUT')).toBe(false);
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: /Phạm vi dữ liệu.*PR.VIEW/ }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Do mình tạo' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Được giao xử lý' }));
+    expect(screen.getByRole('option', { name: 'Do mình tạo' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('option', { name: 'Được giao xử lý' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('option', { name: 'Toàn bộ dữ liệu' }));
+    expect(screen.getByRole('option', { name: 'Do mình tạo' }).getAttribute('aria-selected')).toBe('false');
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Lưu vai trò' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(within(dialog).getByRole('row', { name: /PR.VIEW/ })).getByText('Toàn bộ dữ liệu')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu vai trò' }));
+    await waitFor(() => expect(calls.find(call => call.method === 'PUT')?.body).toMatchObject({ scopes: { 'PR.VIEW': ['ALL'] } }));
+  });
+
   it('shows View read-only (not disabled) with the status badge and actions in the footer only', async () => {
     serve({ ...base, 'GET /admin/roles/5': () => [200, sales] });
     wrap(<RolesPage initialId={5} />, '/roles/5');
@@ -104,7 +130,7 @@ describe('Role detail', () => {
     fireEvent.click(within(footer()).getByRole('button', { name: 'Lưu vai trò' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Thêm 1 và gỡ 0 quyền.')).toBeTruthy();
-    expect(within(dialog).getByText('2 người dùng còn trong vai trò nhận thay đổi quyền kể từ lần thao tác tiếp theo.')).toBeTruthy();
+    expect(within(dialog).getByText('2 người dùng tiếp tục được gán vai trò.')).toBeTruthy();
     expect(within(dialog).getByText('Quyền từ các vai trò khác không thay đổi.')).toBeTruthy();
     expect(within(dialog).queryByText(/Tổng số người dùng/)).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu vai trò' }));
@@ -159,7 +185,9 @@ describe('Role detail', () => {
     expect((screen.getByLabelText('Mã vai trò') as HTMLInputElement).readOnly).toBe(true);
     expect((screen.getByLabelText(/Tên vai trò/) as HTMLInputElement).readOnly).toBe(false);
     fireEvent.click(screen.getByRole('tab', { name: 'Phân quyền' }));
-    for (const p of catalog) expect((screen.getByRole('checkbox', { name: `${p.name} (${p.code})` }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    for (const permission of catalog) expect(screen.getByText(permission.code)).toBeTruthy();
   });
 
   it('validates on Save only (FE-VALIDATION-001): no error on open, Save stays enabled, the first error gets focus', async () => {
@@ -188,15 +216,23 @@ describe('Role detail', () => {
   });
 
   it('prefills a copy without code or users and shows a duplicate code next to the field', async () => {
-    serve({ ...base, 'GET /admin/roles/5': () => [200, sales], 'POST /admin/roles': () => [409, { code: 'DUPLICATE_VALUE', detail: 'dup' }] });
+    const copied = { ...sales, permissions: ['PR.VIEW'], scopes: { 'PR.VIEW': ['CREATOR'] } };
+    const calls = serve({ ...base, 'GET /admin/permissions': () => [200, [...catalog, scopedPermission]],
+      'GET /admin/roles/5': () => [200, copied], 'POST /admin/roles': () => [409, { code: 'DUPLICATE_VALUE', detail: 'dup' }] });
     wrap(<RolesPage initialId={0} />, '/roles/new?copy=5');
     const code = await screen.findByLabelText(/Mã vai trò/) as HTMLInputElement;
     expect(code.value).toBe('');
     expect((screen.getByLabelText(/Tên vai trò/) as HTMLInputElement).value).toBe('Sales');
     fireEvent.change(code, { target: { value: 'SALES' } });
     fireEvent.click(within(footer()).getByRole('button', { name: 'Lưu vai trò' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(within(dialog).getByRole('row', { name: /PR.VIEW/ })).getByText('Do mình tạo')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu vai trò' }));
     expect(await screen.findByText('Mã vai trò đã tồn tại. Nhập mã khác.')).toBeTruthy();
     expect((screen.getByLabelText(/Mã vai trò/) as HTMLInputElement).value).toBe('SALES');
+    expect(calls.find(call => call.method === 'POST')?.body).toMatchObject({
+      permissions: ['PR.VIEW'], scopes: { 'PR.VIEW': ['CREATOR'] }, userIds: [], copiedFrom: 5,
+    });
   });
 
   it('warns before deactivating with a destructive action and renders the shared activity history', async () => {
@@ -251,7 +287,7 @@ describe('Confirm Save reports who the change affects (F-OA1.3-18)', () => {
     await confirmFor(role({}), addTwoUsers);
     const text = await lines();
     expect(text).toContain('Thêm người dùng: 2.');
-    expect(text).toContain('Tổng số người dùng sau khi lưu: 3.');
+    expect(text).toContain('Số người dùng được gán vai trò: 3');
     expect(text).toContain('Người dùng được thêm sẽ nhận các quyền từ vai trò này');
     expect(text).not.toContain('còn trong vai trò nhận thay đổi');
     expect(text).not.toContain('quyền.T');
@@ -264,7 +300,7 @@ describe('Confirm Save reports who the change affects (F-OA1.3-18)', () => {
     });
     const text = await lines();
     expect(text).toContain('Gỡ người dùng: 1.');
-    expect(text).toContain('Tổng số người dùng sau khi lưu: 0.');
+    expect(text).toContain('Số người dùng được gán vai trò: 0');
     expect(text).toContain('Người dùng bị gỡ không còn nhận quyền từ vai trò này');
     expect(text).toContain('Quyền từ các vai trò khác không thay đổi.');
   });
@@ -273,7 +309,7 @@ describe('Confirm Save reports who the change affects (F-OA1.3-18)', () => {
     await confirmFor(role({}), addPermission);
     const text = await lines();
     expect(text).toContain('Thêm 1 và gỡ 0 quyền.');
-    expect(text).toContain('1 người dùng còn trong vai trò nhận thay đổi quyền');
+    expect(text).toContain('1 người dùng tiếp tục được gán vai trò');
     expect(text).not.toContain('Thêm người dùng');
   });
 
@@ -282,8 +318,8 @@ describe('Confirm Save reports who the change affects (F-OA1.3-18)', () => {
     const text = await lines();
     expect(text).toContain('Thêm người dùng: 2.');
     expect(text).toContain('Thêm 1 và gỡ 0 quyền.');
-    expect(text).toContain('Tổng số người dùng sau khi lưu: 3.');
-    expect(text).toContain('1 người dùng còn trong vai trò nhận thay đổi quyền');
+    expect(text).toContain('Số người dùng được gán vai trò: 3');
+    expect(text).toContain('1 người dùng tiếp tục được gán vai trò');
   });
 
   it('an inactive role grants nothing yet', async () => {

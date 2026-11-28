@@ -1,6 +1,8 @@
 import { pagePath } from '../../shared/navigation';
 
 export interface ScRow {
+  actionPermissions?: string[];
+  ownerOrgUnitName?: string | null;
   id: number; documentNumber: string; status: string; version: number; customerId: number; customerName: string; createdByName: string; createdAt: string;
   pendingProposals: number; lineCount: number; responsibleSalesUserId: number | null; responsibleSalesName: string | null;
 }

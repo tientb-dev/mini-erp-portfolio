@@ -51,9 +51,7 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
     Boolean(me.data?.permissions.includes('PR.DOSSIER_MANAGE')));
   const [viewTab, setViewTab] = useState('general');
   const [workflowWarning, setWorkflowWarning] = useState(false);
-  const editorActive = cfg.key === 'pr' && (creating || Boolean(doc.data && me.data && doc.data.canEdit !== false
-    && doc.data.createdBy === me.data.id && me.data.permissions.includes('PR.CREATE')
-    && ['DRAFT', 'REJECTED'].includes(doc.data.approvalStatus)));
+  const editorActive = cfg.key === 'pr' && (creating || Boolean(doc.data?.canEdit && me.data?.permissions.includes('PR.CREATE')));
   const dossierSave = useMutation({ mutationFn: dossier.save, onSuccess: () => {
     setResult({ success: true, title: t('prDossier.savedTitle'),
       message: t('prDossier.saved', { number: doc.data?.documentNumber }) });
@@ -76,7 +74,8 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
     if (fromCreate) navigate(location.pathname + location.search, { replace: true, state: null });
     void qc.invalidateQueries({ queryKey: [cfg.key, id] });
   }, [cfg.key, id, qc, fromCreate, navigate, location.pathname, location.search]);
-  if (!me.data || (!creating && !doc.data)) return <DetailPageLayout title={t(`${cfg.key}.title`)} loading error={doc.error ?? me.error} />;
+  const scopeDenied = doc.error instanceof ApiError && [403, 404].includes(doc.error.status);
+  if (!me.data || (!creating && (!doc.data || scopeDenied))) return <DetailPageLayout title={t(`${cfg.key}.title`)} loading error={doc.error ?? me.error} />;
   const d: DocDetail = doc.data ?? {
     id: 0, documentNumber: '', approvalStatus: 'DRAFT', version: 0, createdBy: me.data.id,
     createdByName: me.data.fullName ?? '', assignedApproverId: null, assignedApproverName: null,
@@ -87,9 +86,11 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
   const isPr = cfg.key === 'pr';
   const receiving = status === 'WAITING_FOR_RECEIPT';
   const waiting = status === 'WAITING_FOR_APPROVE' || receiving;
+  const actionPermission = receiving ? 'PR.RECEIVE' : cfg.perm + '.APPROVE';
   const isApprover = waiting && !isCreator && d.assignedApproverId === me.data.id
-    && me.data.permissions.includes(receiving ? 'PR.RECEIVE' : `${cfg.perm}.APPROVE`);
-  const canManage = isCreator && me.data.permissions.includes(`${cfg.perm}.CREATE`);
+    && me.data.permissions.includes(actionPermission) && (!isPr || d.actionPermissions?.includes(actionPermission));
+  const createPermission = cfg.perm + '.CREATE';
+  const canManage = isCreator && me.data.permissions.includes(createPermission) && (!isPr || d.actionPermissions?.includes(createPermission));
   const completed = status === (isPr ? 'DONE' : 'APPROVED');
   const openAction = (action: DocAction) => {
     if (isPr && (dossier.dirty || dossier.pending || dossierSave.isPending)) { setWorkflowWarning(true); return; }
@@ -180,11 +181,12 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
                   <DocumentFormCell span={5}><PrReadonlyField label={t('gir.salesContract')} value={[d.salesContractNumber, d.customerName].filter(Boolean).join(' · ')} /></DocumentFormCell>
                   <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requisitionDate')} value={formatDocumentDate(String(d.requisitionDate ?? ''), i18n.language)} /></DocumentFormCell>
                   <DocumentFormCell span={2}><PrReadonlyField label={t('prPhase.requiredDate')} value={formatDocumentDate(String(d.requiredDate ?? ''), i18n.language)} /></DocumentFormCell>
-                  <DocumentFormCell><Stack direction="row" useFlexGap spacing={1.5} sx={{ flexWrap: 'wrap', '& > *': { width: 168 } }}>
+                  <DocumentFormCell span={8}><Stack direction="row" useFlexGap spacing={1.5} sx={{ flexWrap: 'wrap', '& > *': { width: 168 } }}>
                   <PrReadonlyField label={t('prPhase.currency')} value={String(d.currencyCode ?? '')} />
                   <PrReadonlyField label={t('prPhase.rateSource')} value={d.exchangeRateSource ? t(d.exchangeRateSource === 'MANUAL' ? 'prPhase.manual' : 'prPhase.catalogRate') : ''} />
                   <PrReadonlyField label={t('prPhase.rate')} value={displayDocumentNumber(String(d.exchangeRate ?? ''), i18n.language, 8, true)} />
                   </Stack></DocumentFormCell>
+                  <DocumentFormCell span={4}><PrReadonlyField label={t('scope.owner')} value={d.ownerOrgUnitName ?? t('scope.noOwner')} /></DocumentFormCell>
                   <DocumentFormCell span={6}><PrReadonlyField label={t('prPhase.purpose')} value={String(d.purpose ?? '')} multiline /></DocumentFormCell>
                   <DocumentFormCell span={6}><PrReadonlyField label={t('prPhase.description')} value={String(d.description ?? '')} multiline /></DocumentFormCell>
                 </DocumentFormGrid> : <>
@@ -207,7 +209,6 @@ export function DocDetailView({ cfg, id, onBack }: { cfg: DocConfig; id: number;
             ),
           },
           {
-            // Child documents need the page's own VIEW; a contract-scoped reader gets none from the API (ADR-0014).
             key: 'children', label: t(`${cfg.key}.tabChildren`), hidden: isPr || !me.data.permissions.includes(`${cfg.perm}.VIEW`), content: d.children.length
               ? d.children.map((c) => (
                   <Stack key={c.id} direction="row" spacing={2} sx={{ alignItems: 'center' }}>

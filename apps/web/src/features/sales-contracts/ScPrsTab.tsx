@@ -24,10 +24,6 @@ export function ScPrsTab({ contractId }: { contractId: number }) {
     { field: 'createdByName', headerName: t('gr.createdBy'), flex: 1, minWidth: 150 },
     { field: 'createdAt', headerName: t('gr.createdAt'), width: 170, valueFormatter: fmtDate },
   ];
-  return (
-    <>
-      <ErrorAlert error={prs.error} />
-      <DataTable rows={prs.data ?? []} columns={columns} loading={prs.isLoading} emptyHint={t('sc.noPrs')} />
-    </>
-  );
+  if (prs.error) return <ErrorAlert error={prs.error} />;
+  return <DataTable rows={prs.data ?? []} columns={columns} loading={prs.isLoading} emptyHint={t('sc.noPrs')} />;
 }

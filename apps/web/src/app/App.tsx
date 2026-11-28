@@ -20,7 +20,13 @@ function SignedIn({ onEnd }: { onEnd: (ending: Ending) => void }) {
     // F-OA1.3-12: a denied call re-reads /auth/me (at most every 2 s; /auth/me itself never returns 403), so the menu,
     // route guards and buttons follow grant changes without signing out. Focus and remounts also refetch it.
     let last = 0;
-    const denied = () => { if (Date.now() - last > 2000) { last = Date.now(); recheck(); } };
+    const denied = () => {
+      if (Date.now() - last <= 2000) return;
+      last = Date.now();
+      recheck();
+      void qc.invalidateQueries({ predicate: query => ['sc', 'scs', 'sc-prs', 'pr', 'pr-contracts', '/purchase-requisitions']
+        .includes(String(query.queryKey[0])) });
+    };
     window.addEventListener(PASSWORD_CHANGE_REQUIRED, recheck);
     window.addEventListener(PERMISSION_DENIED, denied);
     return () => { window.removeEventListener(PASSWORD_CHANGE_REQUIRED, recheck); window.removeEventListener(PERMISSION_DENIED, denied); };

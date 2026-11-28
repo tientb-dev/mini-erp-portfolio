@@ -78,6 +78,67 @@ describe('Data Scope engine OA3.2 (PostgreSQL)', () => {
     expect(matchesDraft(both, 'SALES_CONTRACT.VIEW', { creatorId: both.userId })).toBe(true);
   });
 
+  it('describes the saved grant union, including missing scopes and only active role sources', async () => {
+    const a = await unit();
+    const child = await unit(a);
+    const b = await unit();
+    const missing = await role(['PO.VIEW']);
+    await grantWithoutScope(missing, 'PR.VIEW');
+    await grantWithoutScope(missing, 'SALES_CONTRACT.VIEW');
+    const creator = await role(['PR.VIEW', 'PR.CREATE'], { 'PR.VIEW': ['CREATOR'], 'PR.CREATE': ['CREATOR'] });
+    const tree = await role(['PR.VIEW'], { 'PR.VIEW': ['ORG_UNIT_TREE'] });
+    const inactive = await role(['PR.VIEW'], { 'PR.VIEW': ['ALL'] });
+    const id = await employee([missing, creator, tree, inactive], [a, b]);
+    await http().patch('/admin/roles/' + inactive + '/status').set(bearer()).send({
+      isActive: false, version: await version('roles', inactive),
+    }).expect(204);
+    const { body } = await http().get('/admin/users/' + id + '/effective-access').set(bearer()).expect(200);
+    expect(body.grants).toMatchObject({ 'PR.VIEW': ['CREATOR', 'ORG_UNIT_TREE'], 'PO.VIEW': null, 'SALES_CONTRACT.VIEW': [] });
+    expect(body.sources['PR.VIEW']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ roleId: missing, scopes: [] }),
+      expect.objectContaining({ roleId: creator, scopes: ['CREATOR'] }),
+      expect.objectContaining({ roleId: tree, scopes: ['ORG_UNIT_TREE'] }),
+    ]));
+    expect(body.sources['PR.VIEW']).toHaveLength(3);
+    expect(body.orgUnitIds).toEqual([a, b]);
+    expect(body.orgUnits).toEqual(expect.arrayContaining([expect.objectContaining({ id: child, parentId: a })]));
+    const [{ username }] = await ds.query('SELECT username FROM users WHERE id = $1', [id]);
+    const token = await login(app, username, PW);
+    const auth = { Authorization: 'Bearer ' + token };
+    // Complete initial password setup through the test fixture to read the normal session contract.
+    await ds.query('UPDATE users SET must_change_password = false WHERE id = $1', [id]);
+    await http().get('/admin/users/' + id + '/effective-access').set(auth).expect(403);
+    const me = (await http().get('/auth/me').set(auth).expect(200)).body;
+    expect(me.permissions).toContain('PR.VIEW');
+    expect(me.permissions).not.toContain('SALES_CONTRACT.VIEW');
+    expect(me.ownerOrgUnits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: a, isPrimary: true }), expect.objectContaining({ id: b, isPrimary: false }),
+    ]));
+    expect(me.ownerOrgUnits).toHaveLength(2);
+    expect(body.permissionNames['PR.VIEW']).toEqual(expect.any(String));
+
+    const { body: original } = await http().get('/admin/roles/' + creator).set(bearer()).expect(200);
+    await http().put('/admin/roles/' + creator).set(bearer()).send({
+      name: original.name, version: original.version, permissions: ['PR.CREATE'],
+      scopes: { 'PR.CREATE': ['CREATOR'] }, userIds: [id],
+    }).expect(204);
+    expect((await load(id)).grants['PR.VIEW']).toEqual(['ORG_UNIT_TREE']);
+    expect((await http().get('/auth/me').set(auth).expect(200)).body.permissions).toContain('PR.VIEW');
+
+    const [membership] = await ds.query('SELECT id, version FROM org_memberships WHERE user_id = $1 AND org_unit_id = $2', [id, b]);
+    await http().post('/admin/memberships/' + membership.id + '/end').set(bearer()).send({ version: membership.version }).expect(204);
+    expect((await http().get('/auth/me').set(auth).expect(200)).body.ownerOrgUnits.map((unit: { id: number }) => unit.id)).toEqual([a]);
+
+    await http().patch('/admin/roles/' + tree + '/status').set(bearer()).send({
+      isActive: false, version: await version('roles', tree),
+    }).expect(204);
+    const refreshed = (await http().get('/auth/me').set(auth).expect(200)).body.permissions;
+    expect(refreshed).toContain('PR.CREATE');
+    expect(refreshed).not.toContain('PR.VIEW');
+    expect((await load(id)).grants['PR.VIEW']).toEqual([]);
+    await http().get('/purchase-requisitions/999999').set(auth).expect(404);
+  });
+
   it('gives ADMIN no bypass: ALL where supported, otherwise only its supported scopes', async () => {
     const s = await load(adminId);
     expect(s.grants['SALES_CONTRACT.VIEW']).toEqual(['ALL']);

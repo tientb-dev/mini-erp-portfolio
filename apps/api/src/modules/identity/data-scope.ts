@@ -24,6 +24,10 @@ export interface DataScope {
   /** `orgUnitIds` plus all their descendants, any status. */
   orgTreeIds: number[];
   warehouseIds: number[];
+  permissionNames?: Record<string, string>;
+  permissionModules?: Record<string, string>;
+  sources?: Record<string, { roleId: number; roleCode: string; roleName: string; scopes: ScopeType[] }[]>;
+  orgUnits?: { id: number; code: string; name: string; parentId: number | null; isPrimary: boolean }[];
 }
 
 /**
@@ -32,10 +36,10 @@ export interface DataScope {
  * so every writer that can change the result (role scopes/grants, memberships, unit parent, account) waits for commit.
  * Call it before row locks, or after `lockActor` (which already holds the gate).
  */
-export async function loadDataScope(m: EntityManager, userId: number, lock = false): Promise<DataScope> {
+export async function loadDataScope(m: EntityManager, userId: number, lock = false, describe = false): Promise<DataScope> {
   if (lock) await lockGrantsShared(m);
   const [row] = await m.query(`WITH g AS (
-      SELECT g.permission, p.supported_scopes = '{}' AS unscoped, s.scope_type
+      SELECT g.permission, g.role_id, g.role_code, g.role_name, p.module, p.name, p.supported_scopes = '{}' AS unscoped, s.scope_type
         FROM v_user_grants g JOIN permissions p ON p.id = g.permission_id
         LEFT JOIN role_permission_scopes s ON s.role_id = g.role_id AND s.permission_id = g.permission_id
        WHERE g.user_id = $1),
@@ -46,10 +50,27 @@ export async function loadDataScope(m: EntityManager, userId: number, lock = fal
          SELECT permission, CASE WHEN bool_or(unscoped) THEN NULL
            ELSE coalesce(array_agg(DISTINCT scope_type) FILTER (WHERE scope_type IS NOT NULL), '{}') END AS scopes
            FROM g GROUP BY permission) x) AS grants,
+      CASE WHEN $2 THEN (SELECT coalesce(json_object_agg(permission, name), '{}')
+        FROM (SELECT DISTINCT permission, name FROM g) names) END AS "permissionNames",
+      CASE WHEN $2 THEN (SELECT coalesce(json_object_agg(permission, module), '{}')
+        FROM (SELECT DISTINCT permission, module FROM g) modules) END AS "permissionModules",
+      CASE WHEN $2 THEN (SELECT coalesce(json_object_agg(permission, roles), '{}') FROM (
+        SELECT permission, json_agg(json_build_object('roleId', role_id, 'roleCode', role_code, 'roleName', role_name, 'scopes', scopes)
+          ORDER BY role_code) AS roles FROM (
+          SELECT permission, role_id, role_code, role_name,
+            coalesce(array_agg(DISTINCT scope_type ORDER BY scope_type) FILTER (WHERE scope_type IS NOT NULL), '{}') AS scopes
+          FROM g GROUP BY permission, role_id, role_code, role_name
+        ) by_role GROUP BY permission
+      ) by_permission) END AS sources,
+      CASE WHEN $2 THEN (SELECT coalesce(json_agg(json_build_object('id', o.id, 'code', o.code, 'name', o.name, 'parentId', o.parent_id,
+        'isPrimary', coalesce(om.is_primary, false)) ORDER BY o.code), '[]')
+        FROM tree JOIN org_units o ON o.id = tree.id LEFT JOIN org_memberships om
+          ON om.org_unit_id = o.id AND om.user_id = $1 AND om.status = 'ACTIVE') END AS "orgUnits",
       ARRAY(SELECT id FROM units ORDER BY 1) AS "orgUnitIds",
       ARRAY(SELECT id FROM tree ORDER BY 1) AS "orgTreeIds",
-      ARRAY(SELECT uw.warehouse_id FROM user_warehouses uw WHERE uw.user_id = $1 ORDER BY 1) AS "warehouseIds"`, [userId]);
-  return { userId, ...row };
+      ARRAY(SELECT uw.warehouse_id FROM user_warehouses uw WHERE uw.user_id = $1 ORDER BY 1) AS "warehouseIds"`, [userId, describe]);
+  const { sources, orgUnits, permissionModules, permissionNames, ...scope } = row;
+  return { userId, ...scope, ...(describe ? { sources, orgUnits, permissionModules, permissionNames } : {}) };
 }
 
 export const hasPermission = (s: DataScope, permission: string) => permission in s.grants;

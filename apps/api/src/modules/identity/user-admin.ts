@@ -1,5 +1,6 @@
+import { loadDataScope } from './data-scope';
 import {
-  Body, Controller, Get, HttpCode, HttpStatus, Injectable, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req,
+  ForbiddenException, Body, Controller, Get, HttpCode, HttpStatus, Injectable, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -13,7 +14,7 @@ import {
   Actor, LockedUser, assertAdminRemains, assertPasswordPolicy, employmentInactive, lockActor, PASSWORD_MAX_LENGTH, revokeSessions,
 } from './account-security';
 import { AuthedRequest, RequirePermissions } from './auth';
-import { lockAdminGuard, lockGrantsExclusive } from './authorization';
+import { loadGrants, lockAdminGuard, lockGrantsExclusive } from './authorization';
 import { hashPassword } from './password';
 import {
   activeManagerIds, assertMembershipsValid, assertNotHeadOrManager, currentMemberships, MembershipSpec, saveMemberships,
@@ -207,6 +208,16 @@ export class UserAdminService {
       if (username) await audit(m, id, 'ACCOUNT_CREATED', actor.id, { username });
       await this.saveRelations(m, actor, id, input);
       return { id: id as number };
+    });
+  }
+
+  async effectiveAccess(actor: Actor, id: number) {
+    return this.ds.transaction('REPEATABLE READ', async m => {
+      const current = await loadGrants(m, actor.id, actor.sessionId);
+      if (!current || current.mustChangePassword || !current.permissions.includes('USER.VIEW')) throw new ForbiddenException();
+      const [user] = await m.query('SELECT id FROM users WHERE id = $1', [id]);
+      if (!user) throw new NotFoundException();
+      return loadDataScope(m, id, false, true);
     });
   }
 
@@ -460,6 +471,9 @@ export class UserAdminController {
 
   @Get(':id') @RequirePermissions('USER.VIEW')
   get(@Param('id', ParseIntPipe) id: number) { return this.users.get(id); }
+
+  @Get(':id/effective-access') @RequirePermissions('USER.VIEW')
+  effectiveAccess(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) { return this.users.effectiveAccess(actorOf(req), id); }
 
   @Get(':id/history') @RequirePermissions('USER.VIEW')
   history(@Param('id', ParseIntPipe) id: number, @Query('before') before?: string) {

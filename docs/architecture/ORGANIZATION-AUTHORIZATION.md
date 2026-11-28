@@ -778,6 +778,7 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 | **OA3.3a** Data Scope HĐ bán | **Hoàn thành, BA nghiệm thu có điều kiện (F01–F03 đáp ứng).** Không migration (§11.0 "Chi tiết OA3.3a") |
 | **OA3.3b** Data Scope PR | **Hoàn thành, BA đã nghiệm thu F01–F06 và D01–D03.** Không migration. PR.VIEW scope, action scope, owner unit, ASSIGNED theo workflow thật; xóa `OA3_DEFERRED`/`activeGrants`. Kết quả D01–D03 và F01–F06 ở dưới. |
 | **OA3.3c** Cross-module Security | **Hoàn thành, BA Accepted.** BA đã nghiệm thu toàn bộ D04–D07 và C01–C09. Xem kết quả kiểm chứng tại §11.0. |
+| **OA3.4** Data Scope UI | **BA Accepted.** BA đã nghiệm thu OA3.4 và Closure Patch F01–F05. Kết quả cuối và evidence bên dưới. |
 
 **Chi tiết OA3.1:**
 
@@ -961,6 +962,41 @@ Bảng đầu ghi nhận phạm vi bản vá ban đầu. Các điều chỉnh th
 - **Chromium sau Closure.** Kiểm Inventory Lots và PR Detail với API thật, fixture PostgreSQL `mini_erp_test` và tài khoản thiếu quyền nguồn. Cả 1366×768 và 1920×1080 hiển thị dữ liệu nghiệp vụ, trường nguồn bị che và không tạo link HĐ. Ảnh ở `docs/screenshots/oa3.3c-closure/`, gồm `01-inventory-lots.png` và `02-pr-detail.png` cùng bản 1920.
 - **Kiểm chứng Closure.** Full API 299/299 (22 suite) trên PostgreSQL mini_erp_test, Web 161/161 (20 suite), API build, Web build và git diff --check đạt. Web build có cảnh báo kích thước chunk. Fixture và Chromium dùng container test độc lập, không dùng Dev DB.
 - **Phạm vi.** Không migration. OA3.4 UI, OA3.5 migration và OA4 eligibility tiếp tục theo kế hoạch.
+
+**Chi tiết OA3.4 — Data Scope UI**
+
+- **Vai trò.** Tab Phân quyền chọn nhiều phạm vi theo `supportedScopes` và hiển thị nhãn tiếng Việt. Cấp quyền mới bắt đầu với tập rỗng, chọn ALL thay thế các phạm vi khác, thiếu scope chặn lưu và nêu mã quyền. Cảnh báo quyền thao tác thiếu VIEW áp dụng khi catalog có VIEW tương ứng. ADMIN giữ grant chỉ đọc. Copy giữ permission và scope, với danh sách người dùng rỗng. Xác nhận lưu nêu mã quyền, phạm vi trước/sau và số người dùng được gán vai trò sau khi lưu. Scope tham gia Dirty Guard và phiên bản được ghim từ khi bắt đầu sửa draft.
+- **Người dùng và Hồ sơ cá nhân.** Phạm vi dữ liệu hiển thị quyền đã lưu theo module catalog, hợp scope cùng permission, Role nguồn, grant thiếu phạm vi và các đơn vị/cây theo membership ACTIVE. Tạo User có thông báo xem quyền sau khi lưu. Khi sửa membership, Role hoặc kho, phần quyền vẫn hiển thị snapshot đã lưu. Warehouse Grant tiếp tục lưu cùng User. Tab Vai trò trong Hồ sơ cá nhân đọc danh sách kho đã cấp.
+- **HĐ và PR.** Chọn Đơn vị chịu trách nhiệm từ membership ACTIVE với mặc định đơn vị chính hoặc đơn vị duy nhất. Không có membership thì để trống và áp dụng quy tắc NULL của API. Sau khi lưu hiển thị chỉ đọc. PR dùng membership của người tạo và giữ quy tắc BA-SCP-11. Web hiển thị lỗi `OWNER_ORG_UNIT_INVALID`, `SALES_CONTRACT_NOT_OWNER`, `SCOPE_WOULD_BE_LOST` và lỗi truy cập theo API.
+- **Điều hướng và action.** Web áp dụng VIEW hiệu lực cho route/menu HĐ và PR. Tab PR của HĐ cần `PR.VIEW` với scope hợp lệ, kết quả lọc tại API. Nút nghiệp vụ trên từng HĐ/PR dùng khả năng thao tác theo scope của chứng từ, giữ kiểm tra nghiệp vụ tại module sở hữu. Khi chi tiết trả 403/404, Web ẩn dữ liệu cache của chứng từ. Các quyết định D04–D07 và ma trận §7.1 tiếp tục áp dụng.
+- **API contract.** `GET /admin/users/:id/effective-access` yêu cầu `USER.VIEW`, trả `grants`, `permissionModules`, `sources`, `orgUnitIds`, `orgTreeIds`, `orgUnits` và `warehouseIds` từ snapshot của scope engine. `grants[code]=null` là quyền không phân scope, `[]` là quyền có phân scope nhưng thiếu cấu hình hợp lệ. `GET /auth/me` thêm `ownerOrgUnits` và lọc permission HĐ/PR thiếu scope với phiên hoạt động bình thường. HĐ List/Detail và PR Detail trả `ownerOrgUnitName` dạng mã · tên và `actionPermissions` theo chứng từ. API ghi Role và chứng từ dùng contract đã có từ OA3.1–OA3.3.
+- **Kiểm chứng.** Full API 300/300 (22 suite) trên PostgreSQL test đã xác minh, Web 162/162 (20 suite), API/Web build và `git diff --check` đạt. Chromium kết nối API thật dùng DB fixture riêng. 28 ảnh trước/sau ở 1366×768 và 1920×1080, kèm ảnh xác nhận lưu Role tại [docs/screenshots/oa3.4](../screenshots/oa3.4/). Các ca bổ sung ở 1366×768 kiểm ADMIN, ALL, chặn thiếu scope, Dirty Guard, xung đột version thật, thu hồi PR.VIEW trong cùng phiên và 0/1/nhiều membership. Regression API kiểm tra lại D04–D07 và C01–C09. Trace xung đột Role lưu cục bộ tại `artifacts/evidence/oa3.4/role-scope-version-conflict.zip`. Fixture chạy ở instance PostgreSQL riêng, Dev DB ngoài phạm vi.
+- **Phạm vi.** Giữ OA3.5 migration, OA4 workflow eligibility và OA5 theo roadmap. Test đồng thời còn ở carryover OA3.5. Web còn cảnh báo kích thước chunk và cảnh báo SSR `:nth-child` từ GridText trên cả hai bản.
+
+**OA3.4 Closure Patch — F01–F05, BA Accepted**
+
+| Finding | Thay đổi |
+|---|---|
+| F01 | Tab Phân quyền giữ accordion/toolbar, dùng hai cột khoảng 55:45, tên quyền chính và mã phụ, scope bằng chip. ADMIN xem trạng thái tĩnh. Giữ ALL, validation, Copy Role và Dirty Guard. |
+| F02 | FormDialog theo COMMON-CONFIRM-001, mã · tên Role, bảng quyền trước/sau và số người dùng được gán sau khi lưu. Số này là số thành viên Role. |
+| F03 | Effective access nhóm theo module, tìm theo tên/mã, lọc quyền scoped hoặc grant thiếu scope. Mỗi quyền mở chi tiết Role và cây đơn vị tương ứng. Giữ snapshot đã lưu và Warehouse Grant của User. |
+| F04 | Chip và tùy chọn dùng chung i18n cho nhãn và diễn giải. ASSIGNED gồm lịch sử phân công PR. Các scope trong cùng quyền hợp theo OR. |
+| F05 | `effective-access` xác minh session/quyền đọc và đọc quyền đích trong cùng snapshot. `/auth/me` dùng một snapshot cho grant, scope và membership. Web làm mới quyền và query HĐ/PR khi bị từ chối. `actionPermissions` phục vụ UI, còn giao dịch ghi kiểm tra lại bằng scope engine và điều kiện nghiệp vụ của module sở hữu. |
+
+- **Contract.** `GET /admin/users/:id/effective-access` thêm `permissionNames` theo mã từ catalog cùng snapshot. Contract `/auth/me`, `ownerOrgUnits`, `actionPermissions` và API ghi giữ nguyên. D04–D07 và §7.1 tiếp tục áp dụng.
+- **Kiểm chứng bản BA Accepted.** Full API 300/300 (22 suite), Web 164/164 (21 suite), build API/Web và `git diff --check` đạt. Lượt chốt chỉ cập nhật tài liệu và kiểm tra diff, dùng lại kết quả regression và build của bản đã nghiệm thu. Chromium dùng API thật và fixture test đã xác minh. Trong cùng phiên, thu hồi một grant vẫn giữ VIEW nhờ Role khác. Khi chỉ còn grant VIEW thiếu scope và quyền CREATE, route PR và tab PR trên HĐ đóng, API đọc PR ngoài scope trả 404. Kiểm tra thêm thay đổi membership, Role inactive và nút lưu PR sau khi mất action scope.
+- **Ảnh.** Tám kịch bản ở 1366×768 và 1920×1080 tại [closure-patch](../screenshots/oa3.4/closure-patch/). Ảnh đối chiếu trước closure trong [oa3.4](../screenshots/oa3.4/). Trace Chromium lưu cục bộ tại `artifacts/evidence/oa3.4/closure-patch/closure-1366.zip`.
+- **Phạm vi.** Giữ UI Đơn vị chịu trách nhiệm và Hồ sơ cá nhân đã duyệt. Cảnh báo bundle tiếp tục theo carryover.
+- **Carryover OA3.5.** Giữ technical debt xác định đúng khóa đang chờ trong các test concurrency HĐ/PR theo ghi chú OA3.3b. Giữ kiểm chứng mapping và migration gồm CLI dry-run, đối chiếu snapshot trước/sau theo §8.3 và rehearsal nâng cấp từ `a476e0c` trên DB test. Kế hoạch áp dụng Dev chờ duyệt.
+
+**Backlog OA5 — Admin UX**
+
+- Tối ưu mật độ hiển thị bảng phân quyền.
+- Thống nhất thứ tự hiển thị scope.
+- Việt hóa các thuật ngữ Data Scope và Grant còn sót.
+- Hiển thị cụ thể số Role thiếu scope trong cảnh báo.
+- Cải thiện cách trình bày chi tiết Role nguồn.
+- Bổ sung số quyền thay đổi phạm vi trong popup xác nhận.
 
 **Quyết định Architect tại OA1.2:** username không phân biệt hoa thường làm ở OA2 kèm preflight dữ liệu trùng; reset mật khẩu đồng thời mở khóa; sai mật khẩu hiện tại không tính vào khóa đăng nhập nhưng có rate limit riêng; mật khẩu 12–256 ký tự; scrypt chạy trong transaction khóa dòng user; `EMPLOYMENT_INACTIVE` thuộc OA2; hồ sơ cá nhân chỉ đọc.
 
@@ -1258,7 +1294,9 @@ Q-01…Q-16 và N-01…N-15 đã đóng (§2.11, §2.12). Không còn câu hỏi
 | Script dọn Activity History Dev/Test (BA-N-14) | Khi dọn dữ liệu, có duyệt |
 | Scope và đơn vị cho PO, kho; bỏ đọc ngầm kho; `SN_HISTORY.VIEW` | Phase nghiệp vụ tương ứng |
 
-## 15. Handover sau OA2.4 (cập nhật OA3.3c)
+## 15. Handover sau OA2.4 (cập nhật OA3.4)
+
+- **OA3.4 và Closure Patch F01–F05 trên `feat/data-scope` — BA Accepted.** Baseline `379f89e`. Full API 300/300, Web 164/164, API/Web build và diff check đạt. Chromium với API thật trên PostgreSQL test ở 1366×768 và 1920×1080. Evidence tại [oa3.4](../screenshots/oa3.4/) và [closure-patch](../screenshots/oa3.4/closure-patch/). Chuyển technical debt concurrency và kiểm chứng migration sang OA3.5, chuyển sáu mục Admin UX sang OA5 theo §11.0.
 
 - **OA3.3c trên `feat/data-scope` từ `8fb1506` — BA Accepted.** BA đã nghiệm thu toàn bộ D04–D07 và C01–C09. Full API 299/299 trên `mini_erp_test`, Web 161/161, API/Web build và diff check đạt. Chromium đạt ở 1366×768 và 1920×1080, gồm bốn ảnh tại `docs/screenshots/oa3.3c-closure/`. Carryover OA3.4 UI, OA3.5 migration và technical debt test concurrency, OA4 workflow eligibility giữ theo kế hoạch.
 

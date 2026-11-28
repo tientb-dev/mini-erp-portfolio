@@ -140,7 +140,8 @@ describe('Document editing (integration)', () => {
   });
 
   it('HĐ DRAFT: edit customer and lines in place, keep number and line ids; ACTIVE is locked (03 §9.1, G10)', async () => {
-    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: adminId, lines: [scLine(5, 'A'), scLine(3, 'B')] }).expect(201)).body.id;
+    const [{ id: salesId }] = await ds.query(`SELECT id FROM users WHERE username = 'sales'`);
+    const sc = (await post(admin, '/sales-contracts', { customerId, responsibleSalesUserId: salesId, lines: [scLine(5, 'A'), scLine(3, 'B')] }).expect(201)).body.id;
     const before = (await get(admin, `/sales-contracts/${sc}`)).body;
     const [a, b] = before.lines;
     const sales = await login(app, 'sales', 'role-users-test');
@@ -148,12 +149,15 @@ describe('Document editing (integration)', () => {
     await patch(pm, `/sales-contracts/${sc}`, { version: before.version, customerId, lines: [scLine(1)] }).expect(403); // PM cannot edit HĐ (04 §2)
 
     // A proposal on line B blocks deleting it (its id is referenced).
+    const actor = (await get(pm, '/auth/me').expect(200)).body.id;
+    await http().put(`/pr-workflow/contracts/${sc}/responsible-pm`).set(as(admin)).send({ userId: actor }).expect(204);
+    before.version += 1;
     await post(pm, `/sales-contract-lines/${b.id}/product-proposals`, { productId: p1, reason: 'x' }).expect(201);
     expect((await patch(sales, `/sales-contracts/${sc}`, { version: before.version, customerId, lines: [{ ...scLine(5, 'A'), id: a.id }] }).expect(409)).body.code)
       .toBe('RECORD_IN_USE');
 
     await patch(sales, `/sales-contracts/${sc}`, {
-      version: before.version, customerId: customer2, responsibleSalesUserId: adminId,
+      version: before.version, customerId: customer2, responsibleSalesUserId: salesId,
       lines: [{ id: a.id, ...scLine(7, 'A2') }, { id: b.id, ...scLine(3, 'B') }, scLine(2, 'C')],
     }).expect(204);
     const after = (await get(admin, `/sales-contracts/${sc}`)).body;
@@ -183,9 +187,10 @@ describe('Document editing (integration)', () => {
     expect(d.lines.map((l: { partNumber: string; uom: string; quantity: string }) => [l.partNumber, l.uom, Number(l.quantity)])).toEqual([['PN-E2', 'BOX', 4], ['PN-E1', 'PCS', 1]]);
     expect(d.approvalStatus).toBe('DRAFT');
 
-    // Only the creator edits; the assigned approver never does (E06).
-    expect((await patch(approver, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(403)).body.code)
-      .toBe('NOT_DOCUMENT_CREATOR');
+    // Only the creator edits; the assigned approver never does (E06). OA3.3b: PR.CREATE scope is checked before the
+    // creator rule, so the approver (ADMIN: C R O T, none matches) is refused on permission.
+    expect((await patch(approver, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(403)).body.detail)
+      .toBe('Missing permission: PR.CREATE');
     await post(admin, `/purchase-requisitions/${pr}/submit`, await prSubmission(ds, pr)).expect(204);
     d = (await get(admin, `/purchase-requisitions/${pr}`)).body;
     expect((await patch(admin, `/purchase-requisitions/${pr}`, { version: d.version, lines: [{ salesContractLineId: lineId, productId: p1, quantity: 1 }] }).expect(409)).body.code)

@@ -3,7 +3,7 @@ import { Stack, TextField, Typography } from '@mui/material';
 import { num } from '../../shared/utils/format';
 import { DocDetail } from './types';
 
-export interface SourceLine { id: number; partNumber: string; productName: string; uom: string; quantity: string; remaining: string; prNumber: string; salesContractNumber?: string }
+export interface SourceLine { id: number; partNumber: string; productName: string; uom: string; quantity: string; remaining: string; prNumber: string | null; salesContractNumber?: string | null }
 
 /** Quantity input bounded by what the source line still allows. */
 function QtyField({ value, max, onChange, label }: { value: string; max: number; onChange: (v: string) => void; label: string }) {
@@ -40,16 +40,22 @@ export const pickedLines = (lines: SourceLine[] | undefined, qty: Record<number,
 export const withinRemaining = (lines: SourceLine[] | undefined, qty: Record<number, string>) => (lines ?? []).every((l) => num(qty[l.id] ?? 0) <= num(l.remaining));
 
 /** Adds existing line ids when editing; edit lines whose source is no longer listed (nothing left) are kept unchanged. */
-export function withEditLines(picked: { sourceLineId: number; quantity: number }[], edit: DocDetail | undefined, listed: SourceLine[] | undefined) {
+export function withEditLines(picked: { sourceLineId: number; quantity: number }[], edit: DocDetail | undefined, listed: SourceLine[] | undefined, qty: Record<number, string> = {}) {
   if (!edit) return picked;
   const ids = new Map(edit.lines.map((l) => [l.sourceLineId, l.id]));
   const shown = new Set((listed ?? []).map((l) => l.id));
   return [
     ...picked.map((p) => ({ ...p, id: ids.get(p.sourceLineId) })),
-    ...edit.lines.filter((l) => !shown.has(l.sourceLineId)).map((l) => ({ id: l.id, sourceLineId: l.sourceLineId, quantity: num(l.quantity) })),
+    ...edit.lines.flatMap<{ id: number; sourceLineId?: number; quantity: number }>(line => {
+      if (line.sourceLineId != null) {
+        return shown.has(line.sourceLineId) ? [] : [{ id: line.id, sourceLineId: line.sourceLineId, quantity: num(line.quantity) }];
+      }
+      const quantity = num(qty[-line.id] ?? line.quantity);
+      return quantity > 0 ? [{ id: line.id, sourceLineId: undefined, quantity }] : [];
+    }),
   ];
 }
-export const editQty = (edit?: DocDetail) => Object.fromEntries((edit?.lines ?? []).map((l) => [l.sourceLineId, String(num(l.quantity))]));
+export const editQty = (edit?: DocDetail) => Object.fromEntries((edit?.lines ?? []).map((l) => [l.sourceLineId ?? -l.id, String(num(l.quantity))]));
 
 export function EditHint({ edit, hint }: { edit?: DocDetail; hint: string }) {
   const { t } = useTranslation();

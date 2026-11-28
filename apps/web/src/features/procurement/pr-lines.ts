@@ -16,7 +16,7 @@ export interface PrLine {
 }
 type CommercialLine = Omit<PrLine, 'key' | 'id'>;
 export function fromSavedPrLine(line: DocLine): PrLine {
-  const saved: Partial<CommercialLine> = line;
+  const saved: Partial<CommercialLine> = { ...line, ref: line.ref ?? undefined };
   return { ...saved, key: 'saved:' + line.id, id: line.id, partNumber: line.partNumber, productName: line.productName,
     requirementDescription: saved.requirementDescription ?? '', uom: line.uom ?? '', quantity: trimDecimal(line.quantity),
     unitPrice: trimDecimal(saved.unitPrice ?? '0'), taxRate: trimDecimal(saved.taxRate ?? ''),
@@ -32,7 +32,7 @@ export function fromPickedProduct(item: PickerProduct, contract: ContractLine[])
 }
 export const decimalInput = (value: string, places: number) => new RegExp(`^\\d+(?:\\.\\d{1,${places}})?$`).test(value);
 export const positiveDecimal = (value: string) => /[1-9]/.test(value);
-export function prLineErrors(line: PrLine, submit: boolean, salesGoods: boolean) {
+export function prLineErrors(line: PrLine, submit: boolean, salesGoods: boolean, sourceHidden = false) {
   const values: Partial<Record<keyof PrLine, string>> = {};
   if (submit && !line.brandId) values.brandId = 'required';
   if (submit && !line.supplierId) values.supplierId = 'required';
@@ -40,6 +40,6 @@ export function prLineErrors(line: PrLine, submit: boolean, salesGoods: boolean)
   if (!decimalInput(line.quantity, 3) || !positiveDecimal(line.quantity) || line.quantity.split('.')[0].replace(/^0+/, '').length > 15) values.quantity = 'badQuantity';
   if (!decimalInput(line.unitPrice, 4) || line.unitPrice.length > 1000 || (submit && !positiveDecimal(line.unitPrice))) values.unitPrice = submit ? 'positivePrice' : 'badPrice';
   if (submit && !line.taxRateId) values.taxRateId = 'required';
-  if (submit && salesGoods && !line.salesContractLineId) values.salesContractLineId = 'required';
+  if (submit && salesGoods && !line.salesContractLineId && !(sourceHidden && line.id)) values.salesContractLineId = 'required';
   return values;
 }

@@ -104,7 +104,7 @@ function ScListView() {
   columns.push({
     field: 'actions', headerName: t('common.actions'), width: 88, sortable: false, align: 'right', headerAlign: 'right',
     renderCell: (p) => (
-      <ScRowMenu row={p.row} canManage={manage} onAction={(a) => {
+      <ScRowMenu row={p.row} canManage={manage && Boolean(p.row.actionPermissions?.includes('SALES_CONTRACT.CREATE'))} onAction={(a) => {
         if (a === 'view') navigate(toDetail(p.row.id));
         else if (a === 'edit') setEditing(p.row);
         else setStatusAction({ row: p.row, kind: a });
@@ -130,7 +130,7 @@ function ScListView() {
       breadcrumbs={<PageBreadcrumbs items={[{ label: t('common.home'), to: '/' }, { label: t('nav.sales') }, { label: t('nav.salesContracts') }]} />}
       actions={manage && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>{t('sc.create')}</Button>}>
       <DataTable
-        fill rows={list.data?.items ?? []} rowCount={list.data?.total ?? 0} columns={columns} loading={list.isFetching || list.isPlaceholderData} error={list.error} emptyHint={t('sc.empty')}
+        fill rows={list.error ? [] : list.data?.items ?? []} rowCount={list.error ? 0 : list.data?.total ?? 0} columns={columns} loading={list.isFetching || list.isPlaceholderData} error={list.error} emptyHint={t('sc.empty')}
         paginationMode="server" sortingMode="server" disableColumnFilter
         paginationModel={paginationModel}
         onPaginationModelChange={(m) => update({ page: m.page + 1, pageSize: m.pageSize === PAGE_SIZE ? null : m.pageSize, ...(m.pageSize !== pageSize && { page: null }) })}

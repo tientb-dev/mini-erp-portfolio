@@ -8,7 +8,7 @@ import { DossierConfigurationRoute } from '../../features/document-dossier';
 import { PrNotifications } from '../../features/procurement';
 import { AccountMenu, useMe } from '../../features/identity';
 import { NavContext, pagePath } from '../../shared/navigation';
-import { DETAIL_ALSO, NAV, PAGE_CREATE, PageKey, PAGES } from '../routes';
+import { NAV, PAGE_CREATE, PageKey, PAGES } from '../routes';
 import { SideNav } from './SideNav';
 
 const pageOf = (path?: string) => (Object.keys(PAGES) as PageKey[]).find((k) => pagePath(k) === `/${path}`) ?? null;
@@ -18,8 +18,7 @@ function PageRoute({ allowed, has }: { allowed: (k: PageKey) => boolean; has: (p
   const { t } = useTranslation();
   const { page: path, id } = useParams();
   const page = pageOf(path);
-  const viaDetail = Boolean(page && id && DETAIL_ALSO[page] && has(DETAIL_ALSO[page]!));
-  if (!page || !(allowed(page) || viaDetail)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
+  if (!page || !allowed(page)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
   const creating = id === 'new' && PAGE_CREATE[page] && has(PAGE_CREATE[page]);
   if (id && !creating && !/^[1-9]\d*$/.test(id)) return <Typography color="text.secondary">{t('common.notFound')}</Typography>;
   const Page = PAGES[page][0];
@@ -31,8 +30,7 @@ export function AppShell({ onLogout, onPasswordChanged }: { onLogout: () => void
   const me = useMe();
   const navigate = useNavigate();
   const active = pageOf(useLocation().pathname.split('/')[1]);
-  const allowed = (k: PageKey) => Boolean(me.data?.permissions.includes(PAGES[k][1])
-    || (k === 'purchaseRequisitions' && me.data?.permissions.some(permission => ['PR.CREATE', 'PR.APPROVE', 'PR.RECEIVE'].includes(permission))));
+  const allowed = (k: PageKey) => Boolean(me.data?.permissions.includes(PAGES[k][1]));
   const [mobileOpen, setMobileOpen] = useState(false);
   const desktop = useMediaQuery('(min-width:900px)');
   const first = NAV.flatMap((g) => g.items).find(allowed);

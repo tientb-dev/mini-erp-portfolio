@@ -17,6 +17,7 @@ interface Profile {
   username: string | null; accountStatus: 'ACTIVE' | 'INACTIVE' | 'LOCKED' | 'NONE'; version: number; primaryOrgUnit: Ref | null; primaryJobTitle: Ref | null;
   memberships: { orgUnit: Ref; jobTitle: Ref; isPrimary: boolean; manager: Person | null; isHead: boolean; startedAt: string }[];
   roles: (Ref & { isActive: boolean })[];
+  warehouses?: Ref[];
 }
 type Field = 'email' | 'phone';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -114,11 +115,17 @@ export function ProfileDialog({ onClose }: { onClose: () => void }) {
                 </Box> : <Typography variant="body2" color="text.secondary">{t('users.noMemberships')}</Typography>}
               </DocumentFormCell>
             </DocumentFormGrid> },
-            { key: 'roles', label: t('users.tabRoles'), content: p.roles.length
+            { key: 'roles', label: t('users.tabRoles'), content: <Stack spacing={2}>
+              {p.roles.length
               ? <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
                   {p.roles.map(r => <Chip key={r.id} size="small" variant="outlined" label={r.isActive ? ref(r) : `${ref(r)} (${t('common.inactive')})`} />)}
                 </Stack>
-              : <Typography variant="body2" color="text.secondary">{t('users.no_roles')}</Typography> },
+              : <Typography variant="body2" color="text.secondary">{t('users.no_roles')}</Typography>}
+              <Typography variant="subtitle2">{t('scope.warehouse')}</Typography>
+              {p.warehouses?.length ? <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
+                {p.warehouses.map(warehouse => <Chip key={warehouse.id} size="small" variant="outlined" label={ref(warehouse)} />)}
+              </Stack> : <Typography variant="body2" color="text.secondary">{t('users.no_warehouses')}</Typography>}
+            </Stack> },
           ]} />
         </Stack>}
       </FormDialog>

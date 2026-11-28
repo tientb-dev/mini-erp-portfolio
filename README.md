@@ -38,14 +38,13 @@ cp .env.example .env          # adjust secrets/ports if needed
 pnpm install
 pnpm db:up                    # PostgreSQL on 127.0.0.1:5442 (+ mini_erp_test database)
 pnpm migrate                  # TypeORM migrations
-pnpm seed                     # admin + approver (ADMIN), business roles + users sales/pm/purchaser/warehouse (SEED_ROLE_USERS_PASSWORD), PCS UoM, HCM warehouse
-pnpm seed:demo                # optional shortcut; the whole HĐ → PR → PO → GRR → GR → GIR → GI chain can now be done in the UI
+pnpm seed                     # bootstrap ADMIN, default business roles, PCS UoM and HCM warehouse
 pnpm dev:api                  # http://localhost:3100 (OpenAPI UI: /docs)
 pnpm dev:web                  # http://localhost:5180 — sign in with SEED_ADMIN_USERNAME / SEED_ADMIN_PASSWORD
 pnpm test                     # API: Jest (unit + integration on mini_erp_test), Web: Vitest
 ```
 
-`pnpm seed:demo` needs the PR candidate pools configured first: with an account holding `PR.CONFIGURE`, set the `SALES` route to a user with `PR.APPROVE` and the `RECEIPT` route to a user with `PR.RECEIVE` (`PUT /pr-workflow/routes/SALES` and `/RECEIPT`, body `{ "userIds": [id] }`). Without them the script stops with "Configure the SALES and RECEIPT candidate pools". It never relaxes data rules or creates the pools itself.
+For browser fixtures, set `DATABASE_URL` to the verified local `mini_erp_test`. Run `pnpm --filter api seed --fixture-users`, configure the SALES and RECEIPT candidate pools with eligible users, then run `pnpm seed:demo`. Run browser fixtures and API regression sequentially because regression recreates the Test schema. [Clean Reset runbook](docs/runbooks/oa3-migration-deployment.md)
 
 ## Repository layout
 ```

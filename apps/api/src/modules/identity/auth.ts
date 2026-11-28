@@ -10,6 +10,7 @@ import { Request } from 'express';
 import { DataSource } from 'typeorm';
 import { BusinessError } from '../workflow/workflow';
 import { AccountSecurityService, PASSWORD_MAX_LENGTH } from './account-security';
+import { loadDataScope } from './data-scope';
 import { loadGrants } from './authorization';
 
 /** Resolved on every request; permissions and warehouse scope come from the DB, not the token. */
@@ -110,7 +111,7 @@ class VersionDto {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly accounts: AccountSecurityService) {}
+  constructor(private readonly accounts: AccountSecurityService, private readonly ds: DataSource) {}
 
   @Public()
   @Post('login')
@@ -122,9 +123,19 @@ export class AuthController {
   @ApiBearerAuth()
   @AllowedBeforePasswordChange()
   @Get('me')
-  me(@Req() req: AuthedRequest): Omit<CurrentUser, 'sessionId'> {
-    const { sessionId: _sid, ...me } = req.user;
-    return me;
+  async me(@Req() req: AuthedRequest) {
+    return this.ds.transaction('REPEATABLE READ', async m => {
+      const me = await loadGrants(m, req.user.id, req.user.sessionId);
+      if (!me) throw new UnauthorizedException();
+      if (me.mustChangePassword) return me;
+      const scope = await loadDataScope(m, me.id, false, true);
+      const permissions = me.permissions.filter(code => {
+        if (!code.startsWith('PR.') && !code.startsWith('SALES_CONTRACT.')) return true;
+        const scopes = scope.grants[code];
+        return scopes === null || Boolean(scopes?.length);
+      });
+      return { ...me, permissions, ownerOrgUnits: scope.orgUnits?.filter(unit => scope.orgUnitIds.includes(unit.id)) ?? [] };
+    });
   }
 
   @ApiBearerAuth()

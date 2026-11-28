@@ -20,6 +20,21 @@ const renderApp = () => render(<QueryClientProvider client={new QueryClient({ de
 afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); });
 
 describe('Authentication state', () => {
+  it('rechecks permissions after a scoped write returns not found', async () => {
+    token.set('t1');
+    serve({ '/purchase-requisitions/7': () => json(404, { code: 'NOT_FOUND' }) });
+    const denied = vi.fn();
+    window.addEventListener(PERMISSION_DENIED, denied);
+    try {
+      await expect(api('/purchase-requisitions/7', { method: 'PATCH' })).rejects.toMatchObject({ status: 404 });
+      expect(denied).toHaveBeenCalledOnce();
+      await expect(api('/purchase-requisitions/7')).rejects.toMatchObject({ status: 404 });
+      expect(denied).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener(PERMISSION_DENIED, denied);
+    }
+  });
+
   it('a refresh during a required password change shows only that screen', async () => {
     token.set('t1');
     serve({ '/auth/me': () => json(200, forcedMe) });

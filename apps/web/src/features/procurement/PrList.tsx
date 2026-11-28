@@ -97,8 +97,8 @@ export function PrList() {
         </Stack>
       </Stack>
     </FilterToolbar>}>
-    <DataTable rows={invalid ? [] : list.data?.items ?? []} columns={columns} loading={list.isFetching || q !== delayed}
-      maxHeight="clamp(320px, calc(100dvh - 270px), 760px)" rowCount={invalid ? 0 : list.data?.total ?? 0}
+    <DataTable rows={invalid || list.error ? [] : list.data?.items ?? []} columns={columns} loading={list.isFetching || q !== delayed}
+      maxHeight="clamp(320px, calc(100dvh - 270px), 760px)" rowCount={invalid || list.error ? 0 : list.data?.total ?? 0} emptyHint={t('pr.empty')}
       paginationMode="server" sortingMode="server" sortingOrder={['asc', 'desc']} paginationModel={paginationModel}
       sortModel={sortModel}
       onSortModelChange={model => update({ sort: model[0]?.field ?? '', direction: model[0]?.sort ?? '' })}

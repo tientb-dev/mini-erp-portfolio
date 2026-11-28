@@ -21,14 +21,18 @@ class ScLineDto extends LineFieldsDto {
 class SaveLineDto extends LineFieldsDto {
   @ApiProperty() @IsInt() version!: number;
 }
-class CreateScDto {
+class ScHeaderDto {
   @ApiProperty() @IsInt() customerId!: number;
   @ApiPropertyOptional({ nullable: true, description: 'Responsible sales; required before activation, editable only while DRAFT. On PATCH: omit to keep, null to clear' })
   @IsOptional() @IsInt() responsibleSalesUserId?: number | null;
   @ApiPropertyOptional({ type: [ScLineDto], description: 'Optional: a DRAFT may start without lines. On PATCH: omit to keep the lines' })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ScLineDto) lines?: ScLineDto[];
 }
-class UpdateScDto extends CreateScDto {
+class CreateScDto extends ScHeaderDto {
+  @ApiPropertyOptional({ nullable: true, description: "Owner unit (one of the creator's ACTIVE memberships); omit for the primary unit. Immutable after creation" })
+  @IsOptional() @IsInt() ownerOrgUnitId?: number | null;
+}
+class UpdateScDto extends ScHeaderDto {
   @ApiProperty() @IsInt() version!: number;
 }
 class ScListQueryDto {
@@ -57,14 +61,14 @@ export class SalesContractsController {
 
   @Get('sales-contracts')
   @RequirePermissions('SALES_CONTRACT.VIEW')
-  list(@Query() query: ScListQueryDto) {
-    return this.svc.list(query);
+  list(@Req() req: AuthedRequest, @Query() query: ScListQueryDto) {
+    return this.svc.list(req.user, query);
   }
 
   @Post('sales-contracts')
   @RequirePermissions('SALES_CONTRACT.CREATE')
   create(@Req() req: AuthedRequest, @Body() dto: CreateScDto) {
-    return this.svc.create(req.user, dto.customerId, dto.responsibleSalesUserId ?? null, dto.lines ?? []);
+    return this.svc.create(req.user, dto.customerId, dto.responsibleSalesUserId ?? null, dto.lines ?? [], dto.ownerOrgUnitId);
   }
 
   @Post('sales-contracts/:id/lines')
@@ -103,27 +107,27 @@ export class SalesContractsController {
   @Post('sales-contracts/:id/activate')
   @HttpCode(204)
   @RequirePermissions('SALES_CONTRACT.CREATE')
-  activate(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.activate(id);
+  activate(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.activate(req.user, id);
   }
 
   @Get('sales-contracts/:id')
   @RequirePermissions('SALES_CONTRACT.VIEW')
-  get(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.get(id);
+  get(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.get(req.user, id);
   }
 
   @Post('sales-contracts/:id/cancel')
   @HttpCode(204)
   @RequirePermissions('SALES_CONTRACT.CREATE')
-  cancel(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.cancel(id);
+  cancel(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.cancel(req.user, id);
   }
 
   @Get('sales-contracts/:id/lines')
   @RequirePermissions('SALES_CONTRACT.VIEW')
-  lines(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.lines(id);
+  lines(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.svc.lines(req.user, id);
   }
 
   @Post('sales-contract-lines/:id/product-proposals')

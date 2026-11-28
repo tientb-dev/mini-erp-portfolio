@@ -1,8 +1,8 @@
 # Mini ERP MVP — Phân quyền, duyệt và thông báo
-**Trạng thái:** MVP baseline (2026-11-13). Thay đổi tiếp theo phải ghi nhận qua ADR/OPEN-QUESTIONS.
+**Trạng thái.** Toàn bộ OA3 đã được BA nghiệm thu. OA3.5 Final Closure áp dụng Clean Reset. Kho và PO giữ quy tắc quyền hiện hành theo phase.
 
 ## 1. Nguyên tắc
-> Organization & Authorization (OA) thay đổi nguyên tắc VIEW toàn cục và phân quyền theo đơn vị: xem [ADR-0018](architecture/decisions/ADR-0018-organization-authorization.md) và [đặc tả](architecture/ORGANIZATION-AUTHORIZATION.md). Bảng dưới đây mô tả baseline; cập nhật theo từng phase OA khi triển khai. Theo Common Authorization Standard, các ngoại lệ "người tạo luôn xem", đọc PR của Sales phụ trách (ADR-0014) và đọc ngầm theo quyền thao tác sẽ bị bỏ.
+> Hợp đồng bán (HĐ) và PR dùng Common Authorization Standard và ma trận grant OA3 §7.1. [ADR-0018](architecture/decisions/ADR-0018-organization-authorization.md) · [Đặc tả](architecture/ORGANIZATION-AUTHORIZATION.md)
 
 - Ưu tiên workflow thông suốt; không phân quyền chi nhánh/phòng ban phức tạp.
 - **User → Role → Permission** kết hợp danh sách kho được phép (`user_warehouses`). Không có role khác nhau theo từng kho.
@@ -13,22 +13,28 @@
 - Người tạo quản lý chứng từ của mình (tạo, sửa Nháp/Bị từ chối, Gửi duyệt, Thu hồi, Hủy khi đủ điều kiện).
 - Ngoại lệ: người được cấp quyền **khai báo chi tiết GR** tại kho có thể sửa chi tiết GR Nháp/Bị từ chối dù không phải người tạo; chỉ người tạo Gửi duyệt/Thu hồi/Hủy.
 - Thu hồi GR Đã duyệt và Hủy GR do người tạo thực hiện, trong phạm vi kho, khi thỏa điều kiện 03 §2.1–2.2; người duyệt trước đó nhận thông báo kèm lý do (mục 5); không có người nhận thông báo bổ sung.
-- Quyền xem đầy đủ chứng từ theo loại (+ kho với chứng từ kho), độc lập quyền duyệt; người tạo luôn xem được chứng từ của mình.
+- HĐ/PR cần VIEW và ít nhất một scope khớp trong chính permission VIEW. Quyền xem chứng từ kho tiếp tục theo quy tắc kho hiện hành.
 - Quyền xem tồn kho theo kho trong `user_warehouses`. Người xử lý GI không có quyền xem tồn đầy đủ vẫn có thể thấy số khả dụng và SN đủ điều kiện phục vụ phiếu.
-- Người dùng phải thấy được chứng từ cần mình xử lý; khi không đủ quyền thao tác, UI nêu lý do rõ ràng.
+- HĐ/PR kiểm riêng quyền đọc, permission và scope thao tác, cùng điều kiện nghiệp vụ. ADMIN dùng grant canonical và đi qua các kiểm tra nghiệp vụ. Cây tổ chức và lịch sử phân công không cấp permission.
 
 ## 2. Vai trò nghiệp vụ chính
 | Vai trò | Trách nhiệm |
 |---|---|
-| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ; chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT` (hiện dùng `SALES_CONTRACT.CREATE`; khóa từ `ACTIVE`, CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`; xem HĐ theo quyền VIEW (hiện chưa lọc theo khách hàng); **xem (chỉ xem) PR của HĐ mình là Sales phụ trách** dù không có `PR.VIEW` (ADR-0014); xác nhận/từ chối Product được phép giao cho dòng HĐ |
+| Sales | Tạo, sửa, chốt (`ACTIVE`), hủy HĐ theo `SALES_CONTRACT.CREATE` và scope. Chỉ định/đổi **Sales phụ trách HĐ** khi HĐ `DRAFT`, khóa từ `ACTIVE` (CT17). Người được chỉ định phải đang hoạt động và có `SALES_CONTRACT.CREATE`. Xem HĐ theo VIEW và scope hiệu lực. Ma trận khởi tạo cấp `PR.VIEW` với CREATOR, RESPONSIBLE, ASSIGNED. Xác nhận/từ chối Product được phép giao theo quy tắc dòng HĐ. |
 | Người phụ trách nguồn hàng | Sales phụ trách HĐ nguồn, ghi trên lô khi duyệt GR và bất biến (CT15, CT17); MVP không chuyển giao tồn giữa Sales. Bước 1 (đồng ý) của GIR `AVAILABLE_STOCK` lấy hàng thuộc mình; có thể khác Sales của HĐ nhận hàng |
 | PM | Tạo GIR; đề xuất Product thay thế cho dòng HĐ kèm lý do; không tự xác nhận thay Sales |
 | Quản lý kho | Phụ trách GI; duyệt GIR (bước cuối với `AVAILABLE_STOCK`); "Xác nhận hoàn thành xuất" GIR |
 Phân công duyệt các loại chứng từ khác giữ nguyên theo tài liệu này. Dòng hàng bán / dòng vật tư và bốn luồng GIR (ADR-0012) không thêm bước duyệt mới; quyền tạo/sửa/duyệt PR, GIR và phạm vi kho áp dụng như nhau cho hai loại dòng. Người được giao bước 1 của GIR `AVAILABLE_STOCK` phải là người phụ trách nguồn hàng của GIR đó (kiểm tra ở mức dữ liệu như §3); mã quyền `GIR.SALES_CONFIRM`; hệ thống chỉ cho giao bước 1 cho Sales nguồn ghi trên GIR (CT7, IM30).
 
-### HĐ bán · Phase 5.2.3
+### Scope HĐ và PR
 
-Action Permission độc lập với Data Scope. Backend kiểm permission, scope và trạng thái. Cây tổ chức không cấp quyền và implementation không hardcode role/phòng ban. BA chưa chốt việc tách Tạo/Sửa/Chốt/Hủy và phạm vi dữ liệu cụ thể của HĐ. Quyền đề xuất/xác nhận mã giao trong bảng vai trò là hành vi legacy của baseline và nằm trong danh sách loại bỏ khi triển khai HĐ mới. Tạo PR từ HĐ tiếp tục theo quyền, scope PR và HĐ ACTIVE.
+Hợp scope giữa các Role đang hoạt động theo từng permission. Grant có permission phân scope mà thiếu scope bị từ chối ở grant đó. CREATE kiểm trạng thái dự kiến gồm người tạo, người phụ trách và owner hợp lệ. HĐ và PR giữ owner đã lưu lúc tạo. Người tạo không có membership có thể tạo chứng từ với owner NULL nếu các điều kiện scope khác khớp. ORG_UNIT dùng membership trực tiếp và ORG_UNIT_TREE bao gồm các đơn vị con.
+
+PR cần VIEW riêng cho danh sách, chi tiết, dòng, hồ sơ, ghi chú, lịch sử và thông báo. ASSIGNED có hiệu lực đọc cho lịch sử phân công, kể cả sau reassign hoặc vòng đã thu hồi. Duyệt và Tiếp nhận cần phân công ở bước hiện tại, eligibility và scope hành động. Quyền đọc HĐ được đánh giá độc lập khi lấy dữ liệu khách hàng cho PR.
+
+Picker và lưu nguồn mới kiểm quyền nguồn. Tham chiếu được che theo D04–D07 ở các đường đọc liên quan. Inventory giữ lô theo `INVENTORY.VIEW` và kho. D04 che ID/mã HĐ và ID/tên Sales nguồn khi HĐ bị ẩn. D07 áp dụng Sales nguồn đủ eligibility cho bước đầu GIR B/D.
+
+Dev khởi tạo catalog và ADMIN qua migration, sau đó seed theo ma trận §7.1. Seed chỉ tạo Role còn thiếu và giữ cấu hình quản trị đã lưu. Fixture quyền nằm trên Test. [Runbook Clean Reset](runbooks/oa3-migration-deployment.md)
 
 ## 3. Người duyệt mặc định
 
@@ -47,8 +53,8 @@ Danh mục hãng, mã tạm, tiền tệ và thuế dùng `PRODUCT.VIEW` để �
 ## 4. Danh sách
 - **Chờ tôi duyệt:** chứng từ Chờ duyệt (ở bước hiện tại) mà người dùng là người được giao duyệt và không phải người tạo.
 - **Chứng từ của tôi:** tất cả chứng từ do người dùng tạo.
-- Người xem chứng từ cha được thấy tóm tắt chứng từ con (mã, trạng thái, số lượng/tiến độ), nhưng mở toàn bộ con cần quyền xem hoặc là người tạo.
-- Thông tin tên/mã khách hàng trên liên kết được phép hiển thị mà không đồng nghĩa quyền mở PR/HĐ đầy đủ.
+- Với HĐ/PR, danh sách con, tổng và chi tiết áp dụng VIEW + scope của chứng từ con. Các chứng từ legacy còn lại theo quy tắc phân hệ.
+- PR chỉ hiện dữ liệu khách hàng của HĐ nguồn khi người xem cũng có VIEW và scope khớp HĐ đó.
 
 ## 5. SN và GR
 - Người khai báo kho xem chi tiết GR trong kho ở mọi trạng thái, chỉ chỉnh chi tiết Nháp/Bị từ chối.

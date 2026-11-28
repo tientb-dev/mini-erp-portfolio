@@ -197,7 +197,7 @@ describe('User management OA2.3b: memberships, roles, warehouses, atomic save (P
       // From the Role screen: the user's version moves and the user's history records it.
       const role = (await get(admin, `/admin/roles/${salesRole}`).expect(200)).body;
       await http().put(`/admin/roles/${salesRole}`).set(bearer(admin)).send({ name: role.name, description: role.description,
-        permissions: role.permissions, userIds: [...role.users.map((u: any) => u.id), e.id], version: role.version }).expect(204);
+        permissions: role.permissions, scopes: role.scopes, userIds: [...role.users.map((u: any) => u.id), e.id], version: role.version }).expect(204);
       expect(await ver(e.id)).toBe(4);
       expect((await userEvents(e.id)).filter(x => x.action.startsWith('ROLES_')).map(x => [x.action, x.metadata.roles[0].id]))
         .toEqual([['ROLES_ADDED', salesRole], ['ROLES_REMOVED', salesRole], ['ROLES_ADDED', salesRole]]);
@@ -337,7 +337,7 @@ describe('User management OA2.3b: memberships, roles, warehouses, atomic save (P
         const results = await Promise.all([
           save(admin, e.id, { roleIds: [salesRole], memberships: [member(a, t)], warehouseIds: [warehouse] }),
           http().put(`/admin/roles/${salesRole}`).set(bearer(admin)).send({ name: role.name, description: role.description,
-            permissions: role.permissions, userIds: [...role.users.map((u: any) => u.id), e.id], version: role.version }),
+            permissions: role.permissions, scopes: role.scopes, userIds: [...role.users.map((u: any) => u.id), e.id], version: role.version }),
           titleStatus(admin, t, false),
           unitStatus(admin, a, false),
         ]);
@@ -379,7 +379,10 @@ describe('User management OA2.3b: memberships, roles, warehouses, atomic save (P
 
     it('creates org_memberships, refuses down() once history exists, and reverts cleanly otherwise', async () => {
       await ds.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE; CREATE SCHEMA ${schema}`);
-      const db = new DataSource({ ...dataSourceOptions(), extra: { options: `-c search_path=${schema}` } } as never);
+      // Stops at OA2.3b so undoLastMigration reverts org_memberships (later migrations are tested on their own).
+      const all = dataSourceOptions().migrations as Function[];
+      const db = new DataSource({ ...dataSourceOptions(), migrations: all.slice(0, all.findIndex(mig => mig.name === 'OrgMemberships1733961600000') + 1),
+        extra: { options: `-c search_path=${schema}` } } as never);
       await db.initialize();
       try {
         await db.runMigrations();

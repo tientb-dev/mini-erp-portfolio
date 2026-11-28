@@ -6,7 +6,7 @@
 2. Sales chốt HĐ: `DRAFT` → `ACTIVE`. Không có workflow phê duyệt HĐ. HĐ `ACTIVE` khóa nội dung nghiệp vụ.
 3. Chỉ HĐ `ACTIVE` được tham chiếu khi tạo PR/GIR.
 4. HĐ ghi nhận nhu cầu theo hợp đồng thực tế. PR chọn mã nội bộ và liên kết dòng HĐ bằng ID. Chứng từ sau kế thừa liên kết nguồn. Định hướng ĐNXK là PM đối chiếu mã thực tế trong kho với mã theo HĐ, chi tiết thuộc phase downstream.
-5. Hủy HĐ chỉ từ `DRAFT` sang `CANCELED`, có lý do và ghi lịch sử (03 §9).
+5. Hủy HĐ từ `DRAFT` hoặc `ACTIVE` sang `CANCELED` khi có VIEW và CREATE khớp scope và không có PR/GIR chưa hủy tham chiếu. Với `DRAFT`, người thao tác phải là người tạo hoặc Sales phụ trách. Xem 03 §9.1 và OA3.3a F01.
 
 ## A. HĐ → PR → PO → GRR → GR
 1. HĐ `ACTIVE` là nguồn của PR (xem §0). Sales hoặc PM phụ trách HĐ tạo PR, trưởng bộ phận tương ứng phê duyệt và người tiếp nhận được phân công xác nhận để PR hoàn tất (ADR-0015).

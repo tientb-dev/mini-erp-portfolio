@@ -70,12 +70,6 @@ export const PAGE_CREATE: Partial<Record<PageKey, string>> = {
   taxRates: 'PROCUREMENT_CATALOG.MANAGE', dossierTypes: 'DOSSIER_TYPE.MANAGE', roles: 'ROLE.MANAGE', jobTitles: 'ORGANIZATION.MANAGE', users: 'USER.MANAGE',
 };
 
-/**
- * A document URL (`/<page>/<id>`) a user without the page's VIEW may still open; the API applies the narrower scope
- * (ADR-0014: the responsible sales reads the PRs of their contracts). The list page stays hidden.
- */
-export const DETAIL_ALSO: Partial<Record<PageKey, string>> = { purchaseRequisitions: 'SALES_CONTRACT.VIEW' };
-
 /** Sidebar groups (parent → children) follow business modules. */
 export const NAV: { group: string; icon: SvgIconComponent; items: PageKey[] }[] = [
   { group: 'nav.sales', icon: WorkOutline, items: ['salesContracts'] },

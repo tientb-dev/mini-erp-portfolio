@@ -9,6 +9,7 @@ import { BusinessError } from '../workflow/workflow';
 import { Actor, lockActor } from '../identity/account-security';
 import { AuthedRequest, RequirePermissions } from '../identity/auth';
 import { lockOrgTree } from './memberships';
+import { lockGrantsExclusive } from '../identity/authorization';
 
 class OrgUnitInput {
   @ApiProperty() @IsString() @Matches(/\S/) @MaxLength(200) name!: string;
@@ -37,9 +38,8 @@ const ref = (u?: UnitRef | null) => (u ? { id: u.id, code: u.code, name: u.name 
 
 /**
  * Organization units (OA2.2, ADR-0018 §4.3, BA-ORG-01/09, BA-UI-02): a tree of any depth, no hard delete.
- * Lock order: lockActor (gate `grants` shared → actor users row) → advisory `org-tree` → org_units rows. Every write takes
- * `org-tree`, so cycle and active-children checks see a stable tree; OA2.3 membership writes take it after users rows too.
- * Units never grant permissions (BA-ORG-08), so no write takes the gate exclusive.
+ * Lock order: grants exclusive → lockActor/users row → org-tree → org_units rows.
+ * Unit writes can change scope evaluation, so the gate is held through commit (BA-ORG-08, OA3.2).
  */
 @Injectable()
 export class OrgUnitAdminService {
@@ -81,7 +81,7 @@ export class OrgUnitAdminService {
   /** Name, description and parent; the code is immutable (reference for imports, reports and data scope). */
   async update(actor: Actor, id: number, input: UpdateOrgUnitInput) {
     await this.ds.transaction(async m => {
-      // The new head's users row is locked before org-tree (lock graph), so their deactivation cannot race (BA-N-06).
+      // The new head's users row is locked before org-tree (BA-N-06).
       const lockedUsers = await this.lockTree(m, actor, input.headUserId ? [input.headUserId] : []);
       const row = await this.lock(m, id, input.version);
       const parentId = input.parentId ?? null;
@@ -157,6 +157,9 @@ export class OrgUnitAdminService {
   }
 
   private async lockTree(m: EntityManager, actor: Actor, userIds: number[] = []) {
+    // OA3.2 F01: every unit write can change orgTreeIds (a child created under a member's unit, a parent move) or the
+    // tree a reader just loaded, so the gate is exclusive before any row; lockActor's shared request is then a no-op.
+    await lockGrantsExclusive(m);
     const rows = await lockActor(m, actor, MANAGE, userIds, 'SHARE');
     await lockOrgTree(m);
     return rows;

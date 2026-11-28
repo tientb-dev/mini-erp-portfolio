@@ -1,6 +1,6 @@
 # ADR-0018: Organization & Authorization
 
-- **Trạng thái:** Đã chấp nhận — 2026-11-27 (OA0 hoàn thành). Kiến trúc đã duyệt; chức năng chưa triển khai, hiện thực từ OA1.
+- **Trạng thái.** Kiến trúc được chấp nhận ngày 27/11/2026. OA0–OA3 đã được BA nghiệm thu. OA3.5 Final Closure áp dụng Clean Reset theo quyết định BA.
 - **Một phần thay thế:** [ADR-0006](ADR-0006-permission-model.md) (VIEW toàn cục, "không phân quyền phòng ban", "người tạo luôn xem chứng từ của mình")
 - **Thay thế:** [ADR-0014](ADR-0014-scoped-pr-read-for-responsible-sales.md) (đọc PR ngầm của Sales phụ trách)
 - **Sửa đổi:** [ADR-0015](ADR-0015-purchase-requisition-workflow.md), gồm pool Role + User và bỏ đọc PR ngầm theo quyền thao tác. Quy tắc workflow và Reassign giữ nguyên.
@@ -34,7 +34,7 @@
    - Phiên lưu trong `user_sessions`: logout thu hồi phiên hiện tại; đổi/reset mật khẩu hoặc vô hiệu hóa thì thu hồi toàn bộ, kể cả phiên hiện tại, không cấp token mới. Token cũ không sống lại khi kích hoạt lại tài khoản. Rate limit đăng nhập và kiểm tra mật khẩu hiện tại bổ trợ cho khóa tài khoản; đăng nhập thất bại với username không tồn tại ghi vào `auth_events` append-only.
 7. **Nhóm ứng viên** Role + User có ID số, dùng cho 5 nhóm. Có permission không đồng nghĩa là ứng viên. Ứng viên trên chứng từ cần thêm quyền đọc và quyền xử lý khớp scope, đánh giá trên trạng thái dự kiến sau phân công.
 8. **Authorization tập trung** (`modules/identity/authorization.ts`, module hàm, không phải Nest provider) nhận `EntityManager` của transaction. Có `v_user_grants` cho đường đọc, `grantRole(..., lock)` (`FOR SHARE` trên bảng gốc) giữ live grant check của PR. Role ADMIN được bảo vệ bằng trigger DB. Bảo vệ Admin cuối cùng có mặt ngay từ phase đầu tiên có API thay đổi trạng thái hoặc quyền của Admin. Thao tác thu hồi grant lấy advisory lock `grants` exclusive, kiểm tra quyền trực tiếp lấy shared, theo thứ tự admin-guard → grants → users → roles → grant rows.
-9. **Legacy:** ưu tiên đúng thiết kế mới. Được dọn chứng từ thử nghiệm sau khi backup và được duyệt. Không backfill hay compatibility layer. Snapshot quyền phân loại khác biệt "đã duyệt" và "ngoài dự kiến".
+9. **Clean Reset.** Dev/Test có thể reset cùng storage sau khi BA duyệt và xác minh đích. Ưu tiên một kiến trúc đích. Seed theo ma trận §7.1 và giữ cấu hình Role đã lưu khi chạy lại. Fixture giới hạn ở Test. Migration, rollback, transaction, audit và ràng buộc toàn vẹn vẫn áp dụng. [Runbook Clean Reset](../../runbooks/oa3-migration-deployment.md)
 10. **Không xây:** Rule Engine, Workflow Engine động, Field-level Permission, MFA, SSO, HRM, microservices.
 
 ## Hệ quả

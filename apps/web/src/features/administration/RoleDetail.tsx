@@ -3,8 +3,8 @@ import { UNSAFE_DataRouterContext, useLocation, useNavigate } from 'react-router
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, FormControlLabel, IconButton, Stack, Switch, TextField,
-  Tooltip, Typography,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, Stack, Switch, TextField,
+  Tooltip, Typography, Table, TableBody, TableCell, TableHead, TableRow,
 } from '@mui/material';
 import ContentCopy from '@mui/icons-material/ContentCopyOutlined';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -22,12 +22,15 @@ import { pickerSelectionColumn } from '../../shared/components/PickerSelection';
 import { ReadOnlyField } from '../../shared/components/ReadOnlyField';
 import { SearchInput } from '../../shared/components/SearchInput';
 import { useDebouncedText, useServerList } from '../../shared/utils/server-list';
+import { effectiveAccessKey } from './EffectiveAccess';
+import { PermissionLabel, ScopeChips } from './scope-labels';
 import { useMe } from '../identity';
 import { CatalogPermission, roleKey, RoleUser, usePermissionCatalog, useRole } from './api';
 
-interface Draft { code: string; name: string; description: string; permissions: string[]; users: RoleUser[] }
+interface Draft { code: string; name: string; description: string; permissions: string[]; scopes?: Record<string, string[]>; users: RoleUser[] }
 type Field = 'code' | 'name';
 const CODE = /^[A-Z][A-Z0-9_]{1,49}$/;
+const scopesOf = (draft: Draft, code: string) => draft.scopes?.[code] ?? [];
 const sameSet = (a: (string | number)[], b: (string | number)[]) => a.length === b.length && a.every(x => b.includes(x));
 
 /**
@@ -47,12 +50,12 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
   const role = useRole(creating ? copyId ?? 0 : id, !creating || Boolean(copyId));
   const catalog = usePermissionCatalog();
   const loaded = role.data;
-  const initial = useMemo<Draft | undefined>(() => {
+  const loadedDraft = useMemo<Draft | undefined>(() => {
     if (creating && !copyId) return { code: '', name: '', description: '', permissions: [], users: [] };
     if (!loaded) return undefined;
-    // A copy takes name, description and permissions only (no code, users, workflow configuration or history).
-    if (creating) return { code: '', name: loaded.name, description: loaded.description ?? '', permissions: loaded.permissions, users: [] };
-    return { code: loaded.code, name: loaded.name, description: loaded.description ?? '', permissions: loaded.permissions, users: loaded.users };
+    // Copy the role description and grants into the new draft.
+    if (creating) return { code: '', name: loaded.name, description: loaded.description ?? '', permissions: loaded.permissions, scopes: loaded.scopes, users: [] };
+    return { code: loaded.code, name: loaded.name, description: loaded.description ?? '', permissions: loaded.permissions, scopes: loaded.scopes, users: loaded.users };
   }, [creating, copyId, loaded]);
   const [draft, setDraft] = useState<Draft>();
   // Requested by the URL or the Edit button; effective only once ROLE.MANAGE is confirmed for the signed-in user.
@@ -73,25 +76,32 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
   useEffect(() => {
     if (created && !editing) navigate(`/roles/${created.id}`, { replace: true, state: { listSearch: backTo.replace(/^\/roles/, ''), roleResult: created.result } });
   }, [created, editing, navigate, backTo]);
+  const [editBase, setEditBase] = useState<{ draft: Draft; version?: number }>();
+  const initial = editBase?.draft ?? loadedDraft;
   const value = draft ?? initial;
   const system = Boolean(loaded?.isSystem) && !creating;
+  const version = editBase?.version ?? loaded?.version;
+  const missing = (catalog.data ?? []).filter(p => value?.permissions.includes(p.code)
+    && p.supportedScopes?.length && !scopesOf(value, p.code).length).map(p => p.code);
   const dirty = Boolean(draft && initial && (draft.name !== initial.name || draft.description !== initial.description || draft.code !== initial.code
-    || !sameSet(draft.permissions, initial.permissions) || !sameSet(draft.users.map(u => u.id), initial.users.map(u => u.id))));
+    || permissionDiff(initial, draft).length > 0 || !sameSet(draft.users.map(u => u.id), initial.users.map(u => u.id))));
   const rules: Partial<Record<Field, string>> = value ? {
     ...(creating && !value.code.trim() ? { code: t('roles.codeRequired') } : creating && !CODE.test(value.code) ? { code: t('roles.codeRule') } : {}),
     ...(!value.name.trim() ? { name: t('roles.nameRequired') } : {}),
   } : {};
   const errorOf = (field: Field) => (submitted || touched[field] ? rules[field] : undefined) ?? serverErrors[field];
   const update = (changes: Partial<Draft>) => {
+    if (!draft && initial) setEditBase({ draft: initial, version: loaded?.version });
     setDraft(previous => ({ ...(previous ?? initial!), ...changes }));
     setServerErrors(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => !(key in changes))));
   };
 
   const save = useMutation({
     mutationFn: async () => {
-      const body = { name: value!.name.trim(), description: value!.description.trim() || null, permissions: value!.permissions, userIds: value!.users.map(u => u.id) };
+      const scopes = value!.scopes ?? {};
+      const body = { name: value!.name.trim(), description: value!.description.trim() || null, permissions: value!.permissions, scopes, userIds: value!.users.map(u => u.id) };
       if (creating) return api<{ id: number }>('/admin/roles', { method: 'POST', body: JSON.stringify({ ...body, code: value!.code, ...(copyId ? { copiedFrom: copyId } : {}) }) });
-      await api(`/admin/roles/${id}`, { method: 'PUT', body: JSON.stringify({ ...body, version: loaded!.version }) });
+      await api(`/admin/roles/${id}`, { method: 'PUT', body: JSON.stringify({ ...body, version }) });
       return { id };
     },
     onSuccess: async ({ id: saved }) => {
@@ -100,7 +110,9 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
       await qc.invalidateQueries({ queryKey: roleKey(saved) });
       // My own effective permissions may come from this role: refresh identity (menu, routes, buttons).
       await qc.invalidateQueries({ queryKey: ['me'] });
+      await qc.invalidateQueries({ queryKey: effectiveAccessKey });
       setDraft(undefined);
+      setEditBase(undefined);
       setEditing(false);
       setSubmitted(false);
       setTouched({});
@@ -125,6 +137,7 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
       await qc.invalidateQueries({ queryKey: roleKey(id) });
       await qc.invalidateQueries({ queryKey: ['/admin/roles'] });
       await qc.invalidateQueries({ queryKey: ['me'] });
+      await qc.invalidateQueries({ queryKey: effectiveAccessKey });
       setResult({ success: true, title: t(loaded!.isActive ? 'roles.deactivated' : 'roles.activated'), message: `${loaded!.code} · ${loaded!.name}`,
         status: t(loaded!.isActive ? 'common.inactive' : 'common.active') });
     },
@@ -138,6 +151,9 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
   if (!value || catalog.isPending) {
     return <DetailPageLayout title={title} loading error={role.error ?? catalog.error} backTo={backTo} />;
   }
+  const baseline = creating ? { ...initial!, permissions: [], scopes: {} } : initial!;
+  const impact = saveImpact(baseline, value, creating || (loaded?.isActive ?? true));
+  const diff = permissionDiff(baseline, value);
   const requestSave = () => {
     const first = (['code', 'name'] as Field[]).find(field => rules[field]);
     if (first) {
@@ -146,14 +162,19 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
       queueMicrotask(() => fieldRefs[first].current?.focus());
       return;
     }
-    const change = saveImpact(initial!, value, loaded?.isActive ?? true);
-    if (!creating && (change.permissionsAdded || change.permissionsRemoved || change.usersAdded || change.usersRemoved)) {
+    if (!system && missing.length) {
+      setSubmitted(true);
+      setTab('permissions');
+      return;
+    }
+    if (diff.length || impact.usersAdded || impact.usersRemoved) {
       setConfirmSave(true);
     } else save.mutate();
   };
   const cancelEdit = () => {
     if (creating) { navigate(backTo); return; }
     setDraft(undefined);
+    setEditBase(undefined);
     setEditing(false);
     setSubmitted(false);
     setTouched({});
@@ -173,7 +194,6 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
         <ActionButton action="edit" onClick={() => setEditing(true)}>{t('roles.edit')}</ActionButton>
       </Stack>;
   const affected = loaded?.users.length ?? 0;
-  const impact = initial ? saveImpact(initial, value, loaded?.isActive ?? true) : undefined;
 
   return (
     <>
@@ -184,9 +204,11 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
           { key: 'general', label: t('roles.tabGeneral'), invalid: Boolean(errorOf('code') || errorOf('name')), content:
             <GeneralTab value={value} editing={editing} creating={creating}
               errorOf={errorOf} refs={fieldRefs} onTouch={field => setTouched(previous => ({ ...previous, [field]: true }))} onChange={update} /> },
-          { key: 'permissions', label: t('roles.tabPermissions'), content:
+          { key: 'permissions', label: t('roles.tabPermissions'), invalid: submitted && missing.length > 0, content:
             <PermissionsTab catalog={catalog.data ?? []} selected={value.permissions} readOnly={!editing || system} system={system}
-              onChange={permissions => update({ permissions })} /> },
+              scopes={value.scopes ?? {}} missing={missing}
+              onChange={permissions => update({ permissions, scopes: Object.fromEntries(Object.entries(value.scopes ?? {}).filter(([code]) => permissions.includes(code))) })}
+              onScopeChange={(code, scopes) => update({ scopes: { ...value.scopes, [code]: scopes } })} /> },
           { key: 'users', label: t('roles.tabUsers'), content:
             <UsersTab users={value.users} editing={editing} selfId={me?.id} onChange={users => update({ users })} /> },
           { key: 'history', label: t('roles.tabHistory'), hidden: creating, content: loaded &&
@@ -198,9 +220,23 @@ export function RoleDetailPage({ id, copyId, startEditing, backTo }: { id: numbe
         ]} />
       </DetailPageLayout>
       {editing && router && <RouteDiscardGuard dirty={dirty} pending={save.isPending} />}
-      {confirmSave && <FormDialog title={t('roles.confirmSaveTitle', { code: value.code })} submitLabel={t('roles.save')} submitAction="save"
+      {confirmSave && <FormDialog title={t('scope.confirm')} description={value.code + ' · ' + value.name} width={820} submitLabel={t('roles.save')} submitAction="save"
         pending={save.isPending} canSubmit error={null} onClose={() => setConfirmSave(false)} onSubmit={() => save.mutate()}>
-        {impact && <SaveImpact impact={impact} />}
+        <SaveImpact impact={impact} />
+        {diff.length > 0 && <Table size="small">
+          <TableHead><TableRow>
+            <TableCell>{t('scope.functional')}</TableCell><TableCell>{t('scope.before')}</TableCell><TableCell>{t('scope.after')}</TableCell>
+          </TableRow></TableHead>
+          <TableBody>{diff.map(({ code, before, after }) => {
+            const permission = catalog.data?.find(p => p.code === code);
+            const display = (scopes: string[] | null) => scopes?.length ? <ScopeChips scopes={scopes} />
+              : t(scopes === null ? 'scope.notGranted' : permission?.supportedScopes?.length ? 'scope.missing' : 'scope.unscoped');
+            return <TableRow key={code}>
+              <TableCell component="th" scope="row"><PermissionLabel code={code} name={permission?.name} /></TableCell>
+              <TableCell>{display(before)}</TableCell><TableCell>{display(after)}</TableCell>
+            </TableRow>;
+          })}</TableBody>
+        </Table>}
       </FormDialog>}
       {confirmStatus && loaded && <FormDialog title={t(loaded.isActive ? 'roles.deactivateTitle' : 'roles.activateTitle')}
         description={`${loaded.code} · ${loaded.name}`} submitLabel={t(loaded.isActive ? 'roles.deactivate' : 'roles.activate')}
@@ -241,7 +277,13 @@ function GeneralTab({ value, editing, creating, errorOf, refs, onTouch, onChange
   );
 }
 
-function PermissionsTab({ catalog, selected, readOnly, system, onChange }: {
+const permissionColumns = {
+  display: 'grid', gridTemplateColumns: 'minmax(0, 55fr) minmax(0, 45fr)',
+  gap: { xs: 1, sm: 2 }, alignItems: 'center', px: { xs: 1, sm: 2 }, py: 0.5,
+};
+
+function PermissionsTab({ catalog, selected, readOnly, system, scopes, missing, onChange, onScopeChange }: {
+  scopes: Record<string, string[]>; missing: string[]; onScopeChange: (code: string, scopes: string[]) => void;
   catalog: CatalogPermission[]; selected: string[]; readOnly: boolean; system: boolean; onChange: (codes: string[]) => void;
 }) {
   const { t } = useTranslation();
@@ -259,6 +301,8 @@ function PermissionsTab({ catalog, selected, readOnly, system, onChange }: {
       {/* The panel's own padding (spacing 2) is covered too, so rows never show above the pinned toolbar. */}
       <Stack spacing={1.5} data-permission-toolbar sx={{ position: 'sticky', top: theme => theme.spacing(-2), mt: -2, pt: 2, zIndex: 2, bgcolor: 'background.paper', pb: 1.5,
         boxShadow: theme => `0 1px 0 ${theme.palette.divider}` }}>
+        {missing.length > 0 && <Alert severity="warning">{t('scope.requiredPermissions', { codes: missing.join(', ') })}</Alert>}
+        <Typography variant="caption" color="text.secondary">{t('scope.union')}</Typography>
         {system && <Alert severity="info">{t('roles.systemPermissions')}</Alert>}
         <FilterToolbar>
           <SearchInput label={t('common.search')} placeholder={t('roles.permissionSearch')} value={q} onChange={setQ} sx={{ flex: '0 1 380px', minWidth: 220 }} />
@@ -285,24 +329,53 @@ function PermissionsTab({ catalog, selected, readOnly, system, onChange }: {
               <Typography sx={{ fontWeight: 600 }}>{t(`roles.modules.${module}`, { defaultValue: module })}</Typography>
               <Typography color="text.secondary" sx={{ ml: 1 }}>{t('roles.selectedCount', { count, total: all.length })}</Typography>
             </AccordionSummary>
-            {/* One permission per row; OA3 adds the scope selector on the right of each row. */}
             <AccordionDetails sx={{ p: 0 }}>
+              <Box sx={{ ...permissionColumns, bgcolor: 'action.hover' }}>
+                <Typography variant="subtitle2">{t('scope.functional')}</Typography>
+                <Typography variant="subtitle2">{t('scope.label')}</Typography>
+              </Box>
               {shown.map(p => {
                 const locked = p.adminOnly && !system;
                 const checked = selected.includes(p.code);
+                const view = p.code.slice(0, p.code.lastIndexOf('.')) + '.VIEW';
+                const needsView = checked && p.code !== view && catalog.some(permission => permission.code === view) && !selected.includes(view);
                 const control = <Checkbox checked={checked} disabled={readOnly || locked} onChange={e => toggle(p.code, e.target.checked)}
                   slotProps={{ input: { 'aria-label': `${p.name} (${p.code})`, ...(locked ? { 'aria-describedby': `admin-only-${p.code}` } : {}) } }}
                   // Read-only stays legible: the checked state keeps the primary color (not the disabled grey).
                   sx={readOnly && !locked ? { '&.Mui-disabled': { color: checked ? 'primary.main' : 'action.active' } } : undefined} />;
                 return (
-                  <Stack key={p.code} direction="row" data-permission-row sx={{ alignItems: 'center', px: 1, py: 0.25, borderTop: 1, borderColor: 'divider' }}>
-                    {control}
-                    <Box sx={{ minWidth: 0, flex: 1, py: 0.5 }}>
-                      <Typography variant="body2">{p.name}</Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>{p.code}</Typography>
-                      {locked && <Typography id={`admin-only-${p.code}`} variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('roles.adminOnly')}</Typography>}
-                    </Box>
-                  </Stack>
+                  <Box key={p.code} data-permission-row sx={{ ...permissionColumns, borderTop: 1, borderColor: 'divider' }}>
+                    <Stack direction="row" sx={{ alignItems: 'center' }}>
+                      {readOnly && system ? <Typography aria-hidden sx={{ px: 1 }}>{checked ? '✓' : '·'}</Typography> : control}
+                      <Box sx={{ minWidth: 0, flex: 1, py: 0.5 }}>
+                        <PermissionLabel name={p.name} code={p.code} />
+                        {needsView && <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
+                          {t('scope.missingView', { code: view })}
+                        </Typography>}
+                        {locked && <Typography id={`admin-only-${p.code}`} variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('roles.adminOnly')}</Typography>}
+                      </Box>
+                    </Stack>
+                    {checked && Boolean(p.supportedScopes?.length) && (readOnly
+                      ? <Box sx={{ color: missing.includes(p.code) ? 'warning.dark' : 'text.secondary' }}>
+                          {missing.includes(p.code) ? t('scope.missing') : <ScopeChips scopes={scopes[p.code] ?? []} />}
+                        </Box>
+                      : <TextField select size="small" value={scopes[p.code] ?? []}
+                          error={missing.includes(p.code)} helperText={missing.includes(p.code) ? t('scope.missing') : undefined}
+                          fullWidth
+                          slotProps={{ select: { multiple: true, renderValue: value =>
+                            <ScopeChips scopes={value as string[]} focusable={false} />,
+                            inputProps: { 'aria-label': t('scope.label') + ' · ' + p.code } } }}
+                          onChange={event => {
+                            const raw = event.target.value as unknown as string | string[];
+                            const next = typeof raw === 'string' ? raw.split(',') : raw;
+                            const current = scopes[p.code] ?? [];
+                            onScopeChange(p.code, next.includes('ALL') ? (current.includes('ALL') ? next.filter(scope => scope !== 'ALL') : ['ALL']) : next);
+                          }}>
+                          {p.supportedScopes.map(scope => <MenuItem key={scope} value={scope} title={t('scope.hints.' + scope)}>
+                            <Box component="span" aria-hidden sx={{ width: 26 }}>{(scopes[p.code] ?? []).includes(scope) ? '✓' : ''}</Box>{t('scope.types.' + scope)}
+                          </MenuItem>)}
+                        </TextField>)}
+                  </Box>
                 );
               })}
             </AccordionDetails>
@@ -389,6 +462,14 @@ function UserPicker({ assigned, selfId, onClose, onConfirm }: { assigned: number
   );
 }
 
+function permissionDiff(initial: Draft, next: Draft) {
+  return [...new Set([...initial.permissions, ...next.permissions])].sort().flatMap(code => {
+    const before = initial.permissions.includes(code) ? scopesOf(initial, code) : null;
+    const after = next.permissions.includes(code) ? scopesOf(next, code) : null;
+    return before && after && sameSet(before, after) ? [] : [{ code, before, after }];
+  });
+}
+
 interface Impact {
   usersAdded: number; usersRemoved: number; usersKept: number; usersAfter: number;
   permissionsAdded: number; permissionsRemoved: number; active: boolean;
@@ -416,7 +497,7 @@ function SaveImpact({ impact: i }: { impact: Impact }) {
     i.usersAdded > 0 && t('roles.impact.usersAdded', { count: i.usersAdded }),
     i.usersRemoved > 0 && t('roles.impact.usersRemoved', { count: i.usersRemoved }),
     permissionsChanged && t('roles.impact.permissions', { added: i.permissionsAdded, removed: i.permissionsRemoved }),
-    (i.usersAdded > 0 || i.usersRemoved > 0) && t('roles.impact.usersAfter', { count: i.usersAfter }),
+    t('scope.assignedUsers', { count: i.usersAfter }),
   ].filter(Boolean) as string[];
   const effects = !i.active ? [t('roles.impact.inactive')] : [
     i.usersAdded > 0 && t('roles.impact.addedGet'),

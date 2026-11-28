@@ -153,18 +153,18 @@ Mọi câu hỏi Q-01…Q-16 và N-01…N-15 đã đóng (§2.11, §2.12). Các 
 | BA-SEC-06 | Seed không ghi đè cấu hình quản trị |
 | BA-SEC-07 | Không làm mất live grant check và transaction locking của PR |
 
-### 2.8 Dữ liệu legacy (LEG)
+### 2.8 Dữ liệu thử nghiệm (LEG)
 
 | Mã | Quyết định |
 |---|---|
 | BA-LEG-01 | Ưu tiên đúng thiết kế mới hơn tương thích dữ liệu thử nghiệm |
-| BA-LEG-02 | Được xóa chứng từ thử nghiệm HĐ, PR, PO, kho và dữ liệu phụ thuộc nếu cần |
-| BA-LEG-03 | Ưu tiên giữ Master Data, User, Role và cấu hình còn phù hợp |
-| BA-LEG-04 | Không xây compatibility layer hoặc backfill phức tạp |
+| BA-LEG-02 | BA có thể duyệt reset Dev/Test và kho dữ liệu nghiệp vụ tương ứng |
+| BA-LEG-03 | Clean Reset khởi tạo dữ liệu nền theo kiến trúc đích. Fixture thuộc Test. |
+| BA-LEG-04 | Không duy trì schema, API, permission hoặc logic song song, và không thêm fallback, adapter, auto-mapping hay backfill để giữ dữ liệu thử nghiệm |
 | BA-LEG-05 | Không gán dữ liệu giả |
-| BA-LEG-06 | Trước khi dọn Dev: backup, xác định phạm vi, báo cáo và chờ duyệt |
-| BA-LEG-07 | Không mặc định xóa toàn bộ database |
-| BA-LEG-08 | Snapshot quyền trước/sau với dữ liệu giữ lại; phân biệt thay đổi đã duyệt với thay đổi ngoài dự kiến |
+| BA-LEG-06 | Trước khi reset, xác nhận BA đã duyệt phạm vi và xác minh instance, database, storage cùng quan hệ phụ thuộc |
+| BA-LEG-07 | Final Closure phê duyệt reset toàn bộ dữ liệu Dev/Test cũ trong phạm vi xác minh (§8) |
+| BA-LEG-08 | Lịch sử OA0. OA3.5 thay bằng kiểm grant seed trên Dev/Test sạch (§8). |
 | BA-LEG-09 | Kiểm thử đầy đủ quy tắc nghiệp vụ còn hiệu lực |
 
 ### 2.9 UI/UX (UI)
@@ -239,6 +239,21 @@ Mọi câu hỏi Q-01…Q-16 và N-01…N-15 đã đóng (§2.11, §2.12). Các 
 | F-OA0-06 | Khôi phục đầy đủ UI đã duyệt (§9); không tự giản lược |
 | F-OA0-07 | AuthorizationService dùng chung nhưng Business Rules thuộc từng phân hệ. Không áp "chỉ người tạo được sửa" cho toàn ERP. HĐ Draft: người tạo hoặc Sales phụ trách thao tác nếu đủ quyền và thỏa Business Rules đã duyệt. Giữ quy tắc PR đã chốt |
 
+### 2.14 Quyết định OA3.0 (Data Scope review)
+
+| Mã | Quyết định |
+|---|---|
+| BA-OA3-01 | Giữ supported scopes theo §7, gồm G/O/T/A cho `PR.APPROVE`, `PR.RECEIVE` |
+| BA-OA3-02 | ADMIN nhận ALL nếu permission hỗ trợ ALL; nếu không, nhận toàn bộ supported scopes. Không ngoại lệ trigger, không bypass Business Rule |
+| BA-OA3-03 | Ma trận grant khởi tạo §7.1 (BA-N-13). Không tự cấp O/T cho trưởng bộ phận. Gỡ quyền HĐ khỏi COMMON |
+| BA-OA3-04 | ASSIGNED gồm lịch sử phân công; quyền xử lý vẫn yêu cầu đúng người đang được giao |
+| BA-OA3-05 | Permission và Scope độc lập; hợp scope chỉ trong cùng permission; grant thiếu scope không làm mất grant hợp lệ từ Role khác |
+| BA-OA3-06 | Đơn vị chịu trách nhiệm: đã có membership thì phải chọn đơn vị (mặc định đơn vị chính), không sửa sau khi tạo; NULL chỉ khi không có membership (D-05) |
+| BA-OA3-07 | Có VIEW nhưng ngoài scope → 404 như ID không tồn tại; không có VIEW → 403 (D-06) |
+| BA-OA3-08 | Duyệt D-09 (sửa H-01 bằng scope `SALES_CONTRACT.CREATE` + Business Rule người tạo/Sales phụ trách), D-10 (kho được cấp chỉ đọc trên Hồ sơ cá nhân), D-12 (tab PR trên HĐ ở OA3; Notes/History/File HĐ ở OA6) |
+| BA-OA3-09 | PO/kho chưa có scope mới ở OA3 (`supported_scopes = '{}'`), nhưng OA3.3 phải chặn các đường bypass dữ liệu HĐ/PR (rà F08, F09, F11, F12 của OA3.0) |
+| BA-OA3-10 | Final Closure áp dụng Clean Reset cho Dev/Test đã được BA phê duyệt. Migration từ database sạch và seed theo §7.1. |
+
 ## 3. Xử lý mâu thuẫn tài liệu
 
 | Tài liệu | Nội dung cũ | Xử lý |
@@ -249,7 +264,7 @@ Mọi câu hỏi Q-01…Q-16 và N-01…N-15 đã đóng (§2.11, §2.12). Các 
 | [ADR-0015](decisions/ADR-0015-purchase-requisition-workflow.md) | Pool chỉ có User. Người có PR.CREATE/APPROVE/RECEIVE đọc PR liên quan dù không có `PR.VIEW` | Pool thành Role + User. Đọc ngầm **bị bỏ**. Quy tắc workflow và Reassign giữ nguyên (BA-WF-08) |
 | [04-PERMISSIONS](../04-PERMISSIONS.md) §1, §2 | "người tạo luôn xem"; dòng Sales trỏ ADR-0014; "người được giao thấy chứng từ cần mình xử lý" | Thêm ghi chú baseline. Bảng quyền viết lại ở OA3 |
 | ARCHITECTURE §6 | "Người tạo luôn xem được chứng từ của mình" | Thêm ghi chú: bị thay bởi ADR-0018 |
-| Bản OA0 trước, §8 | "Bảo toàn quyền truy cập hiện tại, snapshot phải giống hệt" | Thay bằng BA-LEG: snapshot có phân loại khác biệt (§8) |
+| Bản OA0 trước, §8 | "Bảo toàn quyền truy cập hiện tại, snapshot phải giống hệt" | Thay bằng BA-LEG: Clean Reset Dev/Test có BA phê duyệt (§8) |
 | Bản OA0 trước, §5.1 | Chỉ dùng `token_version` | Thay bằng `user_sessions` (§5.1) |
 | Bản OA0 trước, §5.4 | Delegated admin ("gán Role nằm trong quyền mình") | Bỏ (BA-RBAC-10) |
 
@@ -616,46 +631,34 @@ Ký hiệu scope: A = ALL, C = CREATOR, R = RESPONSIBLE, G = ASSIGNED, O = ORG_U
 | Tab PR trên HĐ (H-13) | Hiển thị khi có `PR.VIEW` với bất kỳ scope nào; API lọc theo scope |
 | Picker HĐ nguồn khi tạo PR | Cần `SALES_CONTRACT.VIEW` scope khớp **và** invariant người phụ trách |
 
-## 8. Dữ liệu legacy và snapshot quyền (BA-LEG)
+### 7.1 Ma trận grant khởi tạo BA duyệt (OA3.0, BA-OA3-03)
 
-### 8.1 Phân loại dữ liệu
+Nguồn duy nhất trong code: `apps/api/src/database/oa3-default-scopes.ts` (`OA3_DEFAULT_SCOPES`), dùng cho seed. ADMIN do migration/trigger cấp theo BA-OA3-02. Permission không phân scope giữ như baseline.
 
-| Loại | Xử lý |
-|---|---|
-| Master Data (hàng, hãng, NCC, khách hàng, kho, ĐVT, tiền tệ, thuế, dossier type) | Giữ |
-| User cần giữ | Giữ. Admin khai báo `employee_code` trước OA2 (BA-USR-10) |
-| User demo | Xóa và tạo lại bằng seed demo, kèm mã nhân viên |
-| Role, `role_permissions`, `user_warehouses` còn phù hợp | Giữ; cấu hình lại HĐ, PR theo §7 sau khi BA duyệt danh sách |
-| Pool PR, Sales/PM phụ trách của chứng từ giữ lại | Chuyển sang nhóm ứng viên (BA-WF-09) |
-| Chứng từ thử nghiệm HĐ, PR, PO, GRR, GR, GIR, GI, tồn, lô, notes, activity, dossier, notification | **Đề xuất dọn** khi cần, theo §8.2. Không xóa toàn DB (BA-LEG-07) |
+| Permission | ADMIN | SALES | PM | PURCHASING | SALES_HEAD | PM_HEAD | WAREHOUSE_MANAGER |
+|---|---|---|---|---|---|---|---|
+| `SALES_CONTRACT.VIEW` | A | C R | R | – | – | – | – |
+| `SALES_CONTRACT.CREATE` | A | C R | – | – | – | – | – |
+| `PR.VIEW` | A | C R G | C R G | A | G | G | – |
+| `PR.CREATE` | C R O T | C R | C R | – | – | – | – |
+| `PR.APPROVE` | A | – | – | – | G | G | – |
+| `PR.RECEIVE` | A | – | – | G | – | – | – |
+| `PR.REASSIGN`, `PR.DOSSIER_MANAGE` | A | – | – | – | – | – | – |
 
-### 8.2 Quy trình dọn Dev (BA-LEG-06)
+**Grant hoãn (OA3.1–OA3.3a, đã áp dụng ở OA3.3b):** `PR.VIEW` của SALES, PM, SALES_HEAD, PM_HEAD thay cho đọc ngầm. Chúng bị hoãn (`OA3_DEFERRED`) vì trước khi engine lọc PR, `PR.VIEW` là toàn cục. OA3.3b bật lọc PR và trong cùng checkpoint xóa `OA3_DEFERRED`/`activeGrants`; seed dùng thẳng `OA3_DEFAULT_SCOPES`, vẫn chỉ tạo Role còn thiếu (BA-SEC-06).
 
-1. `pg_dump` Dev và kho file dossier. Ghi đường dẫn backup.
-2. Script **dry-run** liệt kê số dòng theo bảng sẽ xóa, theo thứ tự phụ thuộc.
-   - Activity History có trigger append-only [HT]. Dọn bằng script bảo trì Dev/Test có kiểm soát (tắt trigger trong transaction dọn); không có API xóa lịch sử (BA-N-14).
-3. Gửi báo cáo phạm vi, chờ duyệt.
-4. Chạy trong một transaction trên Dev. Chạy lại dry-run để xác nhận còn 0.
-5. Test DB dùng fixture phá hủy đã xác minh [HT AGENTS.md]. Prod không áp dụng.
+## 8. Clean Reset và seed
 
-### 8.3 Snapshot quyền (BA-LEG-08)
+Quyết định Final Closure thay thế phương án bảo toàn dữ liệu Dev/Test và đối chiếu grant legacy. BA duyệt reset trong phạm vi môi trường đã xác minh. Kiến trúc đích dùng một schema, API và ma trận quyền. Dữ liệu thử nghiệm có vòng đời riêng.
 
-1. **Trước:** với dữ liệu giữ lại, xuất ba bảng:
-   - (a) `role → permission`;
-   - (b) `user → permission`;
-   - (c) ứng viên từng nhóm.
-2. **Sau:** xuất cùng ba bảng kèm scope.
-3. Script so sánh xếp mỗi khác biệt vào một trong hai loại:
-   - **Đã duyệt:** gỡ `SALES_CONTRACT.VIEW` khỏi COMMON, bỏ đọc ngầm PR, grant mới theo §7 (BA-N-13), permission mới cấp cho ADMIN.
-   - **Ngoài dự kiến:** mọi khác biệt còn lại. Có bất kỳ dòng nào loại này thì chặn áp dụng.
-4. Danh sách "đã duyệt" là file versioned trong repo, được BA ký duyệt.
-5. Phép so dữ liệu chứng từ không còn cần, vì chứng từ thử nghiệm được dọn hoặc đánh giá lại theo quy tắc mới. Hành vi đọc được kiểm bằng test ma trận (§12).
+### 8.1 Khởi tạo Dev/Test
 
-### 8.4 Seed (BA-SEC-06)
+- Xác minh database, instance, storage và quan hệ phụ thuộc trước khi reset. Khởi tạo database sạch, chạy migration và seed. Đối chiếu catalog, ADMIN canonical scopes, Role mặc định và quyền hiệu lực thực tế.
+- Dev chỉ seed ADMIN bootstrap, Role mặc định, PCS và HCM. Fixture, user thử nghiệm, cấu hình pool và chứng từ thử nghiệm nằm trên Test.
+- Seed ghi trong một transaction. Role và user đã tồn tại giữ cấu hình quản trị. Grant thiếu scope vẫn fail-closed theo BA-OA3-05.
+- Kiểm chứng down/up trên Test biệt lập. Reset đã được phê duyệt diễn ra trước khi dùng ứng dụng. Lịch sử, audit và ràng buộc của dữ liệu mới giữ nguyên theo kiến trúc đích.
 
-- Catalog permission, metadata, Role ADMIN và nhóm ứng viên do migration tạo.
-- Seed demo chỉ chạy trên DB không có user ngoài tài khoản hệ thống. User demo có mã nhân viên, mật khẩu ≥ 12 ký tự và luôn `must_change_password` (BA-N-15). Fixture automated test tự chuẩn bị user ở trạng thái cần thiết; runtime không có ngoại lệ.
-- Bỏ `DELETE PR.CREATE` [HT `seed.ts:76`]. Seed không chạm grant của DB đã cấu hình.
+[Runbook Clean Reset](../runbooks/oa3-migration-deployment.md)
 
 ## 9. Thiết kế UI chi tiết [BA + ĐX]
 
@@ -687,7 +690,7 @@ Dependency: không thêm `@mui/x-tree-view` (BA-UI-10). [HT] chỉ có `@mui/mat
 | # | Rủi ro | Biện pháp |
 |---|---|---|
 | R-01 | Sót nơi JOIN grant khi thêm `roles.is_active` | `v_user_grants`/`lockGrant` + test kiến trúc cấm JOIN `role_permissions` ngoài Authorization |
-| R-02 | Thay đổi quyền ngoài dự kiến | Snapshot phân loại §8.3 chặn áp dụng |
+| R-02 | Thay đổi quyền ngoài dự kiến | Đối chiếu catalog và grant seed theo §7.1 và §8 |
 | R-03 | Bỏ đọc ngầm làm Sales, PM, người duyệt mất truy cập PR đang xử lý | Grant khởi tạo §7 cho đủ C/R/G trước khi bật kiểm tra; test ma trận từng Role |
 | R-04 | Admin tự khóa hệ thống | §5.5 trên mọi đường, test đồng thời |
 | R-05 | Nâng quyền gián tiếp | §5.4, một test cho mỗi đường |
@@ -698,7 +701,7 @@ Dependency: không thêm `@mui/x-tree-view` (BA-UI-10). [HT] chỉ có `@mui/mat
 | R-10 | Scope ORG chậm | Tính tập đơn vị một lần mỗi request |
 | R-11 | List, Detail, File lệch nhau | `assertCanRead` dùng chung, test ma trận endpoint × user |
 | R-12 | Kho còn đọc ngầm đến phase kho | Ghi nhận lệch có kế hoạch; không mở rộng thêm |
-| R-13 | Dọn dữ liệu xóa nhầm Master Data | Dry-run, backup, duyệt §8.2 |
+| R-13 | Dọn dữ liệu xóa nhầm Master Data | Xác minh đích và phê duyệt BA theo §8 |
 | R-14 | Activity append-only chặn dọn chứng từ thử nghiệm | Script bảo trì Dev/Test có kiểm soát (BA-N-14) |
 | R-15 | PO, kho kẹt khi người duyệt mất quyền | Đã biết (H-07), xử lý ở phase PO, kho |
 
@@ -711,11 +714,11 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 | **OA0** Architecture & Specification | – | Tài liệu này, ADR-0018 | – | – |
 | **OA1** Authorization & Account Security | P1 | Metadata permission (`module`, `name`, `supported_scopes`, `admin_only`); `roles.is_active/is_system`; `v_user_grants`, `AuthorizationService` (`load`, `has`, `lockGrant`) và chuyển 5 call site; `user_sessions`, logout, revoke toàn bộ; mật khẩu ≥ 12, đổi mật khẩu, `must_change_password`; lockout 5/15, unlock; Admin guard; chặn tự thay đổi; API Role; key `ROLE.*`; Activity USER/ROLE; seed an toàn | Bắt buộc đổi mật khẩu; đổi mật khẩu trong Hồ sơ cá nhân; Vai trò List/View/Edit (chưa có scope) | OA0 |
 | **OA2** Organization & User Management (OA2.1 Job Title → OA2.2 Organization → OA2.3 User Management → OA2.4 Personal Profile & Integration) | P1 | Hồ sơ nhân sự trên `users` (`employee_code` có preflight); `org_units`, `job_titles`, `org_memberships` và các quy tắc §4.3; API User lưu tập trung, account, reset, unlock; `/me`; key `USER.*`, `ORGANIZATION.*` | Người dùng List/Full Page (trừ tab Phạm vi); Cơ cấu tổ chức; Chức danh; Hồ sơ cá nhân email/SĐT | OA1 |
-| **OA3** Data Scope | P1 | `role_permission_scopes` + trigger; `scopeFilter`, `assertCanRead`, `canAccessDraft`; `owner_org_unit_id` HĐ, PR kèm chọn đơn vị khi tạo (F-OA0-05); bỏ đọc ngầm PR (ADR-0014, ADR-0015); scope cho HĐ; grant khởi tạo §7 (sau khi BA duyệt, BA-N-13); snapshot §8.3; effective-access | Cột Scope (nhiều scope) ở tab Phân quyền, chặn lưu khi thiếu; effective-access ở tab Phạm vi dữ liệu; field đơn vị chịu trách nhiệm trên Create HĐ/PR | OA2 |
+| **OA3** Data Scope | P1 | `role_permission_scopes` + trigger; `scopeFilter`, `assertCanRead`, `canAccessDraft`; `owner_org_unit_id` HĐ, PR kèm chọn đơn vị khi tạo (F-OA0-05); bỏ đọc ngầm PR (ADR-0014, ADR-0015); scope cho HĐ; grant khởi tạo §7 (sau khi BA duyệt, BA-N-13); kiểm catalog và seed theo §8; effective-access | Cột Scope (nhiều scope) ở tab Phân quyền, chặn lưu khi thiếu; effective-access ở tab Phạm vi dữ liệu; field đơn vị chịu trách nhiệm trên Create HĐ/PR | OA2 |
 | **OA4** Workflow Eligibility | P1 | `workflow_candidate_*`; chuyển pool PR và ứng viên Sales/PM phụ trách; `candidates()` hai mức, đánh giá trạng thái dự kiến, kèm lý do; `SALES_CONTRACT.CONFIGURE`; gỡ `PUT /pr-workflow/routes/:route` | Cấu hình quy trình | OA3 (cần scope cho eligibility trên chứng từ) |
 | **OA5** Administration UX Completion | P2 | – | Phần UX còn lại sau khi các màn đã duyệt hoàn thành ở OA1–OA4: polish, rà soát nhất quán, UI-EVIDENCE tổng | OA4 |
 | **OA6** Business Integration | P1 | Notes, History, File HĐ/PR dùng `assertCanRead`; đổi nhãn `department`; gỡ `pr_candidate_pool_members` | Tab PR trên HĐ theo scope | OA4 |
-| **OA7** Technical Review & UAT | – | Security review, dọn Dev theo §8.2 (nếu được duyệt), snapshot, UAT | UAT trên trình duyệt | OA6 |
+| **OA7** Technical Review & UAT | – | Security review, reset Dev/Test theo §8 khi BA duyệt và UAT | UAT trên trình duyệt | OA6 |
 
 - **OA2 chia đợt (BA xác nhận sau OA1.3; OA1 hoàn thành, không có OA1.4):**
   - **OA2.1 Job Title:** danh mục `job_titles`, key `ORGANIZATION.*`, màn Chức danh.
@@ -729,6 +732,8 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 
 ### 11.0 Trạng thái triển khai
 
+**OA3.5 Final Closure · BA Accepted.** Toàn bộ OA3 đã được BA nghiệm thu. Clean Reset Dev/Test, migration từ rỗng, kiểm seed, down/up, security, concurrency và regression. [Báo cáo Final Closure](../runbooks/oa3.5-ba-review.md) · [Runbook](../runbooks/oa3-migration-deployment.md)
+
 | Phần | Trạng thái |
 |---|---|
 | OA0 | Hoàn thành (`788135b`) |
@@ -741,6 +746,230 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 | **OA2.3b** Membership, Role, Warehouse & Atomic Save (backend) | **Hoàn thành, BA/Architect đã nghiệm thu (acceptance (1)–(13), Closure Patch F01–F05, concurrency chuyển đơn vị chính).** Migration `1733961600000` (`org_memberships`). Lưu User tập trung (hồ sơ, membership, Role, Warehouse) một transaction; head đơn vị; `GET …/members`, số nhân sự trên cây, lọc User theo đơn vị; F01 version cho tài khoản (§11.0 "Chi tiết OA2.3"). Không có UI |
 | **OA2.3c** User Management UI & Organization Integration | **Hoàn thành, BA đã duyệt Closure Patch F01–F12.** Backend chỉ bổ sung `membershipId`/`membershipVersion` vào `GET …/members` (F11, BA duyệt). UI Hệ thống → Người dùng (List + Full Page 5 tab, lưu tập trung atomic, khối Tài khoản, trạng thái nhân sự); Cơ cấu tổ chức: số nhân sự trên cây, tab Nhân sự qua Membership API, chọn trưởng đơn vị. Chi tiết ở §11.0 "OA2.3c" |
 | **OA2.4** Personal Profile & Integration | **Hoàn thành, BA đã nghiệm thu (gồm Closure Patch F01–F05). OA2 hoàn thành, BA đã nghiệm thu toàn bộ.** Không migration. API `GET /me`, `PATCH /me` (chỉ email/SĐT + version). Hồ sơ cá nhân từ menu tài khoản. Chi tiết §11.0 "OA2.4" |
+| **OA3.0** Data Scope Review | **BA đã duyệt** (§2.14, §7.1) |
+| **OA3.1** Schema & Role API | **Hoàn thành, BA đã nghiệm thu (gồm F01–F04).** Migration `1734048000000` (§11.0 "Chi tiết OA3.1"). Scope engine chưa áp lên nghiệp vụ; chưa có UI chọn scope |
+| **OA3.2** Scope Engine & Locking | **Hoàn thành, BA đã nghiệm thu (gồm F01–F03).** Không migration. Engine `identity/data-scope.ts`; gate `grants` exclusive cho đổi membership và mọi ghi đơn vị (§11.0 "Chi tiết OA3.2"). Chưa áp lên HĐ/PR, chưa có UI |
+| **OA3.3a** Data Scope HĐ bán | **Hoàn thành, BA nghiệm thu có điều kiện (F01–F03 đáp ứng).** Không migration (§11.0 "Chi tiết OA3.3a") |
+| **OA3.3b** Data Scope PR | **Hoàn thành, BA đã nghiệm thu F01–F06 và D01–D03.** Không migration. PR.VIEW scope, action scope, owner unit, ASSIGNED theo workflow thật; xóa `OA3_DEFERRED`/`activeGrants`. Kết quả D01–D03 và F01–F06 ở dưới. |
+| **OA3.3c** Cross-module Security | **Hoàn thành, BA Accepted.** BA đã nghiệm thu toàn bộ D04–D07 và C01–C09. Xem kết quả kiểm chứng tại §11.0. |
+| **OA3.4** Data Scope UI | **BA Accepted.** BA đã nghiệm thu OA3.4 và Closure Patch F01–F05. Kết quả cuối và evidence bên dưới. |
+| **OA3.5** Migration & Final Verification | **Final Closure, BA Accepted.** Clean Reset Dev/Test. Mapping legacy đã được loại theo quyết định BA. |
+
+**Chi tiết OA3.1:**
+
+- **Schema.** `permissions.supported_scopes text[]` (CHECK: chỉ 7 loại, không NULL, `admin_only` ⇒ `'{}'`); giá trị theo §7, PO/kho/Master Data/quản trị là `'{}'` (BA-OA3-09). Bảng `role_permission_scopes (role_id, permission_id, scope_type)` PK 3 cột, FK `(role_id, permission_id) → role_permissions ON DELETE CASCADE`. `sales_contracts.owner_org_unit_id`, `purchase_requisitions.owner_org_unit_id` `int NULL → org_units`, có index, không backfill (BA-SCP-12).
+- **Trigger.** `guard_role_permission_scope`: scope phải nằm trong `supported_scopes`; dòng scope của Role hệ thống không ghi trực tiếp được, chỉ trigger catalog ghi (`pg_trigger_depth() ≥ 2`). `guard_supported_scopes`: thu hẹp `supported_scopes` bị chặn khi Role **nghiệp vụ** còn dòng scope ngoài tập mới (migration cấu hình lại Role đó trước). Cấm TRUNCATE. `grant_new_permission_to_system_roles` cấp scope cho ADMIN khi thêm key mới.
+- **ADMIN invariant (F02, BA-OA3-02).** Trigger `sync_system_role_scopes` (AFTER UPDATE OF `supported_scopes`) đồng bộ ADMIN trong cùng câu lệnh, tức cùng transaction của migration: ALL nếu hỗ trợ, nếu không thì toàn bộ supported scopes. Bao gồm unscoped → scoped, scoped → unscoped, nới, thu hẹp, thêm hoặc bỏ ALL. Migration catalog không cần viết SQL riêng cho ADMIN; không còn technical debt.
+- **Grant thiếu scope (F01).** Invariant theo tầng:
+  - **DB:** chỉ đảm bảo scope hợp lệ (thuộc `supported_scopes`, có grant cha, ADMIN cố định). DB **cho phép** grant có scope mà không có dòng scope: grant thêm bằng SQL tay, xóa scope cuối cùng, hoặc permission chuyển từ unscoped sang scoped. Không thêm trigger kiểm "≥ 1 scope", vì trường hợp chuyển catalog cần migration cấu hình lại Role sau đó, và §4.1 đã chọn fail-closed ở runtime.
+  - **API:** lưu Role luôn chặn bằng `SCOPE_REQUIRED` (BA-N-03).
+  - **Engine OA3.2 (bắt buộc):** grant như vậy coi như không có scope cho permission đó, nên bị từ chối. Không mặc định ALL. Grant hợp lệ của Role khác trên cùng permission vẫn có hiệu lực (BA-OA3-05). Effective-access (OA3.4) hiển thị các grant này để Admin xử lý.
+- **ADMIN.** ALL cho permission hỗ trợ ALL; `PR.CREATE` nhận C/R/O/T. Qua API: đổi scope của ADMIN → `SYSTEM_ROLE_PROTECTED`.
+- **Role API.** `GET /admin/permissions` thêm `supportedScopes`. `GET /admin/roles/:id` thêm `scopes: {permission: scope[]}` (sắp xếp, chỉ permission có scope). `POST`/`PUT` nhận thêm `scopes` cùng `permissions` (mở rộng contract OA1.3, không đổi sang `grants[]`). Validation: `SCOPE_REQUIRED` (permission có scope mà chưa chọn, BA-N-03), `SCOPE_NOT_SUPPORTED` (ngoài danh sách hỗ trợ, sai kiểu, hoặc scope cho permission không phân scope), `SCOPE_WITHOUT_PERMISSION` (scope cho permission không được chọn). Trùng lặp được gộp. Không mặc định ALL.
+- **Transaction, lock, version.** Giữ nguyên lock graph OA1.3: đổi scope thuộc lưu Role nên đã lấy gate `grants` exclusive trước mọi dòng; `version` tăng một lần; mọi lỗi rollback toàn bộ (gồm scope).
+- **Audit.** `ROLE_CREATED`/`ROLE_COPIED` ghi `scopes`; `PERMISSIONS_ADDED` ghi `scopes` của quyền mới; `PERMISSIONS_REMOVED` ghi `scopes` của quyền bị thu hồi, đọc trước khi xóa nên FK cascade không làm mất (F03); `SCOPES_UPDATED` ghi `{before, after}` theo permission bị đổi scope. Lưu cùng scope theo thứ tự khác không ghi sự kiện.
+- **Copy.** Create điền sẵn permission + scope; Web chuyển nguyên scope của Role nguồn.
+- **Seed.** Gỡ `SALES_CONTRACT.VIEW` khỏi COMMON; Role mới tạo nhận grant và scope theo §7.1 trừ `OA3_DEFERRED`; Role đã có không bị ghi đè (BA-SEC-06).
+- **4 grant hoãn (F04).** Tại OA3.3, cùng commit bật lọc scope cho PR:
+  - xóa `OA3_DEFERRED` và `activeGrants`, seed dùng thẳng `OA3_DEFAULT_SCOPES`;
+  - seed vẫn **chỉ tạo Role còn thiếu**, không ghi đè Role hiện hữu (BA-SEC-06).
+  - **Test DB:** `bootTestApp` tạo lại schema, migration và seed mỗi lần chạy, nên tự có ma trận đầy đủ. Không cần thao tác thêm.
+  - Branch chỉ merge khi xong OA3, nên Dev không bao giờ ở trạng thái đã gỡ đọc ngầm mà chưa có 4 grant (R-03).
+
+**Carryover sau OA3.1:**
+
+| Phase | Việc |
+|---|---|
+| OA3.2 | **Xong, BA đã nghiệm thu ("Chi tiết OA3.2").** Engine fail-closed với grant thiếu scope (F01); hợp scope từ nhiều Role, grant thiếu scope không làm mất grant hợp lệ của Role khác; gate `grants` exclusive cho đổi membership và chuyển đơn vị cha (F02 của OA3.0) |
+| OA3.3 | Bật lọc HĐ/PR; xóa `OA3_DEFERRED`/`activeGrants`; gỡ đọc ngầm ADR-0014/0015; chặn bypass F08/F09/F11/F12 (BA-OA3-09); `owner_org_unit_id` khi tạo; H-01 |
+| OA3.4 | UI cột Scope (multi-select, chặn lưu, cảnh báo); effective-access liệt kê grant thiếu scope; kho được cấp trên Hồ sơ cá nhân; field đơn vị chịu trách nhiệm |
+| OA3.5 | Clean Reset, kiểm seed, down/up và regression Dev/Test theo §8 |
+- **Web (tối thiểu, không phải UI OA3.4).** Màn Vai trò gửi lại scope đã tải khi lưu, để không làm mất scope hiện có. Chọn quyền mới có scope sẽ nhận `SCOPE_REQUIRED` cho đến OA3.4.
+- **Test thay đổi có chủ đích.** Helper lưu Role trong các spec gửi kèm `scopes`. `TRUNCATE role_permissions` nay bị FK từ chối trước trigger. Test migration OA2.3b dừng ở OA2.3b. Test nâng cấp OA0 revert thêm OA3.1.
+
+**Chi tiết OA3.2 (Scope Engine & Locking):**
+
+- **File.** Engine: `apps/api/src/modules/identity/data-scope.ts`. Gate: `identity/user-admin.ts` (`create`, `update`, `editMemberships`), `organization/org-unit-admin.ts` (`lockTree`). Test: `apps/api/src/data-scope-engine.int.spec.ts` (15 test). `authorization.ts` (`loadGrants`, `grantRole`, gate) không đổi. Không migration.
+- **Contract engine** (không rule nghiệp vụ, không cache; mọi hàm nhận `em` của transaction gọi):
+  - `loadDataScope(m, userId, lock = false): DataScope`: **một câu SQL**, nên grants, scope, membership và cây cùng một snapshot. `lock = true` lấy gate `grants` shared trước (như `grantRole(lock)`), dùng trong transaction nghiệp vụ; gọi trước mọi row lock hoặc sau `lockActor` (đã giữ gate). Nạp mỗi request/transaction, không giữ qua request.
+  - `DataScope = { userId, grants, orgUnitIds, orgTreeIds, warehouseIds }`.
+    - `grants[permission]`: không có key = không có quyền; `null` = permission không phân scope (`supported_scopes = '{}'`), chỉ cần grant; mảng = **hợp** scope của mọi Role active cấp permission đó (BA-SCP-05). Grant thiếu dòng scope không đóng góp gì: chỉ có nó thì `[]` (có quyền, không thấy dữ liệu, F01); có thêm Role hợp lệ thì vẫn nhận scope của Role đó (BA-OA3-05). Không mặc định ALL. Nguồn grant: `v_user_grants` (account active, Role active).
+    - `orgUnitIds`: đơn vị của mọi membership ACTIVE (BA-SCP-13). `orgTreeIds`: `orgUnitIds` cộng mọi đơn vị con cháu (đệ quy `parent_id`, không lọc trạng thái). Membership ENDED không tính.
+  - `hasPermission(s, p)`: có grant, không xét scope.
+  - `scopeFilter(s, permission, cols, first = 1) → { sql, params } | null`: `null` ⇒ từ chối; unscoped hoặc ALL ⇒ `TRUE`; còn lại OR các scope của **chính** permission đó, placeholder từ `$first`. `ScopeColumns = { creator?, responsible?: string[], assigned?, orgUnit?, warehouse? }` do module sở hữu khai báo; `assigned` là biểu thức SQL boolean dùng `:uid` (vd. `EXISTS` node workflow có assignee hiện tại hoặc đã từng, BA-OA3-04). Scope được cấp mà module không khai báo cột ⇒ **throw** (catalog/module lệch).
+  - `matchesDraft(s, permission, draft)`: bản TypeScript của cùng bảng §5.3; `ScopeDraft = { creatorId?, responsibleIds?, assigneeIds?, orgUnitId?, warehouseId? }`; field thiếu/NULL không khớp. Owner NULL không khớp O/T ở cả SQL (`NULL = ANY(...)`) và TS.
+  - `inScope(m, s, p, src, id)`; `assertCanRead(m, s, view, src, id)`: không có VIEW → 403; có VIEW nhưng ngoài scope, grant thiếu scope hoặc ID không tồn tại → 404 (BA-OA3-07). `assertCanAct(m, s, view, action, src, id)`: đọc được trước, rồi action + scope của action (403). `ScopeSource = { from, id, cols }`, `from` là biểu thức bảng tin cậy kèm alias, không nhận từ client.
+  - `canAccessDraft(s, view, action, draft)` cho CREATE (F-OA0-03): action và view cùng khớp trạng thái dự kiến; module kiểm lại trong transaction lưu (`loadDataScope(m, uid, true)`).
+  - ADMIN không bypass: chỉ là Role có dòng scope ALL/đủ supported scopes (BA-OA3-02); vd. `PR.CREATE` của ADMIN không khớp chứng từ người khác tạo có owner NULL.
+- **Lock graph** (kế thừa OA1.3/OA2.2, không đổi thứ tự): admin-guard → `grants` → `users` (id tăng) → `roles` → `org-tree` → `org_units` → `job_titles` → `org_memberships` → dòng chứng từ. OA3.2 bổ sung: mọi đường làm đổi kết quả `loadDataScope` lấy `grants` **exclusive** trước mọi row lock. Không đường nào xin shared rồi exclusive; exclusive rồi shared (`lockActor`) không phải nâng cấp.
+
+| Đường ghi | Trước OA3.2 | OA3.2 |
+|---|---|---|
+| Lưu Role (quyền, scope, thành viên), trạng thái Role | exclusive | giữ nguyên |
+| Vô hiệu hóa/kích hoạt tài khoản, trạng thái nhân sự | exclusive | giữ nguyên |
+| `PUT /admin/users/:id` | exclusive khi có `roleIds`/`warehouseIds` | thêm khi có `memberships` |
+| `POST /admin/users` | exclusive khi có role/kho | thêm khi có `memberships` |
+| Membership API (`POST /admin/memberships`, `PUT …/:id`, `POST …/:id/end`) | shared | **exclusive** (trước `lockActor`) |
+| Mọi ghi đơn vị: tạo, `PUT /admin/org-units/:id` (cha, head, tên), đổi trạng thái | shared | **exclusive** trong `lockTree` (F01) |
+| Chức danh | shared | giữ shared (không ảnh hưởng scope) |
+| Cấp tài khoản | shared | giữ shared (chưa có Role nên không đổi grant) |
+| Reset mật khẩu, mở khóa, `/me` | shared | giữ nguyên |
+
+- **Đảm bảo snapshot.** Reader trong transaction nghiệp vụ giữ gate shared (`loadDataScope(m, uid, true)` hoặc sau `lockActor`) nên mọi writer bảng trên chờ reader commit; nạp lại trong cùng transaction cho cùng kết quả. READ COMMITTED: request sau commit của writer thấy dữ liệu mới. Đọc ngoài transaction (list) dùng một câu `loadDataScope` không lock, rồi `scopeFilter`.
+- **Test PostgreSQL** (`data-scope-engine.int.spec.ts`): hợp scope nhiều Role, không trộn chéo permission; fail-closed từng grant (grant SQL tay không scope) và giữ grant hợp lệ của Role khác; unscoped `PO.VIEW`; ADMIN không bypass; Role inactive; nhiều membership, cây 4 cấp, nhánh khác, kết thúc membership qua API; parity SQL/TS trên bảng tạm (mọi scope đơn, hợp, rỗng, toàn bộ; creator/responsible/owner NULL; assignee); throw khi thiếu cột; 403/404 của `assertCanRead`/`assertCanAct`, `canAccessDraft`; 4 writer (Membership API, lưu User memberships, đổi cha, đổi scope Role) phải **chờ** reader giữ gate shared (kiểm `pg_locks` advisory chưa granted), reader không thấy thay đổi trong transaction của mình, load sau commit thấy; reader + 3 writer song song 3 vòng, không deadlock. Hồi quy liên quan pass: `user-membership`, `org-unit-admin`, `user-admin`, `data-scope`, `authorization`, `role-admin`, `personal-profile` (99 test). API build pass. Full regression để OA3.5.
+- **Chưa làm (OA3.3+).** Chưa gọi engine ở HĐ/PR (List, Detail, Notes, History, File, action); `OA3_DEFERRED`/`activeGrants` còn nguyên; `CurrentUser`/`loadGrants` chưa mang scope (OA3.3 gọi `loadDataScope` ở service, không thêm vào AuthGuard để tránh query thừa mỗi request); chưa có test theo module "mỗi scope trong `supported_scopes` có cột khai báo"; ASSIGNED mới kiểm trên bảng tạm, biểu thức thật trên node workflow PR do OA3.3 khai báo. Mọi ghi đơn vị nay tuần tự với kiểm tra quyền đang chạy (thao tác quản trị hiếm, chấp nhận vì đúng đắn trước tối ưu).
+- **Rà soát cuối OA3.2 (BA F01–F03):**
+  - **F01 Org gate — có ảnh hưởng, đã sửa.** Tạo đơn vị con dưới đơn vị có thành viên làm `orgTreeIds` của thành viên đó thay đổi. Đổi trạng thái đơn vị không đổi kết quả hiện tại (ngừng đơn vị đòi không còn membership ACTIVE; `orgTreeIds` không lọc trạng thái) nhưng vẫn khóa theo nguyên tắc đúng trước tối ưu. Nay `OrgUnitAdminService.lockTree` lấy `grants` **exclusive** trước `lockActor` cho **mọi** ghi đơn vị (tạo, sửa/chuyển cha/head, đổi trạng thái). Test: tạo đơn vị con và đổi trạng thái đơn vị đều chờ reader giữ gate shared; load sau commit thấy đơn vị con trong `orgTreeIds`. Chức danh không ảnh hưởng scope, giữ shared.
+  - **F02 Snapshot / transaction boundary — chốt cho OA3.3** (mục "Transaction boundary OA3.3" dưới đây).
+  - **F03 Lock graph — đạt, không sửa code.** Đã đối chiếu từng đường: vô hiệu hóa/kích hoạt tài khoản (`setAccountStatus`: admin-guard → exclusive), trạng thái nhân sự (admin-guard → exclusive), tạo/sửa/trạng thái Role và thành viên Role (exclusive trước `lockActor`; Role hệ thống admin-guard trước), thêm/gỡ Role và kho từ màn User (`create`: exclusive khi có role/kho/membership; `update`: admin-guard khi có `roleIds`, exclusive khi có `roleIds`/`warehouseIds`/`memberships`), Membership API (exclusive). Chỉ shared: reset mật khẩu, mở khóa, `/me`, cấp tài khoản (`createAccount`: user chưa có Role vì Role đòi tài khoản, nên không đổi grant). Mọi đường xin exclusive trước `lockActor`; không đường nào xin shared rồi exclusive. Ghi `user_roles`/`user_warehouses` chỉ có trong `role-admin.update` và `user-admin.saveRelations`, đều dưới exclusive.
+
+**Transaction boundary OA3.3 (F02, bắt buộc):**
+
+1. **List + COUNT:** một `loadDataScope(m, uid)` cho request; items và total dùng **cùng** `scopeFilter` (cùng params). Nếu chạy hai câu, đặt trong một transaction `REPEATABLE READ READ ONLY` (hoặc một câu với `count(*) OVER ()`) để scope, items và total cùng snapshot. Không nạp scope lại giữa hai câu.
+2. **Detail / Notes / History / File:** trong một transaction (REPEATABLE READ READ ONLY hoặc cùng `em`): `loadDataScope` → `assertCanRead` → đọc dữ liệu. Không tách kiểm tra quyền và đọc ra hai kết nối. Tải file: kiểm quyền rồi stream ngoài transaction là chấp nhận được (dữ liệu đã cấp tại thời điểm kiểm), nhưng không giữ gate khi stream (quy tắc (5) OA1.3).
+3. **Action (ghi):** một transaction READ COMMITTED, đúng thứ tự: (a) `grants` gate shared (`loadDataScope(m, uid, true)` hoặc `lockActor`) **trước mọi row lock** → (b) load scope (đã giữ gate, mọi writer scope phải chờ) → (c) khóa dòng chứng từ `FOR UPDATE` → (d) kiểm VIEW + action scope (`assertCanAct`) trên dòng đã khóa → (e) Business Rule + prospective scope (nếu thao tác đổi thuộc tính ảnh hưởng scope) → (f) ghi và commit. Kiểm scope **sau** khi khóa dòng để owner/người phụ trách không đổi giữa kiểm và ghi (chống TOCTOU). Mẫu: `SalesContractsService.lockForAction` (OA3.3a).
+4. **CREATE:** ngoài transaction chỉ để UX (`canAccessDraft` trên trạng thái dự kiến); trong transaction lưu bắt buộc lặp lại bước 3 với draft được dựng từ dữ liệu đã khóa/validate (đơn vị chịu trách nhiệm thuộc `orgUnitIds` hiện tại).
+5. **Cấm:** cache `DataScope` qua request hoặc gắn vào `CurrentUser`; dùng scope nạp ngoài transaction để quyết định ghi; xin gate sau row lock; gọi mạng/xử lý file khi giữ gate.
+
+- **Lưu ý bắt buộc OA3.3 (BA khi nghiệm thu OA3.2):**
+  - Snapshot nhất quán phải bao gồm **cả** `loadDataScope` **và** truy vấn chứng từ. Cùng một transaction READ COMMITTED **không** mặc nhiên cho cùng snapshot (mỗi câu lệnh có snapshot riêng): đọc dùng REPEATABLE READ READ ONLY hoặc gộp một câu; ghi dựa vào gate shared (chặn writer scope) cộng khóa dòng chứng từ.
+  - Action kiểm VIEW scope + action scope + Business Rule trên **dữ liệu đã khóa** (`FOR UPDATE` rồi mới `assertCanAct` và rule).
+  - ASSIGNED phải kiểm thử trên workflow PR thật (node/assignee hiện tại và lịch sử), không chỉ bảng tạm.
+
+**Acceptance OA3.3:**
+
+- HĐ, PR khai báo `ScopeSource`; test mỗi scope trong `supported_scopes` của VIEW/action có cột tương ứng (không throw).
+- List/COUNT/Detail/Notes/History/File cho cùng kết quả trên ma trận Role × scope × membership × cây; owner NULL không khớp O/T.
+- Không có VIEW → 403; ngoài scope hoặc grant thiếu scope → 404; action ngoài scope → 403; Business Rule sau quyền.
+- Action và CREATE kiểm lại trong transaction theo boundary trên; test đồng thời đổi scope/membership/cây với action: không deadlock, không commit thao tác trái scope.
+- Xóa `OA3_DEFERRED`/`activeGrants` cùng commit bật lọc PR; gỡ đọc ngầm ADR-0014/0015; chặn F08/F09/F11/F12; `owner_org_unit_id` khi tạo (BA-OA3-06); H-01.
+- ADMIN không bypass Business Rule.
+- **Hướng dẫn OA3.3.** Mỗi module khai báo `ScopeSource` (HĐ: creator `created_by`, responsible Sales/PM phụ trách, orgUnit `owner_org_unit_id`; PR: creator, responsible của HĐ nguồn, assigned `EXISTS` node, orgUnit). List: `scopeFilter(..., first = số param hiện có + 1)` nối vào WHERE (cùng điều kiện cho count). Detail/Notes/History/File: `assertCanRead`. Action: theo "Transaction boundary OA3.3" bước 3 (gate → load scope → `FOR UPDATE` → `assertCanAct` → Business Rule + prospective scope → ghi). CREATE: `canAccessDraft`, kiểm lại trong transaction. Cùng commit: xóa `OA3_DEFERRED`/`activeGrants`, gỡ đọc ngầm ADR-0014/0015, chặn F08/F09/F11/F12.
+
+**Chi tiết OA3.3a — Data Scope cho HĐ bán (hoàn thành; BA nghiệm thu có điều kiện, F01–F03 đã đáp ứng):**
+
+- **`ScopeSource` HĐ** (`sales-contracts.service.ts`, `SC_SOURCE`): creator `s.created_by`; responsible `s.responsible_sales_user_id`, `s.responsible_pm_user_id`; orgUnit `s.owner_org_unit_id`. Đủ cột cho A C R O T của VIEW/CREATE.
+- **Đọc** (`readSnapshot`: transaction REPEATABLE READ READ ONLY, một `loadDataScope` không lock): `GET /sales-contracts` (List và COUNT cùng `scopeFilter`, cùng params; grant thiếu scope → rỗng/`total 0`), `GET /sales-contracts/:id` (thêm `ownerOrgUnitId`), `GET /sales-contracts/:id/lines`: `assertCanRead` rồi đọc trong cùng snapshot. Không VIEW → 403 (guard), ngoài scope/không tồn tại → 404.
+- **Ghi** (`lockForAction`): `loadDataScope(m, uid, true)` (gate shared trước mọi row lock) → `sales_contracts FOR UPDATE` → `assertCanAct(VIEW, CREATE)` trên dòng đã khóa → Business Rule. Áp cho PATCH HĐ, thêm/sửa/xóa dòng (dòng không tồn tại → id 0 → 403/404 như HĐ), activate (nay chạy trong transaction, bỏ UPDATE có điều kiện), cancel. Thứ tự rule: trạng thái → H-01 → version.
+- **H-01:** HĐ DRAFT chỉ người tạo hoặc Sales phụ trách thao tác (`SALES_CONTRACT_NOT_OWNER`, 403), sau permission + scope; ADMIN không bypass. Hủy HĐ ACTIVE chỉ cần scope (§7: rule áp cho Draft).
+- **Prospective scope:** PATCH đổi `responsibleSalesUserId` kiểm `canAccessDraft(VIEW, CREATE)` trên trạng thái sau đổi; mất scope → 403 `SCOPE_WOULD_BE_LOST`, không ghi. Đổi khách hàng/dòng không ảnh hưởng scope. CREATE: `canAccessDraft` trên draft (người tạo, Sales phụ trách, owner) trong transaction lưu, sau gate; không làm bước UX ngoài transaction.
+- **`owner_org_unit_id`** (BA-OA3-06, §4.4): đọc membership ACTIVE dưới gate shared. Không gửi → đơn vị chính; gửi id → phải là membership ACTIVE; gửi `null` khi có membership hoặc id không hợp lệ → 422 `OWNER_ORG_UNIT_INVALID`; không membership → NULL (gửi id → 422). Chỉ `CreateScDto` có field; PATCH gửi field → 400 (`forbidNonWhitelisted`). Không backfill.
+- **Picker HĐ nguồn PR** (`SalesContractFacade.prOptions`, `GET /purchase-requisitions/catalog/contracts`): giữ điều kiện ACTIVE + người phụ trách, AND `scopeFilter(SALES_CONTRACT.VIEW)`, chạy trong `readSnapshot`.
+- **Test:** `sales-contract-scope.int.spec.ts` (8): owner (chính, chọn, không membership, sai/null, bất biến); parity List paged/plain/total/Detail/Lines cho CREATOR, RESPONSIBLE, ORG_UNIT (không gồm con), ORG_UNIT_TREE, TREE không membership, hợp scope 2 Role, ALL, owner NULL; 403 không VIEW, grant thiếu scope → rỗng/404; H-01 với 6 thao tác (ngoài scope 404, CREATE scope không khớp 403, cùng đơn vị không phải owner 403, ADMIN 403), Sales phụ trách thao tác được, hủy ACTIVE; prospective CREATE/PATCH; picker. Fixture cập nhật theo hành vi mới: `editing` (HĐ do ADMIN tạo giao Sales phụ trách), `procurement` (PM không phụ trách → 404), `outbound`/`seed-demo` (activate nhận user). Full API 22 suite / 287 test pass (trước F01–F03); sau F01–F03 chạy targeted `sales-contract-scope`, `sales-contract-lines`, `editing`, `procurement`, `data-scope-engine` (71 test) pass; build, `git diff --check` pass.
+- **Rà soát nghiệm thu BA (F01–F03):**
+  - **F01 Hủy HĐ ACTIVE — đạt, không sửa code.** Chỉ miễn điều kiện creator/responsible của H-01; vẫn cần VIEW + CREATE scope và giữ nguyên Business Rule hiện hữu: `CANCELED` → 409 `INVALID_STATUS`, PR/GIR chưa hủy → 409 `SALES_CONTRACT_IN_USE` (`procurement.int.spec`). Lifecycle HĐ không đổi. Test: người trong scope không phải owner hủy ACTIVE được, hủy lại 409, PATCH HĐ ACTIVE 409.
+  - **F02 Concurrency — đạt, không sửa code.** 3 test trên endpoint thật: (1) thu hồi scope Role trước (`PUT /admin/roles`, gate exclusive): PATCH HĐ xếp hàng sau writer (`pg_locks` chưa granted), sau commit trả 404, version không đổi; (2) action trước (dòng HĐ bị giữ `FOR UPDATE`): action giữ gate shared nên kết thúc membership (`POST /admin/memberships/:id/end`) phải chờ, action commit bằng scope còn hiệu lực, sau đó 404; (3) 3 vòng song song đổi scope + thêm dòng + đọc: không deadlock, không 500, sau thu hồi cuối 404.
+  - **F03 `PROPOSE/CONFIRM_PRODUCT` — ghi nhận, chưa triển khai.** Bắt buộc rà soát bảo mật tại OA3.3c (kiểm scope HĐ của dòng/đề xuất); legacy không phải lý do miễn kiểm soát truy cập.
+- **Quyết định BA:** chấp nhận không kiểm CREATE ngoài transaction (chỉ kiểm trong transaction lưu). Mâu thuẫn tài liệu transaction boundary đã sửa (bước 3 và "Hướng dẫn OA3.3").
+- **Carryover (OA3.3b/c/OA3.4):** PR Data Scope và xóa `OA3_DEFERRED`/`activeGrants` (OA3.3b); rà soát bảo mật bắt buộc `PROPOSE/CONFIRM_PRODUCT` (F03, OA3.3c); facade đọc HĐ từ PR/GIR (`summaries`, `sourceContract`, `responsibleSalesOf`, `lockActiveLines`) và bypass F08/F09/F11/F12 thuộc OA3.3c; UI chọn đơn vị chịu trách nhiệm và hiển thị lỗi mới (`OWNER_ORG_UNIT_INVALID`, `SALES_CONTRACT_NOT_OWNER`, `SCOPE_WOULD_BE_LOST`) tại OA3.4.
+
+**Chi tiết OA3.3b — Data Scope cho PR (hoàn thành, BA đã nghiệm thu):**
+
+- **`ScopeSource` PR** (`procurement.service.ts`, `PR_SOURCE`, `purchase_requisitions d JOIN sales_contracts s`): creator `d.created_by`; responsible `s.responsible_sales_user_id`, `s.responsible_pm_user_id` (HĐ nguồn); orgUnit `d.owner_org_unit_id`; assigned = `EXISTS` node `pr_workflow_nodes` có `assignee_id = :uid` (mọi vòng, gồm node đã `invalidated_at`) **hoặc** sự kiện `REASSIGN` trong `approval_histories` có `metadata.from.id = :uid` (Reassign ghi đè `assignee_id` của node; lịch sử append-only giữ người bị chuyển đi, BA-OA3-04). Draft approver/receiver chưa submit không phải phân công. Đủ cột cho A C R G O T.
+- **F01 — Đọc.** List và COUNT, Detail, Lines, Notes, History, Dossier, hai danh sách ứng viên và Notifications nạp scope và đọc dữ liệu qua cùng EntityManager ở `REPEATABLE READ`. Tải dossier dùng transaction có thể khóa `FOR SHARE` trên file, rồi mở stream sau commit. Kiểm tra hồ sơ trước upload tạm cũng chạy trong một snapshot và được lặp lại khi lưu.
+- **D01 — Notifications.** API lọc qua `PR.VIEW` trên `PR_SOURCE`. Web lấy unread count và badge từ chính kết quả đó, chỉ tính mục chưa đọc và chưa kết thúc.
+- **D02 — Tab PR trên HĐ.** Thiếu `PR.VIEW` trả 403. Với `salesContractId`, Procurement gọi facade HĐ kiểm `SALES_CONTRACT.VIEW` trên cùng snapshot, sau đó lọc PR. HĐ ngoài scope, HĐ không tồn tại và HĐ đọc được nhưng không có PR trong scope đều trả 200 rỗng, kể cả COUNT.
+- **D03 — PO con.** Dùng `PO.VIEW` đã nạp trong snapshot Detail để trả danh sách PO con. Rà soát đầy đủ điều kiện đọc PO tại OA3.3c.
+- **Bỏ đọc ngầm (ADR-0014 bị thay thế):** xóa `assertPrReadScope`, `readablePr`, nhánh `SALES_CONTRACT.VIEW`/người tạo/người phụ trách/`wasAssigned` trong list và detail, `SalesContractFacade.responsibleSalesOf`. PO con trên Detail hiện theo `PO.VIEW` (trước theo `PR.VIEW` toàn cục).
+- **Ghi** (`lockPr`): `loadDataScope(m, uid, true)` (gate shared) → PR `FOR UPDATE` → `assertCanAct(VIEW, action)` trên dòng đã khóa → Business Rule hiện hành. Action theo bước: approve/reject ở bước duyệt → `PR.APPROVE`; receive/reject ở bước nhận → `PR.RECEIVE`; submit, recall, cancel, edit, submit-edited → `PR.CREATE`; dossier → `PR.DOSSIER_MANAGE`; note → chỉ VIEW. Edit/submit-edited giữ thứ tự khóa HĐ lines → PR: kiểm `assertCanAct` sau gate (trả 403/404 trước mọi rule) rồi **kiểm lại** sau khi khóa PR. Reassign: VIEW + scope của đúng nhánh Business Rule (người tạo → `PR.CREATE`, quản lý → `PR.REASSIGN`, người nhận hiện tại → `PR.RECEIVE`); `canReassign` nhận danh sách quyền có scope khớp PR (`scopedOn`). Cờ Detail `canEdit`, `canCancel`, `canReassign`, dossier `canManage` dùng cùng scope.
+- **ASSIGNED chỉ cấp đọc:** người từng được giao (lịch sử, vòng cũ, bị reassign/recall) đọc được nếu có PR.VIEW ASSIGNED; thao tác vẫn đòi đúng node hiện tại + eligibility live (Business Rule không đổi).
+- **F01 — Ghi.** Giữ gate `grants` shared, khóa HĐ nguồn `FOR SHARE` để ổn định Sales/PM phụ trách, rồi khóa PR và kiểm VIEW/action scope trước Business Rule. Sửa PR vẫn khóa dòng HĐ trước PR và kiểm lại scope sau khi khóa PR. Save-new replay kiểm quyền hiện tại trước khi trả chứng từ đã tạo. CREATE kiểm `canAccessDraft(VIEW, CREATE)` và scope dossier nếu có dòng hồ sơ trước kiểm tra tuyến tạo PR.
+- **F02 — Reassign.** Cả hai endpoint kiểm VIEW và scope của nhánh creator/`PR.CREATE`, quản lý/`PR.REASSIGN` hoặc người nhận hiện tại/`PR.RECEIVE`. Business Rule giữ trạng thái chờ, node hiện tại, eligibility và ngữ cảnh thao tác.
+- **F03 — ASSIGNED và prospective scope.** Đối chiếu SQL/TS qua reassign nhiều lần, recall, reject và resubmit. History lưu assignee cũ ở `metadata.from.id`, tách khỏi actor. Các cập nhật PR giữ creator/owner/HĐ nguồn và chỉ mở rộng tập assignee do lịch sử giữ người cũ, nên chỉ CREATE cần prospective scope. Đổi PM qua facade HĐ có thể đổi RESPONSIBLE của PR nguồn. Closure ổn định quan hệ này khi ghi PR, còn rà soát quyền trên endpoint đổi PM thuộc OA3.3c. Cải tổ eligibility thuộc OA4.
+- **`owner_org_unit_id`** (BA-OA3-06): dùng chung `ownerOrgUnit` (chuyển từ HĐ sang `identity/data-scope.ts`): không gửi → đơn vị chính; id → membership ACTIVE; `null` khi có membership hoặc id sai → 422 `OWNER_ORG_UNIT_INVALID`; không membership → NULL. Không kế thừa từ HĐ, không backfill. `CreatePrDto`/`SaveNewPrDto` có field (fingerprint save-new gồm field khi gửi); `UpdatePrDto` không có → 400.
+- **F05 — ADMIN.** `PR.CREATE` là hợp C/R/O/T. PR của người khác, ngoài cả bốn scope, trả 403 quyền. Khi ADMIN là PM phụ trách, scope R khớp và thao tác sửa đi đến Business Rule `NOT_DOCUMENT_CREATOR`. REASSIGN/DOSSIER ALL vẫn qua Business Rule.
+- **Seed:** xóa `OA3_DEFERRED`/`activeGrants`. Seed dùng `OA3_DEFAULT_SCOPES` và chỉ tạo Role còn thiếu.
+- **Test:** `pr-scope.int.spec.ts` viết lại (7 test, thay suite ADR-0014): owner (chính, chọn, save-new, sai/null, không membership, không kế thừa, bất biến); parity List paged/plain/total + Detail/Lines/Notes/History/Dossier và SQL/TS (`inScope` vs `matchesDraft`) cho CREATOR, RESPONSIBLE (Sales, PM), ORG_UNIT (không gồm con), ORG_UNIT_TREE, TREE không membership, hợp 2 Role, ALL, owner NULL; grant thiếu scope → rỗng/404; không VIEW → 403 (cả file, notifications rỗng); ASSIGNED trên workflow thật (draft approver chưa phải phân công, hiện tại, reassign đi, recall invalidated, vòng 2, chỉ assignee hiện tại thao tác); action scope độc lập (APPROVE scope O khác đơn vị → 403 dù được giao; APPROVE ALL nhưng VIEW CREATOR → 404), ADMIN không bypass, prospective CREATE (VIEW O không membership → 403, CREATE scope không khớp → 403); concurrency: thu hồi scope Role trước (PATCH PR xếp hàng, 404, version giữ), action trước (note giữ gate, kết thúc membership chờ, sau đó 404), 3 vòng song song. Viết lại có chủ đích: `editing.int.spec` (approver có PR.CREATE nhưng scope không khớp → 403 quyền trước `NOT_DOCUMENT_CREATOR`), `procurement.int.spec` (ngoài scope 404 thay 403; người bị reassign đi nay đọc/ghi chú được, không duyệt được; fixture SQL cấp lại grant phải cấp lại dòng scope vì FK cascade; Role PR.VIEW-only có scope ALL), `pr-dossier.int.spec` (DOSSIER_MANAGE ngoài VIEW scope → 404; fixture cấp scope ASSIGNED), `data-scope.int.spec` (seed khớp toàn bộ `OA3_DEFAULT_SCOPES`, plan rỗng).
+- **F04 — PostgreSQL.** Ca duyệt PR xếp sau thu hẹp scope Role từ cây xuống đơn vị. Ca tiếp nhận PR giữ gate trước khi kết thúc membership, sau đó lần tiếp nhận khác bị chặn. Hai ca kiểm trạng thái/version sau commit và chờ khóa trên gate `grants`.
+- **F06 — Hồi quy closure.** Full API 22/22 suite, 294/294 test trên `mini_erp_test`, gồm 10 test PR scope. API build, `git diff --check` và Web 20/20 suite, 158/158 test đều pass. Closure chỉ sửa backend và test API, không có visual evidence.
+- **Technical debt (OA3.5):** các test concurrency HĐ và PR có từ trước vẫn đếm mọi `pg_locks` chưa granted. OA3.5 cần xác định chính xác khóa đang chờ theo `locktype`/`objid`/`relation` cho gate `grants`, dòng PR và membership. Hai ca F04 mới xác định gate bằng advisory key.
+- **Carryover từ OA3.3b đã xử lý tại OA3.3c:**
+  - PO: `GET /purchase-requisition-lines/available-for-po` (số PR, số HĐ, sản phẩm theo `PO.CREATE`), `POST/PATCH /purchase-orders` từ dòng PR DONE bất kỳ (`writePoLine`, `checkPoSources`), `GET /purchase-orders/:id` (số PR trên dòng PO), `GET /purchase-orders/:id/approvers`.
+  - Kho: `ProcurementFacade` (`lockLinesForIssue`, `peekLines`, `purposesOf`, `poDoneLines`, `receivedByPrLine`, `sourceContracts`) dùng bởi GIR (`outbound/gir.service.ts`) và Inbound (`inbound.service.ts`); đọc PR/HĐ không qua scope.
+  - Facade HĐ từ PR: `creatorRoute`/`sourceContract` khi tạo PR, `GET /pr-workflow/creator-candidates`, `GET /purchase-requisitions/catalog/suppliers` (chỉ Business Rule người phụ trách, chưa kiểm `SALES_CONTRACT.VIEW` scope như picker); `lockActiveLines`, `summaries`, `responsibleSales` từ GIR; `PUT /pr-workflow/contracts/:id/responsible-pm` (`PR.CONFIGURE`, admin-only).
+  - F03 OA3.3a: `SALES_CONTRACT.PROPOSE/CONFIRM_PRODUCT`. Bypass F08/F09/F11/F12 của OA3.0.
+- **Web:** giữ carryover OA3.4. Điều kiện hiện tab theo ADR-0014 cũ có thể khiến Sales phụ trách thiếu `PR.VIEW` mở tab rồi nhận 403 theo D02. Lỗi mới (`OWNER_ORG_UNIT_INVALID`, 404 cho PR ngoài scope) hiển thị ở OA3.4.
+
+**Chi tiết OA3.3c — Cross-module Security (baseline `8fb1506`, BA Accepted):**
+
+Bảng đầu ghi nhận phạm vi bản vá ban đầu. Các điều chỉnh theo D04–D07 được ghi trong bảng Closure Patch bên dưới.
+
+| Đường truy cập | Điều kiện đọc hoặc sử dụng nguồn | Finding và xử lý | Kiểm thử |
+|---|---|---|---|
+| PR `:id/candidates`, `:id/reassignment-candidates`, lines, notes, history, dossier | PR.VIEW + scope và quyền thao tác tương ứng với candidates | F08. Giữ kiểm tra theo PR của OA3.3b. | `pr-scope.int.spec.ts` |
+| PR catalog contracts/suppliers, creator-candidates, POST/PATCH PR có dòng HĐ, `creatorRoute` | PR.CREATE theo đường hiện hành; HĐ.VIEW + scope khi chọn nguồn hoặc ghi dòng HĐ; giữ route Sales/PM phụ trách | F08/carryover. Kiểm lại trong snapshot hoặc sau khóa HĐ. Route của PR đã tồn tại dùng nội bộ theo PR scope. | `procurement.int.spec.ts`, `pr-scope.int.spec.ts`, `editing.int.spec.ts` |
+| `PUT /pr-workflow/contracts/:id/responsible-pm`, `assignResponsiblePm` | PR.CONFIGURE + HĐ.VIEW/scope trên HĐ đã khóa; PM đích còn eligibility | Carryover. Grants gate trước khóa HĐ; cập nhật RESPONSIBLE của PR qua quan hệ hiện hành. | PR18 và kiểm thử proposal trong `procurement.int.spec.ts` |
+| `available-for-po`, POST/PATCH PO, PO Detail, `GET /purchase-orders/:id/lines` | PO.CREATE + PR.VIEW/scope cho picker và nguồn ghi; PO.VIEW cho Detail/lines, tham chiếu PR cần PR.VIEW/scope; mã HĐ cần HĐ.VIEW/scope | F09. Lọc picker, kiểm lại nguồn trong transaction và che tham chiếu. `:id/lines` là đường lộ PR-line ID mới tìm thấy. | OA3.3c trong `procurement.int.spec.ts` kiểm thiếu quyền, ngoài scope, ID gửi trực tiếp, thu hồi scope sau picker và luồng thành công. |
+| PO approvers, submit/approve, PO con trên PR Detail | Approvers cần PO.CREATE, PO.VIEW và creator; submit/approve kiểm điều kiện actor trước rule nguồn; PO con dùng cùng điều kiện đọc với PO Detail, hiện là PO.VIEW toàn cục | F09/D03. Dùng dữ liệu PO đầy đủ cho rule hủy PR. Che `usedQuantity` khi thiếu quyền đọc PO và số lượng giới hạn PR trong lỗi PO. | `procurement.int.spec.ts`, `pr-scope.int.spec.ts`, `editing.int.spec.ts` |
+| `inventories/lots`, `available-stock-sources`, `SalesContractFacade.summaries` | Permission endpoint, phạm vi kho và HĐ.VIEW/scope | F11. Lọc cả dòng lô hoặc lựa chọn theo HĐ để che mã, owner, số lượng và COUNT của nguồn. Số dư tổng hợp theo kho vẫn phục vụ nghiệp vụ kho. | OA3.3c trong `outbound.int.spec.ts` |
+| GIR quota, gir-pr-lines, POST/PATCH GIR | Permission GIR, HĐ.VIEW/scope, PR.VIEW/scope với dòng PR; thao tác ghi giữ kiểm tra kho hiện hành | F12. Kiểm nguồn trong snapshot hoặc transaction. `excludeGirId` chỉ nhận phiếu có thể sửa của người gọi ở cùng HĐ và trong kho được cấp. | `outbound.int.spec.ts` |
+| GIR list/detail, GRR detail, PO lines-available-for-grr | Quyền đọc phiếu đích hiện hành; tham chiếu PR/HĐ theo VIEW/scope của từng nguồn | Bypass mới. Che mã, ID, thông tin dòng HĐ, thông tin nhận hàng theo PR và mục đích GIR vật tư nếu có PR ẩn. Dòng nghiệp vụ và số lượng trên phiếu đích vẫn hiển thị. | `outbound.int.spec.ts`, `inbound.int.spec.ts`, `procurement.int.spec.ts` |
+| `ProcurementFacade` từ GIR/Inbound, `sourceContract`, `responsibleSales`, `lockActiveLines` | Đọc công khai qua facade có scope. Truy vấn nội bộ phục vụ provenance, quota, trạng thái, phân công đã lưu và kiểm tra lúc duyệt dùng quyền thao tác trên phiếu đích | F11/F12. Giữ ghi nhận nguồn tồn, kiểm số lượng và khóa nghiệp vụ; giảm chi tiết lỗi có thể lộ ID hoặc số lượng nguồn. | Regression `outbound.int.spec.ts`, `inbound.int.spec.ts`, `procurement.int.spec.ts` |
+| Legacy PROPOSE_PRODUCT / CONFIRM_PRODUCT (approve/reject) | Quyền thao tác tương ứng và HĐ.VIEW/scope trên HĐ chứa dòng/đề xuất | F03 OA3.3a. Grants gate và khóa HĐ trước khi kiểm scope rồi ghi; giữ trạng thái legacy. | Proposal trong `procurement.int.spec.ts`; `sales-contract-lines.int.spec.ts`, `editing.int.spec.ts` |
+
+- **Contract API.** Picker có thể ít dòng hơn. Trường tham chiếu nguồn trên PO/GIR/GRR có thể là `null`. PR Detail bỏ `usedQuantity` khi người đọc thiếu PO.VIEW. ID nguồn ẩn trả 404 ở thao tác PO; các đường truy vấn HĐ theo ID trả 403 khi thiếu VIEW, 404 khi ngoài scope. Mã lỗi nghiệp vụ giữ nguyên ở các ca chỉ rút gọn thông báo.
+**Closure Patch OA3.3c — BA Accepted toàn bộ D04–D07 và C01–C09**
+
+| Quyết định | Áp dụng |
+|---|---|
+| D04 | Inventory giữ toàn bộ lô theo `INVENTORY.VIEW` và kho được cấp. Khi HĐ nguồn bị ẩn, API chỉ che ID/mã HĐ và ID/tên Sales nguồn. Số lượng, trạng thái serial, dữ liệu nhập kho và truy vết nội bộ được giữ. |
+| D05 | GIR kiểm VIEW + scope khi chọn HĐ/PR mới trong transaction. PATCH phân biệt nguồn mới với liên kết đã có trên phiếu. B/D giữ quy tắc cũ là HĐ/Sales nguồn cố định, đổi nguồn bằng lập GIR mới. Chọn serial/lô cho GI theo kho, nguồn đã lưu và Business Rule phê duyệt. |
+| D06 | Khách hàng là dữ liệu HĐ. PR List/Detail lấy quyền HĐ độc lập. Dữ liệu PR, thao tác và workflow tiếp tục theo PR scope; không sao chép khách hàng sang PR và giữ ma trận grant §7.1. |
+| D07 | Bước 1 B/D luôn do Sales nguồn đủ eligibility xác nhận. Picker người tạo GIR trả `id`, `employeeCode`, `fullName` của Sales nguồn hợp lệ trong ngữ cảnh phiếu. Quyền VIEW HĐ vẫn độc lập. |
+
+| Finding | Kết quả và kiểm thử |
+|---|---|
+| C01 | Giữ lô, số lượng, serial và số dư đối với người có quyền kho nhưng ngoài scope HĐ. Kiểm đối chiếu cùng ID lô giữa hai actor trong `outbound.int.spec.ts`, regression Inbound/Outbound. |
+| C02 | GIR cũ dùng liên kết đã lưu khi đọc, sửa và xử lý. Chọn mới kiểm trong transaction. Ca A/C và B/D ở `outbound.int.spec.ts` thu hồi quyền rồi sửa/gửi duyệt, B/D còn kiểm duyệt hai bước. |
+| C03 | PR List dùng cùng biểu thức HĐ/khách hàng đã che cho projection, search, sort và COUNT. Filter theo ID HĐ luôn kiểm HĐ.VIEW + scope. Test đối chiếu tìm theo số PR, số HĐ, khách hàng và filter ID với Sales Head. |
+| C04 | Web chịu được null, dùng ID lô để giữ dòng, bỏ tùy chọn và link HĐ ẩn. PO vẫn sửa số lượng theo ID dòng đích. PR vẫn lưu và gửi duyệt khi HĐ bị ẩn. Có regression Web cho ba tình huống. |
+| C05 | PostgreSQL kiểm thu hồi quyền nguồn và tiếp tục sửa/gửi duyệt PO, PR liên kết lưu sẵn, GIR A/C và B/D. |
+| C06 | Full API/Web regression, API/Web build và diff check ghi ở cuối mục này. |
+| C07 | PR notes và lý do do người dùng nhập vẫn là nội dung PR. History có cùng chính sách cho Detail, endpoint phân trang và rejection. Khi HĐ ẩn, metadata chỉ giữ cấu trúc phân công PR đã biết. Notifications chỉ trả thông tin PR đã qua PR scope. Rà response ghi, chỉ trả định danh của chứng từ đích. |
+| C08 | PR giữ dòng HĐ nếu bỏ trường liên kết trên dòng đã lưu; giá trị mới cần HĐ.VIEW + scope. PO/GIR nhận ID dòng đích để giữ nguồn. GRR dùng dòng PO đã duyệt cho workflow kho và che tham chiếu PR riêng. |
+| C09 | PostgreSQL giữ grants gate exclusive khi thu hồi PR.VIEW, kiểm request POST PO đợi đúng advisory lock qua `pg_locks` và `pg_blocking_pids`. Sau khi thu hồi commit, request trả 404 và không tạo dòng PO. |
+
+- **Contract Closure.** `inventories/lots` giữ số dòng, 4 trường provenance HĐ/Sales có thể null. PR List/Detail che tham chiếu HĐ và khách hàng; PATCH PR bỏ `salesContractLineId` để giữ liên kết của dòng hiện hữu, truyền `null` để bỏ liên kết nếu chứng từ cho phép. PATCH PO/GIR có thể giữ liên kết bằng ID dòng đích và lượng; dòng mới gửi tham chiếu nguồn như trước. `GET /purchase-requisitions/:id/catalog/suppliers` phục vụ PR hiện hữu đủ điều kiện sửa khi không xem được HĐ nguồn. GIR B/D approvers trả mã nhân viên thay username.
+- **Ranh giới.** Scope của HĐ/PR nguồn được kiểm trong cùng snapshot khi đọc, và dưới grants gate trước khi kiểm khóa nguồn trên thao tác ghi. Nghiệp vụ sẵn có giữ quyền với đích, kho, trạng thái và quota nội bộ. Tên/mã có thể xuất hiện trong ghi chú hoặc lý do do người dùng nhập, vì đây là dữ liệu của chứng từ đích; bản vá không dò hoặc sửa nội dung tự do.
+
+- **Chromium sau Closure.** Kiểm Inventory Lots và PR Detail với API thật, fixture PostgreSQL `mini_erp_test` và tài khoản thiếu quyền nguồn. Cả 1366×768 và 1920×1080 hiển thị dữ liệu nghiệp vụ, trường nguồn bị che và không tạo link HĐ. Ảnh ở `docs/screenshots/oa3.3c-closure/`, gồm `01-inventory-lots.png` và `02-pr-detail.png` cùng bản 1920.
+- **Kiểm chứng Closure.** Full API 299/299 (22 suite) trên PostgreSQL mini_erp_test, Web 161/161 (20 suite), API build, Web build và git diff --check đạt. Web build có cảnh báo kích thước chunk. Fixture và Chromium dùng container test độc lập, không dùng Dev DB.
+- **Phạm vi.** Không migration. OA3.4 UI, OA3.5 migration và OA4 eligibility tiếp tục theo kế hoạch.
+
+**Chi tiết OA3.4 — Data Scope UI**
+
+- **Vai trò.** Tab Phân quyền chọn nhiều phạm vi theo `supportedScopes` và hiển thị nhãn tiếng Việt. Cấp quyền mới bắt đầu với tập rỗng, chọn ALL thay thế các phạm vi khác, thiếu scope chặn lưu và nêu mã quyền. Cảnh báo quyền thao tác thiếu VIEW áp dụng khi catalog có VIEW tương ứng. ADMIN giữ grant chỉ đọc. Copy giữ permission và scope, với danh sách người dùng rỗng. Xác nhận lưu nêu mã quyền, phạm vi trước/sau và số người dùng được gán vai trò sau khi lưu. Scope tham gia Dirty Guard và phiên bản được ghim từ khi bắt đầu sửa draft.
+- **Người dùng và Hồ sơ cá nhân.** Phạm vi dữ liệu hiển thị quyền đã lưu theo module catalog, hợp scope cùng permission, Role nguồn, grant thiếu phạm vi và các đơn vị/cây theo membership ACTIVE. Tạo User có thông báo xem quyền sau khi lưu. Khi sửa membership, Role hoặc kho, phần quyền vẫn hiển thị snapshot đã lưu. Warehouse Grant tiếp tục lưu cùng User. Tab Vai trò trong Hồ sơ cá nhân đọc danh sách kho đã cấp.
+- **HĐ và PR.** Chọn Đơn vị chịu trách nhiệm từ membership ACTIVE với mặc định đơn vị chính hoặc đơn vị duy nhất. Không có membership thì để trống và áp dụng quy tắc NULL của API. Sau khi lưu hiển thị chỉ đọc. PR dùng membership của người tạo và giữ quy tắc BA-SCP-11. Web hiển thị lỗi `OWNER_ORG_UNIT_INVALID`, `SALES_CONTRACT_NOT_OWNER`, `SCOPE_WOULD_BE_LOST` và lỗi truy cập theo API.
+- **Điều hướng và action.** Web áp dụng VIEW hiệu lực cho route/menu HĐ và PR. Tab PR của HĐ cần `PR.VIEW` với scope hợp lệ, kết quả lọc tại API. Nút nghiệp vụ trên từng HĐ/PR dùng khả năng thao tác theo scope của chứng từ, giữ kiểm tra nghiệp vụ tại module sở hữu. Khi chi tiết trả 403/404, Web ẩn dữ liệu cache của chứng từ. Các quyết định D04–D07 và ma trận §7.1 tiếp tục áp dụng.
+- **API contract.** `GET /admin/users/:id/effective-access` yêu cầu `USER.VIEW`, trả `grants`, `permissionModules`, `sources`, `orgUnitIds`, `orgTreeIds`, `orgUnits` và `warehouseIds` từ snapshot của scope engine. `grants[code]=null` là quyền không phân scope, `[]` là quyền có phân scope nhưng thiếu cấu hình hợp lệ. `GET /auth/me` thêm `ownerOrgUnits` và lọc permission HĐ/PR thiếu scope với phiên hoạt động bình thường. HĐ List/Detail và PR Detail trả `ownerOrgUnitName` dạng mã · tên và `actionPermissions` theo chứng từ. API ghi Role và chứng từ dùng contract đã có từ OA3.1–OA3.3.
+- **Kiểm chứng.** Full API 300/300 (22 suite) trên PostgreSQL test đã xác minh, Web 162/162 (20 suite), API/Web build và `git diff --check` đạt. Chromium kết nối API thật dùng DB fixture riêng. 28 ảnh trước/sau ở 1366×768 và 1920×1080, kèm ảnh xác nhận lưu Role tại [docs/screenshots/oa3.4](../screenshots/oa3.4/). Các ca bổ sung ở 1366×768 kiểm ADMIN, ALL, chặn thiếu scope, Dirty Guard, xung đột version thật, thu hồi PR.VIEW trong cùng phiên và 0/1/nhiều membership. Regression API kiểm tra lại D04–D07 và C01–C09. Trace xung đột Role lưu cục bộ tại `artifacts/evidence/oa3.4/role-scope-version-conflict.zip`. Fixture chạy ở instance PostgreSQL riêng, Dev DB ngoài phạm vi.
+- **Phạm vi.** Giữ OA3.5 migration, OA4 workflow eligibility và OA5 theo roadmap. Test đồng thời còn ở carryover OA3.5. Web còn cảnh báo kích thước chunk và cảnh báo SSR `:nth-child` từ GridText trên cả hai bản.
+
+**OA3.4 Closure Patch — F01–F05, BA Accepted**
+
+| Finding | Thay đổi |
+|---|---|
+| F01 | Tab Phân quyền giữ accordion/toolbar, dùng hai cột khoảng 55:45, tên quyền chính và mã phụ, scope bằng chip. ADMIN xem trạng thái tĩnh. Giữ ALL, validation, Copy Role và Dirty Guard. |
+| F02 | FormDialog theo COMMON-CONFIRM-001, mã · tên Role, bảng quyền trước/sau và số người dùng được gán sau khi lưu. Số này là số thành viên Role. |
+| F03 | Effective access nhóm theo module, tìm theo tên/mã, lọc quyền scoped hoặc grant thiếu scope. Mỗi quyền mở chi tiết Role và cây đơn vị tương ứng. Giữ snapshot đã lưu và Warehouse Grant của User. |
+| F04 | Chip và tùy chọn dùng chung i18n cho nhãn và diễn giải. ASSIGNED gồm lịch sử phân công PR. Các scope trong cùng quyền hợp theo OR. |
+| F05 | `effective-access` xác minh session/quyền đọc và đọc quyền đích trong cùng snapshot. `/auth/me` dùng một snapshot cho grant, scope và membership. Web làm mới quyền và query HĐ/PR khi bị từ chối. `actionPermissions` phục vụ UI, còn giao dịch ghi kiểm tra lại bằng scope engine và điều kiện nghiệp vụ của module sở hữu. |
+
+- **Contract.** `GET /admin/users/:id/effective-access` thêm `permissionNames` theo mã từ catalog cùng snapshot. Contract `/auth/me`, `ownerOrgUnits`, `actionPermissions` và API ghi giữ nguyên. D04–D07 và §7.1 tiếp tục áp dụng.
+- **Kiểm chứng bản BA Accepted.** Full API 300/300 (22 suite), Web 164/164 (21 suite), build API/Web và `git diff --check` đạt. Lượt chốt chỉ cập nhật tài liệu và kiểm tra diff, dùng lại kết quả regression và build của bản đã nghiệm thu. Chromium dùng API thật và fixture test đã xác minh. Trong cùng phiên, thu hồi một grant vẫn giữ VIEW nhờ Role khác. Khi chỉ còn grant VIEW thiếu scope và quyền CREATE, route PR và tab PR trên HĐ đóng, API đọc PR ngoài scope trả 404. Kiểm tra thêm thay đổi membership, Role inactive và nút lưu PR sau khi mất action scope.
+- **Ảnh.** Tám kịch bản ở 1366×768 và 1920×1080 tại [closure-patch](../screenshots/oa3.4/closure-patch/). Ảnh đối chiếu trước closure trong [oa3.4](../screenshots/oa3.4/). Trace Chromium lưu cục bộ tại `artifacts/evidence/oa3.4/closure-patch/closure-1366.zip`.
+- **Phạm vi.** Giữ UI Đơn vị chịu trách nhiệm và Hồ sơ cá nhân đã duyệt. Cảnh báo bundle tiếp tục theo carryover.
+- **Final Closure OA3.5.** Dùng Clean Reset và kiểm waiter theo PID, advisory key và transaction. Xem trạng thái đầu §11.0.
+
+**Backlog OA5 — Admin UX**
+
+- Tối ưu mật độ hiển thị bảng phân quyền.
+- Thống nhất thứ tự hiển thị scope.
+- Việt hóa các thuật ngữ Data Scope và Grant còn sót.
+- Hiển thị cụ thể số Role thiếu scope trong cảnh báo.
+- Cải thiện cách trình bày chi tiết Role nguồn.
+- Bổ sung số quyền thay đổi phạm vi trong popup xác nhận.
 
 **Quyết định Architect tại OA1.2:** username không phân biệt hoa thường làm ở OA2 kèm preflight dữ liệu trùng; reset mật khẩu đồng thời mở khóa; sai mật khẩu hiện tại không tính vào khóa đăng nhập nhưng có rate limit riêng; mật khẩu 12–256 ký tự; scrypt chạy trong transaction khóa dòng user; `EMPLOYMENT_INACTIVE` thuộc OA2; hồ sơ cá nhân chỉ đọc.
 
@@ -996,6 +1225,9 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 
 **OA5, OA6, OA7**
 
+- **OA6:** bổ sung lý do và lịch sử hủy HĐ cùng phạm vi hồ sơ HĐ. OA3 giữ điều kiện hủy DRAFT/ACTIVE đã nghiệm thu.
+- **OA7:** ổn định bootstrap Outbound trên PostgreSQL Docker (hook 5 giây từng timeout khi chạy cùng build) và xử lý cảnh báo pg driver về truy vấn song song trên cùng client trước khi nâng pg 9.
+
 - Mỗi màn hình đúng §9, có UI-EVIDENCE.
 - UAT pass; dọn Dev có biên bản.
 
@@ -1004,7 +1236,7 @@ Các phase triển khai tuần tự. Mỗi phase có UI tương ứng và UI-EVI
 | Nhóm | Nội dung |
 |---|---|
 | **Security** | 403 cho từng `/admin/*` với Role thường; không gán được `admin_only`; tự thay đổi; last admin đồng thời; session (logout một phiên, revoke toàn bộ, kích hoạt lại); lockout và unlock; không lộ hash; `must_change_password`; nâng quyền qua Organization, Scope, Kho, Pool |
-| **Migration** | Preflight username, `employee_code`; snapshot phân loại §8.3; seed idempotent; `down()` trên Test DB; dry-run dọn dữ liệu |
+| **Migration** | Fresh migration; đối chiếu catalog và ADMIN; seed idempotent; `down()` và `up()` trên Test DB |
 | **Authorization matrix** | Bảng endpoint × user mẫu × scope cho HĐ, PR: List, Detail, Notes, History, File, picker. Người tạo, người phụ trách, người được giao thiếu VIEW thì bị từ chối |
 | **Regression** | Toàn bộ suite API (procurement, pr-scope, pr-workflow, inbound, outbound, inventory, sales-contracts, dossier) và Vitest. Test cũ dựa vào đọc ngầm được **cập nhật có chủ đích**, mỗi thay đổi ghi lý do BA-AUTH-03 |
 | **Integration** | Đổi Role hoặc scope có hiệu lực từ request kế tiếp; ngừng Role giữa action PR (`lockGrant`); membership và cây đồng thời; 409 version |
@@ -1038,9 +1270,17 @@ Q-01…Q-16 và N-01…N-15 đã đóng (§2.11, §2.12). Không còn câu hỏi
 | Script dọn Activity History Dev/Test (BA-N-14) | Khi dọn dữ liệu, có duyệt |
 | Scope và đơn vị cho PO, kho; bỏ đọc ngầm kho; `SN_HISTORY.VIEW` | Phase nghiệp vụ tương ứng |
 
-## 15. Handover sau OA2.4
+## 15. Handover OA3.5
 
-- **Trạng thái:** OA0, OA1.1, OA1.2, OA1.3 hoàn thành và đã được BA nghiệm thu (OA1.3 gồm closure patch F-OA1.3-15…21). Branch `feat/organization-authorization`, chưa merge. OA1 hoàn thành, không có OA1.4. OA2 làm theo đợt OA2.1–OA2.4 (§11); OA2.1 Job Title hoàn thành và đã được BA nghiệm thu. OA2.2 Organization hoàn thành và đã được BA nghiệm thu (gồm Closure Patch F01–F08). OA2.3 chia OA2.3a–c; OA2.3a (backend User, Employee, Account) hoàn thành và đã được BA nghiệm thu (gồm Closure Review F01–F04). OA2.3b (membership, Role, Warehouse, atomic save, Closure Patch F01–F05) hoàn thành và đã được BA/Architect nghiệm thu. OA2.3c (UI Người dùng + tích hợp Cơ cấu tổ chức) hoàn thành, BA đã duyệt Closure Patch F01–F12 (§11.0 "OA2.3c"). OA2.4 Personal Profile & Integration hoàn thành (gồm Closure Patch F01–F05). **OA2 hoàn thành, BA đã nghiệm thu toàn bộ** (§11.0 "OA2.4"). Đợt sau: OA3 (Data Scope), chưa giao. Chưa làm OA2.4.
+- **OA3.5 Final Closure trên `feat/data-scope` từ `f17340a` · BA Accepted.** Toàn bộ OA3 đã được nghiệm thu. Dev/Test được khởi tạo theo kiến trúc đích. Fixture và browser smoke dùng Test. [Báo cáo và evidence](../runbooks/oa3.5-ba-review.md)
+
+- **OA3.4 và Closure Patch F01–F05 trên `feat/data-scope` — BA Accepted.** Baseline `379f89e`. Full API 300/300, Web 164/164, API/Web build và diff check đạt. Chromium với API thật trên PostgreSQL test ở 1366×768 và 1920×1080. Evidence tại [oa3.4](../screenshots/oa3.4/) và [closure-patch](../screenshots/oa3.4/closure-patch/). Chuyển technical debt concurrency và kiểm chứng migration sang OA3.5, chuyển sáu mục Admin UX sang OA5 theo §11.0.
+
+- **OA3.3c trên `feat/data-scope` từ `8fb1506` — BA Accepted.** BA đã nghiệm thu toàn bộ D04–D07 và C01–C09. Full API 299/299 trên `mini_erp_test`, Web 161/161, API/Web build và diff check đạt. Chromium đạt ở 1366×768 và 1920×1080, gồm bốn ảnh tại `docs/screenshots/oa3.3c-closure/`. Carryover OA3.4 UI, OA3.5 migration và technical debt test concurrency, OA4 workflow eligibility giữ theo kế hoạch.
+
+- **Bàn giao closure OA3.3b trên `feat/data-scope`.** Checkpoint BA đã nghiệm thu gồm OA3.1 `5c0e644`, OA3.2 `4cee52c` và OA3.3a `2dcb954`. Closure OA3.3b áp dụng D01–D03 và đóng F01–F06 theo §11.0. Full API 294/294, API build, diff check và Web 158/158 pass. BA đã nghiệm thu toàn bộ F01–F06 và D01–D03. Fixture PostgreSQL chỉ chạy trên `mini_erp_test`. Carryover OA3.3c, OA3.4 và OA3.5 theo §11.0.
+
+- **Trạng thái:** OA0, OA1.1, OA1.2, OA1.3 hoàn thành và đã được BA nghiệm thu (OA1.3 gồm closure patch F-OA1.3-15…21). Branch `feat/organization-authorization`, chưa merge. OA1 hoàn thành, không có OA1.4. OA2 làm theo đợt OA2.1–OA2.4 (§11); OA2.1 Job Title hoàn thành và đã được BA nghiệm thu. OA2.2 Organization hoàn thành và đã được BA nghiệm thu (gồm Closure Patch F01–F08). OA2.3 chia OA2.3a–c; OA2.3a (backend User, Employee, Account) hoàn thành và đã được BA nghiệm thu (gồm Closure Review F01–F04). OA2.3b (membership, Role, Warehouse, atomic save, Closure Patch F01–F05) hoàn thành và đã được BA/Architect nghiệm thu. OA2.3c (UI Người dùng + tích hợp Cơ cấu tổ chức) hoàn thành, BA đã duyệt Closure Patch F01–F12 (§11.0 "OA2.3c"). OA2.4 Personal Profile & Integration hoàn thành (gồm Closure Patch F01–F05). **OA2 hoàn thành, BA đã nghiệm thu toàn bộ** (§11.0 "OA2.4"). PR #20 đã merge (`a476e0c`). OA3 trên branch `feat/data-scope`: OA3.0 BA đã duyệt (§2.14, §7.1); OA3.1 Schema & Role API hoàn thành, BA đã nghiệm thu (F01–F04 đóng; technical debt ADMIN invariant đã đóng bằng `sync_system_role_scopes`). OA3.2 Scope Engine & Locking hoàn thành, BA đã nghiệm thu (F01–F03 đóng) (§11.0 "Chi tiết OA3.2": contract engine, lock graph, rà soát F01–F03, transaction boundary, acceptance OA3.3, phần chưa làm). Carryover OA3.3–OA3.5 ở §11.0 "Chi tiết OA3.1". OA3.3a Data Scope HĐ bán hoàn thành, BA nghiệm thu có điều kiện, F01–F03 đã đáp ứng (§11.0 "Chi tiết OA3.3a"). OA3.3b PR Data Scope **hoàn thành, BA đã nghiệm thu** (§11.0 "Chi tiết OA3.3b": PR.VIEW scope mọi đường đọc PR, action scope, ASSIGNED theo workflow thật gồm lịch sử reassign, owner unit, xóa `OA3_DEFERRED`/`activeGrants`). OA3.3c Closure Patch **BA Accepted** toàn bộ D04–D07 và C01–C09 theo §11.0. Người tiếp quản đọc §5.3, §7.1, §11.0 "Chi tiết OA3.1" → "Chi tiết OA3.3b"; mẫu tích hợp: `SC_SOURCE`/`lockForAction` (HĐ), `PR_SOURCE`/`lockPr`/`readPr` (PR), `readSnapshot`. Không merge riêng từng đợt OA3: branch merge khi xong OA3 (R-03). OA3.5 đã đóng debt xác định lock/backend chờ. Timeout bootstrap Outbound và cảnh báo pg driver chuyển OA7.
 - **Đọc trước khi làm tiếp:** §2 (quyết định BA), §11.0 (trạng thái và chi tiết từng phase, gồm lock graph và quy tắc bắt buộc OA2–OA4), [FRONTEND.md](FRONTEND.md) COMMON-UI-CHECKLIST-001, [ADR-0018](decisions/ADR-0018-organization-authorization.md).
 - **Acceptance bắt buộc OA2.3 từ OA2.1:** chặn ngừng chức danh đang được nhân sự ACTIVE dùng (`JOB_TITLE_IN_USE`), ghi membership khóa `job_titles` `FOR SHARE`, test đồng thời ngừng chức danh và gán chức danh.
 - **Acceptance bắt buộc OA2.3 từ OA2.2:** xem "Chi tiết OA2.2" (§11.0): `ORG_UNIT_IN_USE`, head chỉ từ thành viên, chặn kết thúc membership của head, membership lấy `org-tree`, số nhân sự và tab Nhân sự, kèm test đồng thời; tuân thủ lock graph OA2.2 (admin-guard → `grants` → `users` → `roles` → `org-tree` → `org_units` → `job_titles` → `org_memberships`; không xin lại gate/`users`/`roles` sau `org-tree`).

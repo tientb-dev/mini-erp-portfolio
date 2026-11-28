@@ -29,7 +29,7 @@ export async function bootTestApp(): Promise<{ app: INestApplication; ds: DataSo
   }
   await setup.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await setup.runMigrations();
-  await seed(setup);
+  await seed(setup, true);
   await setup.query(`INSERT INTO brands (code, name) VALUES ('TEST', 'Test brand')`);
   await setup.query(`INSERT INTO suppliers (id, code, name) VALUES (900001, 'PR-TEST', 'PR fixture supplier');
     INSERT INTO tax_rates (id, code, name, rate) VALUES (900001, 'PR-TEST', 'Zero tax fixture', 0);

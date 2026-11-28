@@ -1,5 +1,6 @@
+import { loadDataScope } from './data-scope';
 import {
-  Body, Controller, Get, HttpCode, HttpStatus, Injectable, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req,
+  ForbiddenException, Body, Controller, Get, HttpCode, HttpStatus, Injectable, NotFoundException, Param, ParseIntPipe, Patch, Post, Put, Query, Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -13,7 +14,7 @@ import {
   Actor, LockedUser, assertAdminRemains, assertPasswordPolicy, employmentInactive, lockActor, PASSWORD_MAX_LENGTH, revokeSessions,
 } from './account-security';
 import { AuthedRequest, RequirePermissions } from './auth';
-import { lockAdminGuard, lockGrantsExclusive } from './authorization';
+import { loadGrants, lockAdminGuard, lockGrantsExclusive } from './authorization';
 import { hashPassword } from './password';
 import {
   activeManagerIds, assertMembershipsValid, assertNotHeadOrManager, currentMemberships, MembershipSpec, saveMemberships,
@@ -196,8 +197,8 @@ export class UserAdminService {
     const after = { employeeCode: p.employeeCode.trim(), fullName: p.fullName.trim(), email: blank(p.email), phone: blank(p.phone) };
     const username = input.account?.username.trim() ?? null;
     return this.ds.transaction(async m => {
-      // Rule (1) F-OA1.3: every path that adds roles or warehouses takes the gate exclusive; managers' rows before org-tree.
-      if (input.roleIds?.length || input.warehouseIds?.length) await lockGrantsExclusive(m);
+      // Rule (1) F-OA1.3: every path that adds roles, warehouses or memberships (ORG scope, OA3.2) takes the gate exclusive.
+      if (input.roleIds?.length || input.warehouseIds?.length || input.memberships?.length) await lockGrantsExclusive(m);
       await lockActor(m, actor, MANAGE, managerIds(input), 'SHARE');
       const [{ id }] = await m.query(`INSERT INTO users (employee_code, full_name, email, phone, username, password_hash, is_active,
           must_change_password, password_changed_at, created_by, updated_by)
@@ -210,14 +211,25 @@ export class UserAdminService {
     });
   }
 
+  async effectiveAccess(actor: Actor, id: number) {
+    return this.ds.transaction('REPEATABLE READ', async m => {
+      const current = await loadGrants(m, actor.id, actor.sessionId);
+      if (!current || current.mustChangePassword || !current.permissions.includes('USER.VIEW')) throw new ForbiddenException();
+      const [user] = await m.query('SELECT id FROM users WHERE id = $1', [id]);
+      if (!user) throw new NotFoundException();
+      return loadDataScope(m, id, false, true);
+    });
+  }
+
   /** The employee code is immutable (BA decision OA2.3a). Self-service is limited to email and phone (BA-USR-09). */
   async update(actor: Actor, id: number, input: UpdateUserInput) {
     const after: Profile = { fullName: input.profile.fullName.trim(), email: blank(input.profile.email), phone: blank(input.profile.phone) };
     await this.ds.transaction(async m => {
-      // Lock graph (§11.0): admin-guard when roles may change → gate exclusive when roles or warehouses may be revoked →
-      // users rows (actor, employee, managers; id order) → roles → org-tree → org_units → job_titles → org_memberships.
+      // Lock graph (§11.0): admin-guard when roles may change → gate exclusive when roles, warehouses or memberships (ORG
+      // scope, OA3.2) may change → users rows (actor, employee, managers; id order) → roles → org-tree → org_units →
+      // job_titles → org_memberships.
       if (input.roleIds) await lockAdminGuard(m);
-      if (input.roleIds || input.warehouseIds) await lockGrantsExclusive(m);
+      if (input.roleIds || input.warehouseIds || input.memberships) await lockGrantsExclusive(m);
       await this.lockTarget(m, actor, id, input.version, managerIds(input));
       const [row] = await m.query('SELECT full_name AS "fullName", email, phone FROM users WHERE id = $1', [id]);
       const changed = (Object.keys(after) as (keyof Profile)[]).filter(k => after[k] !== row[k]);
@@ -406,7 +418,9 @@ export class UserAdminService {
   private async editMemberships(actor: Actor, userId: number, managerId: number | null | undefined,
     edit: (specs: (MembershipSpec & { id: number; version: number })[], user: LockedUser) => Promise<MembershipSpec[]>, returnUnit?: number) {
     return this.ds.transaction(async m => {
-      // Never revokes a grant: gate shared → users rows (actor, employee, new manager) FOR UPDATE, then saveMemberships' order.
+      // Memberships drive ORG_UNIT/ORG_UNIT_TREE scope (OA3.2): gate exclusive → users rows (actor, employee, new manager)
+      // FOR UPDATE (lockActor's shared request is a no-op under it), then saveMemberships' order.
+      await lockGrantsExclusive(m);
       const user = (await lockActor(m, actor, ORG_MANAGE, [userId, ...(managerId ? [managerId] : [])])).find(r => r.id === userId);
       if (!user) throw new NotFoundException();
       const next = await edit(await currentMemberships(m, userId), user);
@@ -457,6 +471,9 @@ export class UserAdminController {
 
   @Get(':id') @RequirePermissions('USER.VIEW')
   get(@Param('id', ParseIntPipe) id: number) { return this.users.get(id); }
+
+  @Get(':id/effective-access') @RequirePermissions('USER.VIEW')
+  effectiveAccess(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) { return this.users.effectiveAccess(actorOf(req), id); }
 
   @Get(':id/history') @RequirePermissions('USER.VIEW')
   history(@Param('id', ParseIntPipe) id: number, @Query('before') before?: string) {

@@ -8,7 +8,7 @@ const row = { dossierTypeId: 32, code: 'QUOTE', name: 'Báo giá', position: 1, 
 const document = {
   id: 5, documentNumber: 'PR-2026-000005', approvalStatus: 'DONE', version: 7, approvalRound: 1,
   createdBy: 1, createdByName: 'Sales', createdAt: '2026-11-26', salesContractId: 9, category: 'MATERIAL',
-  children: [], history: [], lines: [], canCancel: true,
+  children: [], history: [], lines: [], canCancel: true, actionPermissions: ['PR.CREATE'],
 };
 const path = '/purchase-requisitions/5/dossier';
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });

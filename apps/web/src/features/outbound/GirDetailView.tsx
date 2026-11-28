@@ -47,13 +47,14 @@ export function GirDetailView({ id, onBack }: { id: number; onBack: () => void }
     { field: 'contractItem', headerName: t('gir.contractItem'), flex: 1, minWidth: 160, valueFormatter: (v: string | null) => v ?? '—' },
     { field: 'partNumber', headerName: t('product.partNumber'), width: 150 },
     ...(d.category === 'SALES_GOODS' ? [{ field: 'productConfirmed', headerName: t('gir.confirmedBySales'), width: 150,
-      renderCell: (p: { value?: boolean }) => <StatusChip label={t(p.value ? 'common.yes' : 'common.no')} tone={p.value ? 'success' : 'danger'} /> }] : []),
+      renderCell: (p: { value?: boolean | null }) => p.value == null ? '—' : <StatusChip label={t(p.value ? 'common.yes' : 'common.no')} tone={p.value ? 'success' : 'danger'} /> }] : []),
     { field: 'quantity', headerName: t('gir.requested'), type: 'number', width: 110, valueGetter: (v: string) => num(v) },
     { field: 'committedQuantity', headerName: t('gir.committed'), type: 'number', width: 130, valueGetter: (v: string) => num(v) },
     { field: 'issuedQuantity', headerName: t('gir.issued'), type: 'number', width: 110, valueGetter: (v: string) => num(v) },
     ...(d.issueType === 'PURCHASE_REQUISITION' ? [
       { field: 'firstGoodsReceipt', headerName: t('gir.firstReceipt'), width: 190, sortable: false,
-        valueGetter: (v: GirLine['firstGoodsReceipt']) => (v ? `${v.documentNumber} · ${v.warehouseCode}` : t('gir.notReceived')) },
+        valueGetter: (v: GirLine['firstGoodsReceipt'], row: GirLine) => v ? `${v.documentNumber} · ${v.warehouseCode}`
+          : row.purchaseRequisitionLineId === null ? '—' : t('gir.notReceived') },
       { field: 'receivedQuantity', headerName: t('gir.received'), type: 'number' as const, width: 120 },
     ] : []),
     { field: 'uom', headerName: t('product.uom'), width: 70 },
@@ -76,7 +77,7 @@ export function GirDetailView({ id, onBack }: { id: number; onBack: () => void }
               <Field label={t('inventory.warehouse')}>{d.warehouseCode}</Field>
               <Field label={t('gr.createdBy')}>{d.createdByName}, {fmtDate(d.createdAt)}</Field>
               <Field label={t('gr.approver')}>{d.assignedApproverName ?? '—'}</Field>
-              {d.issueType === 'AVAILABLE_STOCK' && <Field label={t('gir.source')}>{d.sourceSalesContractNumber ?? '—'} · {d.sourceOwnerName ?? '—'}</Field>}
+              {d.issueType === 'AVAILABLE_STOCK' && <Field label={t('gir.source')}>{[d.sourceSalesContractNumber, d.sourceOwnerName].filter(Boolean).join(' · ') || '—'}</Field>}
               {d.purpose && <Field label={t('gir.purpose')}>{d.purpose}</Field>}
               {d.issueType === 'AVAILABLE_STOCK' && <Field label={t('gir.warehouseApprover')}>{d.warehouseApproverName ?? '—'}</Field>}
               {d.completionReason && <Field label={t('gir.completionReason')}>{d.completionReason}</Field>}
@@ -109,15 +110,16 @@ function SubmitTwoStepDialog({ girId, onClose, onDone }: { girId: number; onClos
   const { t } = useTranslation();
   const [sales, setSales] = useState('');
   const [manager, setManager] = useState('');
-  const people = useQuery({ queryKey: ['gir-approvers', girId], queryFn: () => api<{ approvers: Person[]; warehouseApprovers: Person[] }>(`/goods-issue-requests/${girId}/approvers`) });
-  const pick = (v: string, list?: Person[]) => v || (list?.length === 1 ? String(list[0].id) : '');
+  type Approver = Pick<Person, 'id' | 'fullName'> & { employeeCode?: string; username?: string };
+  const people = useQuery({ queryKey: ['gir-approvers', girId], queryFn: () => api<{ approvers: Approver[]; warehouseApprovers: Approver[] }>(`/goods-issue-requests/${girId}/approvers`) });
+  const pick = (v: string, list?: Approver[]) => v || (list?.length === 1 ? String(list[0].id) : '');
   const s = pick(sales, people.data?.approvers);
   const m = pick(manager, people.data?.warehouseApprovers);
   const run = useMutation({
     mutationFn: () => api(`/goods-issue-requests/${girId}/submit`, { method: 'POST', body: JSON.stringify({ approverId: Number(s), warehouseApproverId: Number(m) }) }),
     onSuccess: onDone,
   });
-  const options = (list?: Person[]) => (list ?? []).map((u) => <MenuItem key={u.id} value={u.id}>{u.fullName} ({u.username})</MenuItem>);
+  const options = (list?: Approver[]) => (list ?? []).map((u) => <MenuItem key={u.id} value={u.id}>{u.fullName} ({u.employeeCode ?? u.username})</MenuItem>);
   return (
     <FormDialog title={t('doc.confirm.submit')} submitLabel={t('doc.submit')} submitAction="submit" error={run.error ?? people.error} pending={run.isPending}
       canSubmit={Boolean(s && m)} onSubmit={() => run.mutate()} onClose={onClose}>

@@ -20,6 +20,8 @@ async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   try {
     const ds = app.get(DataSource);
+    const [{ database }] = await ds.query('SELECT current_database() AS database');
+    if (database !== 'mini_erp_test') throw new Error('Demo fixtures require mini_erp_test');
     const identity = app.get(IdentityService);
     const proc = app.get(ProcurementService);
     const inbound = app.get(InboundService);
@@ -68,7 +70,7 @@ async function main() {
       { itemCode: 'RT-AX3000', itemName: 'Router Wi-Fi AX3000', unitOfMeasureId: pcs, quantity: 3 },
       { itemCode: 'CB-CAT6', itemName: 'Cáp mạng Cat6', unitOfMeasureId: pcs, quantity: 2 },
     ]);
-    await sales.activate(sc.id);
+    await sales.activate(creator, sc.id);
     const scLines = await ds.query(`SELECT id FROM sales_contract_lines WHERE sales_contract_id = $1 ORDER BY id`, [sc.id]);
     const pr = await proc.createPurchaseRequisition(salesUser, sc.id, [
       { ...prPricing, salesContractLineId: scLines[0].id, productId: router, quantity: 3 },

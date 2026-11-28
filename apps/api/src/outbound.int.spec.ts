@@ -73,7 +73,7 @@ describe('Outbound: GIR → GI (integration)', () => {
       { itemCode: 'R', itemName: 'Router', unitOfMeasureId: pcs, quantity: routerQty },
       { itemCode: 'C', itemName: 'Cable', unitOfMeasureId: pcs, quantity: cableQty },
     ]);
-    await svc.activate(sc.id);
+    await svc.activate(pmUser, sc.id);
     await ds.query(`UPDATE sales_contracts SET responsible_pm_user_id = $2 WHERE id = $1`, [sc.id, pmUser.id]);
     const [r, c] = await ds.query(`SELECT id FROM sales_contract_lines WHERE sales_contract_id = $1 ORDER BY id`, [sc.id]);
     if (confirm) {
@@ -181,6 +181,114 @@ describe('Outbound: GIR → GI (integration)', () => {
   const status = async (table: string, id: number) => (await ds.query(`SELECT approval_status FROM ${table} WHERE id = $1`, [id]))[0].approval_status;
 
   // ---------- Product lock ----------
+
+  it('OA3.3c hides quota, PR choices and stock provenance for an out-of-scope contract', async () => {
+    const sc = await contract(1, 2);
+    await receive(hcm, 0, 2, sc);
+    const outsider = await login(app, 'pm', 'role-users-test');
+    for (const suffix of ['gir-quota', 'gir-pr-lines']) {
+      const path = `/sales-contracts/${sc.id}/${suffix}`;
+      await http().get(path).set(as(pm)).expect(200);
+      await http().get(path).set(as(outsider)).expect(404);
+    }
+    const [{ id: outsiderId }] = await ds.query("SELECT id FROM users WHERE username = 'pm'");
+    await ds.query('INSERT INTO user_warehouses (user_id, warehouse_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [outsiderId, hcm]);
+    const stockSources = `/warehouses/${hcm}/available-stock-sources`;
+    expect(await get(pm, stockSources)).toContainEqual(expect.objectContaining({ sourceSalesContractId: sc.id }));
+    const lots = '/inventories/lots';
+    expect(await get(pm, lots)).toContainEqual(expect.objectContaining({ sourceSalesContractId: sc.id }));
+    const ownLot = (await get(pm, lots)).find((row: { sourceSalesContractId: number }) => row.sourceSalesContractId === sc.id);
+    expect(await get(outsider, lots)).toContainEqual({ ...ownLot, sourceSalesContractId: null,
+      sourceSalesContractNumber: null, ownerUserId: null, ownerName: null });
+    expect(await get(outsider, stockSources)).not.toContainEqual(expect.objectContaining({ sourceSalesContractId: sc.id }));
+    const [{ id: prLine }] = await ds.query(`SELECT l.id FROM purchase_requisition_lines l
+      JOIN purchase_requisitions p ON p.id = l.purchase_requisition_id WHERE p.sales_contract_id = $1`, [sc.id]);
+    const input = {
+      issueType: 'PURCHASE_REQUISITION', salesContractId: sc.id, warehouseId: hcm,
+      lines: [{ purchaseRequisitionLineId: prLine, quantity: 1 }],
+    };
+    await post(outsider, '/goods-issue-requests', input).expect(404);
+    const { id: gir } = (await post(pm, '/goods-issue-requests', input).expect(201)).body;
+    const girPath = `/goods-issue-requests/${gir}`;
+    const detail = await get(outsider, girPath);
+    expect(detail).toMatchObject({ salesContractId: null, salesContractNumber: null });
+    expect(detail.lines[0]).toMatchObject({
+      purchaseRequisitionLineId: null, prNumber: null, salesContractLineId: null, contractQuantity: null,
+      receivedQuantity: null, firstGoodsReceipt: null,
+    });
+    const listed = await get(outsider, '/goods-issue-requests');
+    expect(listed).toContainEqual(expect.objectContaining({ id: gir, salesContractNumber: null }));
+    const exclude = `/sales-contracts/${sc.id}/gir-quota?excludeGirId=${gir}`;
+    await http().get(exclude).set(as(pm)).expect(200);
+
+    const warehouse = await login(app, 'warehouse', 'role-users-test');
+    await http().get(`/sales-contracts/${sc.id}/gir-quota`).set(as(warehouse)).expect(403);
+    const [{ id: grr }] = await ds.query(`SELECT grr.id FROM goods_receipt_requests grr
+      JOIN purchase_order_lines pol ON pol.purchase_order_id = grr.purchase_order_id
+      WHERE pol.purchase_requisition_line_id = $1`, [prLine]);
+    const grrPath = `/goods-receipt-requests/${grr}`;
+    expect((await get(pm, grrPath)).lines[0].ref).toMatch(/^PR-/);
+    expect((await get(warehouse, grrPath)).lines[0]).toMatchObject({ ref: null });
+
+    // The same user can view the contract after assignment, but the source PR still needs its own VIEW grant.
+    await http().put(`/pr-workflow/contracts/${sc.id}/responsible-pm`).set(as(pm)).send({ userId: outsiderId }).expect(204);
+    await http().get(exclude).set(as(outsider)).expect(404);
+    const { id: ownGir } = (await post(outsider, '/goods-issue-requests', input).expect(201)).body;
+    const hiddenStock = await contract(1, 2, false);
+    await post(outsider, '/goods-issue-requests', {
+      issueType: 'AVAILABLE_STOCK', salesContractId: sc.id, warehouseId: hcm,
+      sourceSalesContractId: hiddenStock.id, sourceOwnerUserId: salesId,
+      lines: [{ salesContractLineId: sc.cableLine, productId: cable, quantity: 1 }],
+    }).expect(404);
+    const [grant] = await ds.query(`SELECT rp.role_id, rp.permission_id
+      FROM role_permissions rp JOIN roles r ON r.id = rp.role_id JOIN permissions p ON p.id = rp.permission_id
+      WHERE r.code = 'PM' AND p.code = 'PR.VIEW'`);
+    try {
+      const [scopes] = await ds.query(`SELECT array_agg(scope_type::text) AS values FROM role_permission_scopes
+        WHERE role_id = $1 AND permission_id = $2`, [grant.role_id, grant.permission_id]);
+      expect(scopes.values.sort()).toEqual(['ASSIGNED', 'CREATOR', 'RESPONSIBLE']);
+      await ds.query('DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2', [grant.role_id, grant.permission_id]);
+      const picker = `/sales-contracts/${sc.id}/gir-pr-lines`;
+      expect((await http().get(picker).set(as(outsider)).expect(200)).body).toEqual([]);
+      await post(outsider, '/goods-issue-requests', input).expect(404);
+      const ownPath = `/goods-issue-requests/${ownGir}`;
+      const opaque = await get(outsider, ownPath);
+      expect(opaque.lines[0].purchaseRequisitionLineId).toBeNull();
+      await patch(outsider, ownPath, { version: opaque.version, lines: [{ id: opaque.lines[0].id, quantity: 1 }] }).expect(204);
+      await post(outsider, ownPath + '/submit', { approverId: salesId }).expect(204);
+    } finally {
+      await ds.query('INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [grant.role_id, grant.permission_id]);
+      await ds.query(`INSERT INTO role_permission_scopes (role_id, permission_id, scope_type)
+        SELECT $1, $2, x FROM unnest(ARRAY['ASSIGNED','CREATOR','RESPONSIBLE']) x ON CONFLICT DO NOTHING`, [grant.role_id, grant.permission_id]);
+    }
+  });
+
+  it('OA3.3c keeps the stored B/D source usable after VIEW is revoked', async () => {
+    const source = await contract(1, 2, false);
+    const target = await contract(1, 2, false);
+    await receive(kth, 0, 2, source);
+    const creator = await login(app, 'pm', 'role-users-test');
+    const [{ id: creatorId }] = await ds.query("SELECT id FROM users WHERE username = 'pm'");
+    await ds.query('INSERT INTO user_warehouses (user_id, warehouse_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [creatorId, kth]);
+    const assignPm = (id: number, userId: number) =>
+      http().put(`/pr-workflow/contracts/${id}/responsible-pm`).set(as(pm)).send({ userId }).expect(204);
+    await assignPm(source.id, creatorId);
+    await assignPm(target.id, creatorId);
+    const input = { issueType: 'AVAILABLE_STOCK', category: 'MATERIAL', salesContractId: target.id, warehouseId: kth,
+      sourceSalesContractId: source.id, sourceOwnerUserId: salesId, purpose: 'Assembly', lines: [{ productId: cable, quantity: 1 }] };
+    const { id } = (await post(creator, '/goods-issue-requests', input).expect(201)).body;
+    await assignPm(source.id, pmUser.id);
+    await post(creator, '/goods-issue-requests', input).expect(404);
+    const path = `/goods-issue-requests/${id}`;
+    const detail = await get(creator, path);
+    expect(detail).toMatchObject({ sourceSalesContractId: null, sourceSalesContractNumber: null, sourceOwnerName: null });
+    await patch(creator, path, { version: detail.version, lines: [{ id: detail.lines[0].id, quantity: 2 }] }).expect(204);
+    const options = (await http().get(path + '/approvers').set(as(creator)).expect(200)).body;
+    expect(options.approvers).toEqual([{ id: salesId, employeeCode: expect.any(String), fullName: expect.any(String) }]);
+    await post(creator, path + '/submit', { approverId: salesId, warehouseApproverId: managerId }).expect(204);
+    await post(sales, path + '/approve').expect(204);
+    await post(manager, path + '/approve').expect(204);
+  });
 
   it('locks code, name and UoM once used; description stays editable; pending proposals do not lock (03 §1c, H06–H07, G13)', async () => {
     const fresh = (await post(pm, '/products', { brandId: 1, partNumber: 'NEW-1', name: 'New', unitOfMeasureId: pcs })).body.id;

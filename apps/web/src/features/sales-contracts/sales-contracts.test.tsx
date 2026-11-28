@@ -7,6 +7,7 @@ import { SalesContractsPage } from '.';
 const SALES = ['SALES_CONTRACT.VIEW', 'SALES_CONTRACT.CREATE', 'CUSTOMER.VIEW'];
 const row = (id: number, status: string, documentNumber = `SC-2026-00000${id}`) => ({
   id, documentNumber, status, version: 2, customerId: 8, customerName: 'Customer 1', createdByName: 'Sales', createdAt: '2026-11-13T00:00:00Z',
+  actionPermissions: ['SALES_CONTRACT.CREATE', 'SALES_CONTRACT.PROPOSE_PRODUCT', 'SALES_CONTRACT.CONFIRM_PRODUCT'],
   pendingProposals: 0, lineCount: 1, responsibleSalesUserId: 2, responsibleSalesName: 'Sales A',
 });
 const line = { id: 12, itemCode: 'SW', itemName: 'Switch', uomName: 'Cái', unitOfMeasureId: 1, uomCode: 'PCS', quantity: '10.000', products: [] };
@@ -66,15 +67,18 @@ describe('Sales contract list', () => {
   });
 
   it('creates a header-only DRAFT and opens it', async () => {
-    const posts = mockApi({ '/auth/me': me(SALES), '/sales-contracts?': { items: [], total: 0 }, '/sales-contracts/99': detail('DRAFT', { id: 99, lines: [] }), ...common });
+    const ownerOrgUnits = [{ id: 11, code: 'SALES', name: 'Sales', isPrimary: true }, { id: 12, code: 'OPS', name: 'Operations', isPrimary: false }];
+    const posts = mockApi({ '/auth/me': { ...me(SALES), ownerOrgUnits }, '/sales-contracts?': { items: [], total: 0 }, '/sales-contracts/99': detail('DRAFT', { id: 99, lines: [] }), ...common });
     renderAt('/sales-contracts');
     fireEvent.click(await screen.findByRole('button', { name: 'Tạo hợp đồng' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).queryByLabelText(/Mã hàng/)).toBeNull(); // no item lines in the create dialog
     await pick(/Khách hàng/, 'C1: Customer 1');
     await pick('Sales phụ trách', 'Sales A');
+    expect(within(dialog).getByRole('combobox', { name: 'Đơn vị chịu trách nhiệm' }).textContent).toBe('SALES · Sales');
+    await pick('Đơn vị chịu trách nhiệm', 'OPS · Operations');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Tạo hợp đồng' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts', body: { customerId: 8, responsibleSalesUserId: 2 } }]));
+    await waitFor(() => expect(posts).toEqual([{ url: '/sales-contracts', body: { customerId: 8, responsibleSalesUserId: 2, ownerOrgUnitId: 12 } }]));
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/sales-contracts/99'));
     expect(await screen.findByText('Hợp đồng chưa có hàng hóa. Bấm "Thêm hàng hóa" để nhập từng dòng theo hợp đồng đã ký.')).toBeTruthy();
   });
@@ -272,12 +276,12 @@ describe('Sales contract design rules (PR #17)', () => {
     expect(screen.getByRole('button', { name: 'Thêm hàng hóa' }).className).toContain('MuiButton-contained');
   });
 
-  it('the responsible sales sees the PR tab without PR.VIEW; another sales does not', async () => {
-    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 1 }), '/purchase-requisitions?salesContractId=4': [] });
+  it('shows the PR tab only with PR.VIEW, regardless of responsible sales', async () => {
+    mockApi({ '/auth/me': me([...SALES, 'PR.VIEW']), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 2 }), '/purchase-requisitions?salesContractId=4': [] });
     const { unmount } = renderAt('/sales-contracts/4');
     expect(await screen.findByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeTruthy(); // me() has id 1
     unmount();
-    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 2 }) });
+    mockApi({ '/auth/me': me(SALES), '/sales-contracts/4': detail('ACTIVE', { responsibleSalesUserId: 1 }) });
     renderAt('/sales-contracts/4');
     await screen.findByRole('tab', { name: 'Hàng hóa (1)' });
     expect(screen.queryByRole('tab', { name: 'Đề nghị mua hàng (PR)' })).toBeNull();

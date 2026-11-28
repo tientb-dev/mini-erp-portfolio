@@ -10,6 +10,7 @@ import { ActionButton } from '../../shared/components/ActionButton';
 import { ActivityHistoryTable } from '../../shared/components/ActivityHistoryTable';
 import { DocumentRecordList } from '../../shared/components/DocumentRecordList';
 import { RouteDiscardGuard } from '../../shared/components/FormDialog';
+import { EffectiveAccess } from './EffectiveAccess';
 import { useMe } from '../identity';
 import { EmploymentChip } from './UserChips';
 import { EmploymentDialog } from './UserAccount';
@@ -172,7 +173,10 @@ export function UserDetailPage({ id, startEditing, backTo }: { id: number; start
             <RefListTab kind="roles" items={value.roles} readOnly={relationsLocked} self={self} onChange={roles => update({ roles })}
               blockedReason={(creating ? !value.withAccount : !loaded?.username) ? t('users.rolesNeedAccount') : undefined} /> },
           { key: 'scope', label: t('users.tabScope'), content:
-            <RefListTab kind="warehouses" items={value.warehouses} readOnly={relationsLocked} self={self} onChange={warehouses => update({ warehouses })} /> },
+            <Stack spacing={3}>
+              <RefListTab kind="warehouses" items={value.warehouses} readOnly={relationsLocked} self={self} onChange={warehouses => update({ warehouses })} />
+              <EffectiveAccess id={id} pending={Boolean(changed?.roles || changed?.memberships || changed?.warehouses)} />
+            </Stack> },
           { key: 'history', label: t('users.tabHistory'), hidden: creating, content: history.data
             ? <DocumentRecordList key={loaded?.version} path={`${USERS}/${id}/history`} items={history.data.items} nextCursor={history.data.nextCursor}
                 render={items => <ActivityHistoryTable entries={items} actionLabel={action => t(`users.history.${action}`, { defaultValue: action })}

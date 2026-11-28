@@ -33,8 +33,8 @@ describe('Role & Permission management OA1.3 (PostgreSQL, HTTP)', () => {
     return { id: id as number, username };
   }
   const tokenOf = async (username: string) => (await http().post('/auth/login').send({ username, password: PW }).expect(200)).body.accessToken as string;
-  const editable = (role: { name: string; description: string | null; permissions: string[]; users: { id: number }[]; version: number }) =>
-    ({ name: role.name, description: role.description, permissions: role.permissions, userIds: role.users.map(u => u.id), version: role.version });
+  const editable = (role: { name: string; description: string | null; permissions: string[]; scopes?: Record<string, string[]>; users: { id: number }[]; version: number }) =>
+    ({ name: role.name, description: role.description, permissions: role.permissions, scopes: role.scopes, userIds: role.users.map(u => u.id), version: role.version });
 
   beforeAll(async () => {
     ({ app, ds } = await bootTestApp());

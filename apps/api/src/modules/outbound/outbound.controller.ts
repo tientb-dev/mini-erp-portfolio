@@ -24,9 +24,13 @@ class CreateGirDto {
   @ApiPropertyOptional({ description: 'AVAILABLE_STOCK: source Sales = responsible Sales of the source HĐ' }) @IsOptional() @IsInt() sourceOwnerUserId?: number;
   @ApiPropertyOptional({ description: 'Purpose of use: required for D, optional reference for C' }) @IsOptional() @IsString() purpose?: string;
 }
+class UpdateGirLineDto extends GirLineDto {
+  @ApiPropertyOptional({ description: 'Existing GIR line ID to retain its source; send only ID and quantity' })
+  @IsOptional() @IsInt() @IsPositive() id?: number;
+}
 class UpdateGirDto {
   @ApiProperty() @IsInt() version!: number;
-  @ApiProperty({ type: [GirLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => GirLineDto) lines!: GirLineDto[];
+  @ApiProperty({ type: [UpdateGirLineDto] }) @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => UpdateGirLineDto) lines!: UpdateGirLineDto[];
   @ApiPropertyOptional() @IsOptional() @IsString() purpose?: string;
 }
 class SubmitGirDto {
@@ -72,15 +76,15 @@ export class OutboundController {
 
   @Get('sales-contracts/:id/gir-quota')
   @RequirePermissions('GIR.VIEW')
-  quota(@Param('id', ParseIntPipe) id: number, @Query('excludeGirId') exclude?: string) {
-    return this.gir.quota(id, exclude ? Number(exclude) : undefined);
+  quota(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Query('excludeGirId') exclude?: string) {
+    return this.gir.quota(req.user, id, exclude ? Number(exclude) : undefined);
   }
 
   /** A/C picker: lines of the HĐ's PO-done PRs with PR-line quota left and received quantity (reference). */
   @Get('sales-contracts/:id/gir-pr-lines')
   @RequirePermissions('GIR.CREATE')
-  prLineOptions(@Param('id', ParseIntPipe) id: number, @Query('excludeGirId') exclude?: string) {
-    return this.gir.prLineOptions(id, exclude ? Number(exclude) : undefined);
+  prLineOptions(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number, @Query('excludeGirId') exclude?: string) {
+    return this.gir.prLineOptions(req.user, id, exclude ? Number(exclude) : undefined);
   }
 
   /** B/D picker: stock per source HĐ + Sales + product in a warehouse (target HĐ and canceled HĐ excluded). */

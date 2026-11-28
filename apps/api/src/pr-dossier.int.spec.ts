@@ -234,7 +234,8 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     await configure([types[0]]);
     const id = await create();
     const path = endpoint + '/' + id;
-    await put(dossier(id), { rows: [] }, manager).expect(403);
+    // OA3.3b: DOSSIER_MANAGE does not imply reading; the PR is outside the manager's PR.VIEW scope → 404 (BA-OA3-07).
+    await put(dossier(id), { rows: [] }, manager).expect(404);
     const { approverId, receiverId } = await prSubmission(ds, id);
     const context = await prContext(ds, id);
     const edits = { ...context, approverId, receiverId, lines: header().lines,
@@ -257,6 +258,10 @@ describe('PR dossier (DOSSIER-001 to DOSSIER-009)', () => {
     await ds.query(`INSERT INTO role_permissions (role_id, permission_id)
       SELECT ur.role_id, p.id FROM user_roles ur CROSS JOIN permissions p
       WHERE ur.user_id = $1 AND p.code = 'PR.DOSSIER_MANAGE' ON CONFLICT DO NOTHING`, [receiverId]);
+    // A scoped grant needs a scope row (fail-closed, OA3.2 F01); ASSIGNED covers the current receiver.
+    await ds.query(`INSERT INTO role_permission_scopes (role_id, permission_id, scope_type)
+      SELECT ur.role_id, p.id, 'ASSIGNED' FROM user_roles ur CROSS JOIN permissions p
+      WHERE ur.user_id = $1 AND p.code = 'PR.DOSSIER_MANAGE'`, [receiverId]);
     expect((await get(dossier(id), reader).expect(200)).body.canManage).toBe(true);
     await ds.query(`DELETE FROM role_permissions rp USING user_roles ur, permissions p
       WHERE rp.role_id = ur.role_id AND rp.permission_id = p.id AND p.code = 'PR.DOSSIER_MANAGE' AND ur.user_id = $1`, [receiverId]);

@@ -4,4 +4,5 @@
 
 - Đọc [Business Flows](docs/02-BUSINESS-FLOWS.md), [Business Rules](docs/03-BUSINESS-RULES.md), [Permissions](docs/04-PERMISSIONS.md) và [ADR liên quan](docs/architecture/decisions/).
 - Xem [Architecture](docs/architecture/ARCHITECTURE.md), [Frontend](docs/architecture/FRONTEND.md) và [Open Questions](docs/architecture/OPEN-QUESTIONS.md).
+- Ưu tiên kiến trúc đích. Không duy trì hai phiên bản schema, API, permission hoặc nghiệp vụ, và không thêm fallback, adapter, auto-mapping hay backfill để giữ dữ liệu thử nghiệm. BA có thể duyệt reset Dev/Test DB và storage sau khi xác minh đích. Giữ migration, transaction, rollback, audit và toàn vẹn dữ liệu. Fixture giới hạn ở Test.
 - Bắt đầu từ [bàn giao baseline PR #19](docs/runbooks/pr19-baseline-handover.md). Dùng [README](README.md) để chạy dự án và [feature-pr](.claude/skills/feature-pr/SKILL.md) khi thực hiện thay đổi qua PR.

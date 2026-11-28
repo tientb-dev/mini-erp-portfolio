@@ -306,6 +306,10 @@ describe('Sales contract lines (integration)', () => {
     // A product proposal references the line: deleting it would cascade business data, so it is refused.
     const [{ id: productId }] = await ds.query(
       `INSERT INTO products (part_number, name, unit_of_measure_id, is_serial_tracked, brand_id) VALUES ('PN-L1', 'P', $1, false, 1) RETURNING id`, [pcs]);
+    const admin = await login(app, process.env.SEED_ADMIN_USERNAME!, process.env.SEED_ADMIN_PASSWORD!);
+    const pmId = (await get(pm, '/auth/me').expect(200)).body.id;
+    await http().put(`/pr-workflow/contracts/${sc}/responsible-pm`).set(as(admin)).send({ userId: pmId }).expect(204);
+    d.version = await version(sc);
     await post(pm, `/sales-contract-lines/${lineId}/product-proposals`, { productId, reason: 'r' }).expect(201);
     expect((await del(sales, `/sales-contract-lines/${lineId}?version=${d.version}`).expect(409)).body.code).toBe('RECORD_IN_USE');
 

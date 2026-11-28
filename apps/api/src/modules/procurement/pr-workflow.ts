@@ -35,8 +35,8 @@ async function assertCreatorGrant(m: EntityManager, doc: PrHeader, user: Current
   if (!(await currentGrant(m, user.id, 'PR.CREATE')).length) throw new ForbiddenException('Missing PR.CREATE');
 }
 
-export async function creatorRoute(m: EntityManager, user: CurrentUser, contractId: number, expected?: PrRoute): Promise<PrRoute> {
-  const contract = await SalesContractFacade.sourceContract(m, contractId);
+export async function creatorRoute(m: EntityManager, user: CurrentUser, contractId: number, expected?: PrRoute, lock = true): Promise<PrRoute> {
+  const contract = await SalesContractFacade.sourceContract(m, contractId, lock);
   const routes: PrRoute[] = [];
   if (contract?.responsibleSalesUserId === user.id) routes.push('SALES');
   if (contract?.responsiblePmUserId === user.id) routes.push('PM');
@@ -56,8 +56,6 @@ async function history(m: EntityManager, doc: PrHeader, action: string, userId: 
 }
 
 export async function submit(m: EntityManager, id: number, user: CurrentUser, dto: PrSubmission) {
-  const [source] = await m.query('SELECT sales_contract_id FROM purchase_requisitions WHERE id = $1', [id]);
-  if (source) await SalesContractFacade.sourceContract(m, source.sales_contract_id);
   const doc = await lock(m, id);
   await assertCreatorGrant(m, doc, user);
   assertActionContext(doc, doc.approval_round, currentStep(doc.approval_status), dto);
@@ -125,22 +123,29 @@ export async function decide(m: EntityManager, doc: PrHeader, user: CurrentUser,
   if (receiver) await assignPrTask(m, doc.id, receiver, round, 'RECEIPT');
 }
 
+/**
+ * Reassignment paths (Business Rule, unchanged): the creator (PR.CREATE), a PR.REASSIGN holder, or the current receiver
+ * (PR.RECEIVE). `scoped`: the user's permissions whose Data Scope matches this PR (OA3.3b); a path needs its own scope.
+ */
 export async function canReassign(m: EntityManager, doc: Pick<PrHeader, 'created_by' | 'approval_status' | 'assigned_approver_id'>,
-  user: CurrentUser, checkLive: boolean) {
+  user: CurrentUser, checkLive: boolean, scoped: string[]) {
   if (!pending.includes(doc.approval_status) || !doc.assigned_approver_id) return false;
   const step = currentStep(doc.approval_status);
   const owns = doc.created_by === user.id;
-  const mayAdminister = user.permissions.includes('PR.REASSIGN');
-  if (owns && (checkLive ? (await currentGrant(m, user.id, 'PR.CREATE')).length : user.permissions.includes('PR.CREATE'))) return true;
-  if (mayAdminister && (!checkLive || (await currentGrant(m, user.id, 'PR.REASSIGN')).length)) return true;
-  if (step !== 'RECEIPT' || doc.assigned_approver_id !== user.id) return false;
+  if (owns && scoped.includes('PR.CREATE') && (!checkLive || (await currentGrant(m, user.id, 'PR.CREATE')).length)) return true;
+  if (scoped.includes('PR.REASSIGN') && (!checkLive || (await currentGrant(m, user.id, 'PR.REASSIGN')).length)) return true;
+  if (step !== 'RECEIPT' || doc.assigned_approver_id !== user.id || !scoped.includes('PR.RECEIVE')) return false;
   return checkLive ? Boolean(await eligible(m, 'RECEIPT', user.id, doc.created_by))
     : (await listCandidates(m, 'RECEIPT', doc.created_by)).some(candidate => candidate.id === user.id);
 }
 
-async function pendingNode(m: EntityManager, doc: PrHeader, user: CurrentUser) {
+async function pendingNode(m: EntityManager, doc: PrHeader, user: CurrentUser, scoped: string[], checkLive: boolean) {
+  if (!(doc.created_by === user.id && scoped.includes('PR.CREATE')) && !scoped.includes('PR.REASSIGN')
+    && !(currentStep(doc.approval_status) === 'RECEIPT' && doc.assigned_approver_id === user.id && scoped.includes('PR.RECEIVE'))) {
+    throw new ForbiddenException('You cannot reassign this PR step');
+  }
   wf.assertStatus(doc, pending);
-  if (!(await canReassign(m, doc, user, true))) throw new ForbiddenException('You cannot reassign this PR step');
+  if (!(await canReassign(m, doc, user, checkLive, scoped))) throw new ForbiddenException('You cannot reassign this PR step');
   const step = currentStep(doc.approval_status) as PrPendingStep;
   const [node]: { assignee_id: number; fullName: string }[] = await m.query(
     `SELECT n.assignee_id, u.full_name AS "fullName" FROM pr_workflow_nodes n JOIN users u ON u.id = n.assignee_id
@@ -151,15 +156,16 @@ async function pendingNode(m: EntityManager, doc: PrHeader, user: CurrentUser) {
   return { node, step, pool: step === 'APPROVAL' ? doc.creator_route : 'RECEIPT' as const };
 }
 
-export async function reassignmentCandidates(m: EntityManager, doc: PrHeader, user: CurrentUser) {
-  const { node, pool } = await pendingNode(m, doc, user);
+export async function reassignmentCandidates(m: EntityManager, doc: PrHeader, user: CurrentUser, scoped: string[]) {
+  const { node, pool } = await pendingNode(m, doc, user, scoped, false);
   const candidates = await listCandidates(m, pool, doc.created_by);
   return { current: { id: node.assignee_id, fullName: node.fullName }, candidates: candidates.filter(c => c.id !== node.assignee_id) };
 }
 
-export async function reassign(m: EntityManager, doc: PrHeader, user: CurrentUser, dto: ActionContext & { assigneeId: number; reason: string }) {
-  assertActionContext(doc, doc.approval_round, currentStep(doc.approval_status), dto);
-  const { node, step, pool } = await pendingNode(m, doc, user);
+export async function reassign(m: EntityManager, doc: PrHeader, user: CurrentUser, dto: ActionContext & { assigneeId: number; reason: string },
+  scoped: string[]) {
+  const { node, step, pool } = await pendingNode(m, doc, user, scoped, true);
+  assertActionContext(doc, doc.approval_round, step, dto);
   const reason = dto.reason.trim();
   if (!reason) throw new wf.BusinessError('REASON_REQUIRED', 'A reason is required');
   if (node.assignee_id === dto.assigneeId) throw new wf.BusinessError('PR_SAME_ASSIGNEE', 'Select a different assignee');
